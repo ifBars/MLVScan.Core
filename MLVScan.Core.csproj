@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    
+    <!-- NuGet Package Metadata -->
+    <PackageId>MLVScan.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Bars</Authors>
+    <Description>Core scanning engine for MLVScan - a security-focused scanner that detects malicious patterns in Unity mod assemblies (MelonLoader, BepInEx).</Description>
+    <PackageTags>security;malware;scanner;melonloader;bepinex;unity;mods;antivirus</PackageTags>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/ifBars/MLVScan</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ifBars/MLVScan</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    
+    <!-- Assembly Info -->
+    <AssemblyName>MLVScan.Core</AssemblyName>
+    <RootNamespace>MLVScan</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+</Project>
