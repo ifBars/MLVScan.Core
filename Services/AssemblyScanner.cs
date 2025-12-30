@@ -37,9 +37,12 @@ namespace MLVScan.Services
             var stringPatternDetector = new StringPatternDetector();
             var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
             var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config);
-            var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, _config);
+            var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, _config);
+            var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, _config);
+            var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, _config);
+            var propertyEventScanner = new PropertyEventScanner(methodScanner, _config);
             
-            _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, rules, _config);
+            _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules, _config);
             _metadataScanner = new MetadataScanner(rules);
             _dllImportScanner = new DllImportScanner(rules);
         }

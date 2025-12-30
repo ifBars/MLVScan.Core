@@ -154,6 +154,38 @@ namespace MLVScan.Services
             }
         }
 
+        public void MarkSuspiciousLocalVariables(MethodSignals? methodSignals, TypeDefinition? declaringType)
+        {
+            if (methodSignals == null)
+                return;
+
+            methodSignals.HasSuspiciousLocalVariables = true;
+            if (declaringType != null)
+            {
+                var typeSignal = GetOrCreateTypeSignals(declaringType.FullName);
+                if (typeSignal != null)
+                {
+                    typeSignal.HasSuspiciousLocalVariables = true;
+                }
+            }
+        }
+
+        public void MarkSuspiciousExceptionHandling(MethodSignals? methodSignals, TypeDefinition? declaringType)
+        {
+            if (methodSignals == null)
+                return;
+
+            methodSignals.HasSuspiciousExceptionHandling = true;
+            if (declaringType != null)
+            {
+                var typeSignal = GetOrCreateTypeSignals(declaringType.FullName);
+                if (typeSignal != null)
+                {
+                    typeSignal.HasSuspiciousExceptionHandling = true;
+                }
+            }
+        }
+
         /// <summary>
         /// Marks a rule as having been triggered in the given method and type signals
         /// </summary>

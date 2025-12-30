@@ -11,15 +11,20 @@ namespace MLVScan.Services
         private readonly SignalTracker _signalTracker;
         private readonly InstructionAnalyzer _instructionAnalyzer;
         private readonly CodeSnippetBuilder _snippetBuilder;
+        private readonly LocalVariableAnalyzer _localVariableAnalyzer;
+        private readonly ExceptionHandlerAnalyzer _exceptionHandlerAnalyzer;
         private readonly ScanConfig _config;
 
         public MethodScanner(IEnumerable<IScanRule> rules, SignalTracker signalTracker, InstructionAnalyzer instructionAnalyzer, 
-                            CodeSnippetBuilder snippetBuilder, ScanConfig config)
+                            CodeSnippetBuilder snippetBuilder, LocalVariableAnalyzer localVariableAnalyzer, 
+                            ExceptionHandlerAnalyzer exceptionHandlerAnalyzer, ScanConfig config)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _instructionAnalyzer = instructionAnalyzer ?? throw new ArgumentNullException(nameof(instructionAnalyzer));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
+            _localVariableAnalyzer = localVariableAnalyzer ?? throw new ArgumentNullException(nameof(localVariableAnalyzer));
+            _exceptionHandlerAnalyzer = exceptionHandlerAnalyzer ?? throw new ArgumentNullException(nameof(exceptionHandlerAnalyzer));
             _config = config ?? new ScanConfig();
         }
 
@@ -43,6 +48,21 @@ namespace MLVScan.Services
 
                 // Initialize signal tracking for this method
                 var methodSignals = _signalTracker.CreateMethodSignals();
+                
+                // Analyze local variables if present
+                if (method.Body.HasVariables)
+                {
+                    var variableFindings = _localVariableAnalyzer.AnalyzeLocalVariables(method, method.Body.Variables, methodSignals);
+                    result.Findings.AddRange(variableFindings);
+                }
+                
+                // Analyze exception handlers if present
+                if (method.Body.HasExceptionHandlers)
+                {
+                    var handlerFindings = _exceptionHandlerAnalyzer.AnalyzeExceptionHandlers(
+                        method, method.Body.ExceptionHandlers, methodSignals, typeFullName);
+                    result.Findings.AddRange(handlerFindings);
+                }
                 
                 // Call AnalyzeInstructions for all rules
                 foreach (var rule in _rules)

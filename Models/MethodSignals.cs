@@ -12,6 +12,8 @@ namespace MLVScan.Models
         public bool HasBase64 { get; set; }
         public bool HasNetworkCall { get; set; }
         public bool HasFileWrite { get; set; }
+        public bool HasSuspiciousLocalVariables { get; set; }
+        public bool HasSuspiciousExceptionHandling { get; set; }
         
         private HashSet<string> _triggeredRuleIds = new HashSet<string>();
         
@@ -66,6 +68,8 @@ namespace MLVScan.Models
                 if (HasBase64) count++;
                 if (HasNetworkCall) count++;
                 if (HasFileWrite) count++;
+                if (HasSuspiciousLocalVariables) count++;
+                if (HasSuspiciousExceptionHandling) count++;
                 return count;
             }
         }
@@ -111,6 +115,8 @@ namespace MLVScan.Models
             if (HasBase64) signals.Add("Base64 decoding");
             if (HasNetworkCall) signals.Add("network call");
             if (HasFileWrite) signals.Add("file write");
+            if (HasSuspiciousLocalVariables) signals.Add("suspicious variable types");
+            if (HasSuspiciousExceptionHandling) signals.Add("exception handler patterns");
 
             return string.Join(" + ", signals);
         }

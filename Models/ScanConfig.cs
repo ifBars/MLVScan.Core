@@ -31,5 +31,14 @@ namespace MLVScan.Models
 
         // Enable multi-signal heuristics (combination pattern detection)
         public bool EnableMultiSignalDetection { get; set; } = true;
+
+        // Enable analysis of exception handlers
+        public bool AnalyzeExceptionHandlers { get; set; } = true;
+
+        // Enable analysis of local variable types as signals
+        public bool AnalyzeLocalVariables { get; set; } = true;
+
+        // Enable analysis of property/event accessors
+        public bool AnalyzePropertyAccessors { get; set; } = true;
     }
 }

@@ -11,16 +11,18 @@ namespace MLVScan.Services
         private readonly SignalTracker _signalTracker;
         private readonly ReflectionDetector _reflectionDetector;
         private readonly CodeSnippetBuilder _snippetBuilder;
+        private readonly PropertyEventScanner _propertyEventScanner;
         private readonly IEnumerable<IScanRule> _rules;
         private readonly ScanConfig _config;
 
         public TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker, ReflectionDetector reflectionDetector,
-                          CodeSnippetBuilder snippetBuilder, IEnumerable<IScanRule> rules, ScanConfig config)
+                          CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules, ScanConfig config)
         {
             _methodScanner = methodScanner ?? throw new ArgumentNullException(nameof(methodScanner));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _reflectionDetector = reflectionDetector ?? throw new ArgumentNullException(nameof(reflectionDetector));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
+            _propertyEventScanner = propertyEventScanner ?? throw new ArgumentNullException(nameof(propertyEventScanner));
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _config = config ?? new ScanConfig();
         }
@@ -49,6 +51,14 @@ namespace MLVScan.Services
                     findings.AddRange(methodResult.Findings);
                     pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
                 }
+                
+                // Scan property accessors
+                var propertyFindings = _propertyEventScanner.ScanProperties(type, typeFullName);
+                findings.AddRange(propertyFindings);
+
+                // Scan event handlers
+                var eventFindings = _propertyEventScanner.ScanEvents(type, typeFullName);
+                findings.AddRange(eventFindings);
                 
                 // After scanning all methods, check pending reflection findings with type-level signals
                 if (_config.EnableMultiSignalDetection)
