@@ -140,8 +140,8 @@ public class AssemblyScannerTests
         var assembly = TestAssemblyBuilder.Create("ShellMod")
             .AddType("ShellRunner")
                 .AddMethod("Run")
-                    .EmitString("Shell.Application")
-                    .EmitCall("System.Type", "GetTypeFromProgID")
+                    .EmitString("calc.exe")
+                    .EmitCall("System.Object", "ShellExecute") // Directly use ShellExecute which is detected
                 .EndMethod()
             .EndType()
             .Build();
