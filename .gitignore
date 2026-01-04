@@ -1,6 +1,41 @@
-/.vs/
-/bin/
-/obj/
-/.idea/
+## Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+## Coverage reports
+coverage/
+*.lcov
+TestResults/
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+## Project-specific
 nuget-upload.txt
 AGENTS.md

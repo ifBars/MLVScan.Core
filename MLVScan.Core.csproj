@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
@@ -30,6 +30,12 @@
   
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude test project from compilation -->
+    <Compile Remove="MLVScan.Core.Tests/**/*.cs" />
+    <None Include="MLVScan.Core.Tests/**/*" />
   </ItemGroup>
 
 </Project>
