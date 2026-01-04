@@ -43,7 +43,7 @@ namespace MLVScan.Services
                                     $"{method.DeclaringType.FullName}.{method.Name}", 
                                     rule.Description, 
                                     rule.Severity,
-                                    snippet));
+                                    snippet).WithRuleMetadata(rule));
                             }
                         }
                         catch (Exception)

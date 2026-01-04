@@ -11,6 +11,13 @@ namespace MLVScan.Models.Rules
         public string RuleId => "EnvironmentPathRule";
         public bool RequiresCompanionFinding => false;
 
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "For game installation paths, use MelonEnvironment.GameRootDirectory. For user data, use MelonEnvironment.UserDataDirectory instead of Environment.GetFolderPath.",
+            "https://melonwiki.xyz/#/modders/quickstart",
+            new[] { "MelonLoader.MelonEnvironment.GameRootDirectory", "MelonLoader.MelonEnvironment.UserDataDirectory" },
+            true
+        );
+
         // Map of SpecialFolder enum values to names
         private static readonly Dictionary<int, string> SensitiveFolders = new Dictionary<int, string>
         {

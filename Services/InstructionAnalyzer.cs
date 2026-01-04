@@ -92,6 +92,8 @@ namespace MLVScan.Services
                                         continue;
                                 }
                                 
+                                // Enrich finding with rule metadata
+                                finding.WithRuleMetadata(rule);
                                 result.Findings.Add(finding);
                                 // Mark rule as triggered
                                 if (methodSignals != null)
@@ -142,7 +144,7 @@ namespace MLVScan.Services
                                 $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}", 
                                 reflectionRule.Description + " (combined with other suspicious patterns)", 
                                 reflectionRule.Severity,
-                                snippet);
+                                snippet).WithRuleMetadata(reflectionRule);
                             result.Findings.Add(finding);
                             // Mark rule as triggered
                             if (methodSignals != null)
@@ -159,7 +161,7 @@ namespace MLVScan.Services
                                 $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}", 
                                 rule.Description, 
                                 rule.Severity,
-                                snippet);
+                                snippet).WithRuleMetadata(rule);
                             result.Findings.Add(finding);
                             // Mark rule as triggered
                             if (methodSignals != null)

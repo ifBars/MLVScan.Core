@@ -1,4 +1,4 @@
-﻿using Mono.Cecil;
+using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Linq;
 
@@ -11,6 +11,13 @@ namespace MLVScan.Models
         string RuleId { get; }
         bool RequiresCompanionFinding { get; }
         bool IsSuspicious(MethodReference method);
+
+        /// <summary>
+        /// Developer-facing guidance for fixing false positives.
+        /// Returns null if no safe guidance can be provided (e.g., for attack patterns).
+        /// Only populated in developer mode to help legitimate mod developers.
+        /// </summary>
+        IDeveloperGuidance? DeveloperGuidance => null;
 
         /// <summary>
         /// Analyzes IL instructions in a method for suspicious patterns.

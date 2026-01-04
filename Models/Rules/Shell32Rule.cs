@@ -1,4 +1,4 @@
-﻿using Mono.Cecil;
+using Mono.Cecil;
 using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
@@ -9,6 +9,13 @@ namespace MLVScan.Models.Rules
         public Severity Severity => Severity.Critical;
         public string RuleId => "Shell32Rule";
         public bool RequiresCompanionFinding => false;
+
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "MelonLoader mods should not execute shell commands.",
+            null,
+            null,
+            false
+        );
 
         public bool IsSuspicious(MethodReference method)
         {

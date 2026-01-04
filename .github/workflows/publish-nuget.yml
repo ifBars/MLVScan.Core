@@ -1,0 +1,55 @@
+name: Publish to NuGet
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore MLVScan.Core.csproj
+      
+    - name: Build
+      run: dotnet build MLVScan.Core.csproj -c Release --no-restore
+      
+    - name: Run tests (if any)
+      run: dotnet test MLVScan.Core.csproj -c Release --no-build --verbosity normal
+      continue-on-error: true  # Continue even if no tests exist
+      
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "version=1.0.0" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+      
+    - name: Pack
+      run: dotnet pack MLVScan.Core.csproj -c Release --no-build -p:PackageVersion=${{ steps.get_version.outputs.version }} -o ./nupkg
+      
+    - name: Publish to NuGet
+      run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        
+    - name: Upload package as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-package
+        path: ./nupkg/*.nupkg

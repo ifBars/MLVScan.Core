@@ -12,6 +12,13 @@ namespace MLVScan.Models.Rules
         public Severity Severity => _severity;
         public string RuleId => "DllImportRule";
         public bool RequiresCompanionFinding => false;
+
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "Native DLL imports are flagged as high risk. If essential for your mod's functionality, clearly document the purpose and consider using managed alternatives where possible.",
+            null,
+            null,
+            false
+        );
         
         // List of DLLs that are often misused for malicious purposes
         private static readonly string[] HighRiskDlls =

@@ -11,6 +11,13 @@ namespace MLVScan.Models.Rules
         public string RuleId => "PersistenceRule";
         public bool RequiresCompanionFinding => false;
 
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "For mod settings, use MelonPreferences. For save data, use the game's Saveable/Persistence system (S1API can help with this).",
+            "https://melonwiki.xyz/#/modders/preferences",
+            new[] { "MelonPreferences.CreateEntry<T>" },
+            true
+        );
+
         public bool IsSuspicious(MethodReference method)
         {
             // This rule analyzes contextual patterns around method calls

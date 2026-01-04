@@ -40,5 +40,8 @@ namespace MLVScan.Models
 
         // Enable analysis of property/event accessors
         public bool AnalyzePropertyAccessors { get; set; } = true;
+
+        // Developer mode: Show remediation guidance for mod developers
+        public bool DeveloperMode { get; set; } = false;
     }
 }

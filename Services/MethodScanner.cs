@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -82,6 +83,8 @@ namespace MLVScan.Services
                                 continue;
                         }
                         
+                        // Enrich finding with rule metadata
+                        finding.WithRuleMetadata(rule);
                         result.Findings.Add(finding);
                         // Mark rule as triggered
                         if (methodSignals != null)
@@ -124,6 +127,8 @@ namespace MLVScan.Services
                                         continue;
                                 }
                                 
+                                // Enrich finding with rule metadata
+                                finding.WithRuleMetadata(rule);
                                 result.Findings.Add(finding);
                                 // Mark rule as triggered
                                 if (methodSignals != null)

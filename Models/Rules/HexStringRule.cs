@@ -15,6 +15,13 @@ namespace MLVScan.Models.Rules
         public string RuleId => "HexStringRule";
         public bool RequiresCompanionFinding => false;
 
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "If storing assets, consider embedding them as an embedded resource file.",
+            null,
+            new[] { "Assembly.GetManifestResourceStream", "File.ReadAllBytes" },
+            true
+        );
+
         // Regex for continuous hex strings (even length, min 16 chars)
         // We look for a sequence of hex digits that is at least 16 characters long.
         private static readonly Regex HexPattern = new Regex(@"^[0-9A-Fa-f]{16,}$", RegexOptions.Compiled);

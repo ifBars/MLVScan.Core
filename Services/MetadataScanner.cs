@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.Helpers;
 using Mono.Cecil;
 
 namespace MLVScan.Services
@@ -22,7 +23,11 @@ namespace MLVScan.Services
                 foreach (var rule in _rules)
                 {
                     var ruleFindings = rule.AnalyzeAssemblyMetadata(assembly);
-                    findings.AddRange(ruleFindings);
+                    foreach (var finding in ruleFindings)
+                    {
+                        finding.WithRuleMetadata(rule);
+                        findings.Add(finding);
+                    }
                 }
             }
             catch (Exception)

@@ -12,6 +12,13 @@ namespace MLVScan.Models.Rules
         public string RuleId => "DataInfiltrationRule";
         public bool RequiresCompanionFinding => true;
 
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "For update checking, use GitHub Releases API (api.github.com/repos/...) or raw.githubusercontent.com.",
+            null,
+            new[] { "HttpClient.GetStringAsync", "UnityWebRequest.Get" },
+            true
+        );
+
         public bool IsSuspicious(MethodReference method)
         {
             // This rule analyzes contextual patterns around method calls

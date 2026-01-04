@@ -9,6 +9,13 @@ namespace MLVScan.Models.Rules
         public Severity Severity => Severity.Critical;
         public string RuleId => "RegistryRule";
         public bool RequiresCompanionFinding => false;
+
+        public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
+            "MelonLoader mods should not modify the Windows Registry. For persistent settings, use MelonPreferences instead.",
+            "https://melonwiki.xyz/#/modders/preferences",
+            new[] { "MelonPreferences.CreateEntry<T>" },
+            false  // Registry access is inherently suspicious
+        );
         
         private static readonly string[] RegistryFunctions =
         [
