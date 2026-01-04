@@ -57,17 +57,10 @@ namespace MLVScan.Models.Rules
 
         private static bool IsSuspiciousVariableType(string typeName)
         {
-            // Reflection types (commonly used for dynamic execution)
-            if (typeName.StartsWith("System.Reflection.") &&
-                (typeName.Contains("MethodInfo") ||
-                 typeName.Contains("Assembly") ||
-                 typeName.Contains("ConstructorInfo") ||
-                 typeName.Contains("FieldInfo") ||
-                 typeName.Contains("PropertyInfo")))
-            {
-                return true;
-            }
-
+            // NOTE: Reflection types (MethodInfo, MethodBase, ConstructorInfo, Assembly, etc.) are
+            // handled by ReflectionRule.AnalyzeInstructions() to avoid duplicate detection
+            // Assembly types are extremely common in legitimate mods for resource loading and should not be flagged here
+            
             // Process types (used for executing external programs)
             if (typeName.StartsWith("System.Diagnostics.Process"))
             {

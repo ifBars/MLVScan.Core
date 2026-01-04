@@ -26,11 +26,9 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            // Detect GetManifestResourceStream - commonly used to load embedded resources as assemblies
-            if (typeName.Contains("Assembly") && methodName == "GetManifestResourceStream")
-            {
-                return true;
-            }
+            // NOTE: GetManifestResourceStream is now ONLY checked in AnalyzeContextualPattern
+            // to verify it's actually being used to load assemblies (not just loading images/resources)
+            // This prevents false positives for legitimate resource loading
 
             return false;
         }

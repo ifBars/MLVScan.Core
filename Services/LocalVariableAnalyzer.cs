@@ -31,33 +31,34 @@ namespace MLVScan.Services
 
             try
             {
-                // Get the SuspiciousLocalVariableRule
-                var localVarRule = _rules.FirstOrDefault(r => r is SuspiciousLocalVariableRule);
-                if (localVarRule == null)
-                    return findings;
-
-                // Run the rule's analysis
-                var ruleFindings = localVarRule.AnalyzeInstructions(method, method.Body.Instructions, methodSignals);
-
-                foreach (var finding in ruleFindings)
+                // Run AnalyzeInstructions on all rules (not just SuspiciousLocalVariableRule)
+                // This allows any rule to analyze local variables based on their own logic
+                foreach (var rule in _rules)
                 {
-                    // Only add if companion finding requirement is met
-                    if (localVarRule.RequiresCompanionFinding)
+                    var ruleFindings = rule.AnalyzeInstructions(method, method.Body.Instructions, methodSignals);
+
+                    foreach (var finding in ruleFindings)
                     {
-                        bool hasOtherTriggeredRules = methodSignals != null &&
-                            methodSignals.HasTriggeredRuleOtherThan(localVarRule.RuleId);
+                        // Only add if companion finding requirement is met
+                        if (rule.RequiresCompanionFinding)
+                        {
+                            bool hasOtherTriggeredRules = methodSignals != null &&
+                                methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
 
-                        if (!hasOtherTriggeredRules)
-                            continue;
-                    }
+                            if (!hasOtherTriggeredRules)
+                                continue;
+                        }
 
-                    findings.Add(finding);
+                        findings.Add(finding);
 
-                    // Mark rule as triggered and update signals
-                    if (methodSignals != null)
-                    {
-                        _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, localVarRule.RuleId);
-                        _signalTracker.MarkSuspiciousLocalVariables(methodSignals, method.DeclaringType);
+                        // Mark rule as triggered and update signals
+                        if (methodSignals != null)
+                        {
+                            _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                            
+                            // Mark suspicious local variables for backward compatibility
+                            _signalTracker.MarkSuspiciousLocalVariables(methodSignals, method.DeclaringType);
+                        }
                     }
                 }
             }
