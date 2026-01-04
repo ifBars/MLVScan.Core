@@ -58,7 +58,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         fetch-depth: 0
       
     - name: Setup .NET
@@ -71,18 +71,6 @@ jobs:
       
     - name: Pack
       run: dotnet pack MLVScan.Core.csproj -c Release -o ./nupkg
-      
-    - name: Create Git Tag and Push
-      run: |
-        VERSION="${{ needs.check-version.outputs.new-version }}"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
-        # Create annotated tag
-        git tag -a "v$VERSION" -m "Release v$VERSION"
-        
-        # Push tag using GitHub token authentication
-        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git "v$VERSION"
         
     - name: Generate Release Notes
       id: release_notes
@@ -124,17 +112,18 @@ jobs:
         echo "Release notes generated"
         
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.check-version.outputs.new-version }}
         name: MLVScan.Core v${{ needs.check-version.outputs.new-version }}
         body_path: release_notes.md
         draft: false
         prerelease: false
+        generate_release_notes: false
+        make_latest: true
         files: |
           ./nupkg/*.nupkg
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         
     - name: Summary
       run: |
