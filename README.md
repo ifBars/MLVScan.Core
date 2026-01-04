@@ -1,6 +1,6 @@
 # MLVScan.Core
 
-**MLVScan.Core** is a cross-platform malware detection engine for .NET assemblies, powered by IL analysis (Mono.Cecil). It serves as the scanning backbone for [MLVScan](https://github.com/ifBars/MLVScan) (MelonLoader) and [MLVScanWeb](https://github.com/ifBars/MLVScanWeb) (Blazor).
+**MLVScan.Core** is a cross-platform malware detection engine for .NET assemblies, powered by IL analysis (Mono.Cecil). It serves as the scanning backbone for [MLVScan](https://github.com/ifBars/MLVScan) (MelonLoader) and [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) (Blazor).
 
 ## 📦 Installation
 
