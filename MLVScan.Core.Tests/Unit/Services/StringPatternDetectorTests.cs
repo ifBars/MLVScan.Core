@@ -153,8 +153,8 @@ public class StringPatternDetectorTests
     [Fact]
     public void HasSuspiciousStringPatterns_WithEncodedString_ReturnsTrue()
     {
-        // Create encoded "powershell" = 112-111-119-101-114-115-104-101-108-108
-        var encodedPowershell = "112-111-119-101-114-115-104-101-108-108";
+        // Create encoded "powershell.exe" = 112-111-119-101-114-115-104-101-108-108-46-101-120-101 (14 segments)
+        var encodedPowershell = "112-111-119-101-114-115-104-101-108-108-46-101-120-101";
         
         var assembly = TestAssemblyBuilder.Create()
             .AddType("TestType")

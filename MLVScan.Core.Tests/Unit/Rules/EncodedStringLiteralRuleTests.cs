@@ -38,8 +38,8 @@ public class EncodedStringLiteralRuleTests
     #region IsEncodedString Tests
 
     [Theory]
-    [InlineData("72-101-108-108-111-32-87-111-114-108-100", true)] // "Hello World" dash-separated
-    [InlineData("80-111-119-101-114-115-104-101-108-108", true)] // "powershell" dash-separated
+    [InlineData("72-101-108-108-111-32-87-111-114-108-100", true)] // "Hello World" dash-separated (11 segments)
+    [InlineData("80-111-119-101-114-115-104-101-108-108", false)] // "powershell" only has 10 segments - too short
     [InlineData("72.101.108.108.111.32.87.111.114.108.100", true)] // dot-separated
     [InlineData("72`101`108`108`111`32`87`111`114`108`100", true)] // backtick-separated
     [InlineData("Hello World", false)] // plain text
