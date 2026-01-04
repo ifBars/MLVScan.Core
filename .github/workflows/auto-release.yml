@@ -53,6 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     
     steps:
     - name: Checkout code
@@ -119,11 +120,9 @@ jobs:
         body_path: release_notes.md
         draft: false
         prerelease: false
-        generate_release_notes: false
         make_latest: true
         files: |
           ./nupkg/*.nupkg
-        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         
     - name: Summary
       run: |
