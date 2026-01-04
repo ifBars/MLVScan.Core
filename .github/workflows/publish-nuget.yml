@@ -1,9 +1,8 @@
 name: Publish to NuGet
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'  # Trigger on version tags like v1.0.0
+  release:
+    types: [published, created]
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
@@ -29,14 +28,21 @@ jobs:
       run: dotnet test MLVScan.Core.csproj -c Release --no-build --verbosity normal
       continue-on-error: true  # Continue even if no tests exist
       
-    - name: Extract version from tag
+    - name: Extract version from release
       id: get_version
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+        if [ "${{ github.event_name }}" == "release" ]; then
+          # Extract version from release tag (remove 'v' prefix)
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
         else
-          echo "version=1.0.0" >> $GITHUB_OUTPUT
+          # Fallback: read from .csproj
+          VERSION=$(grep -oP '<Version>\K[^<]+' MLVScan.Core.csproj)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
         fi
       shell: bash
       
