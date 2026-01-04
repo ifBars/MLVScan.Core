@@ -51,10 +51,15 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.version-changed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -67,15 +72,17 @@ jobs:
     - name: Pack
       run: dotnet pack MLVScan.Core.csproj -c Release -o ./nupkg
       
-    - name: Create Git Tag
+    - name: Create Git Tag and Push
       run: |
         VERSION="${{ needs.check-version.outputs.new-version }}"
         git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
+        # Create annotated tag
         git tag -a "v$VERSION" -m "Release v$VERSION"
-        git push origin "v$VERSION"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+        # Push tag using GitHub token authentication
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git "v$VERSION"
         
     - name: Generate Release Notes
       id: release_notes
