@@ -34,8 +34,8 @@ public class Shell32RuleTests
     [InlineData("MyNamespace.Shell32Helper", "DoSomething", true)]
     [InlineData("System.Object", "ShellExecute", true)]
     [InlineData("System.Object", "ShellExec", true)]
-    [InlineData("System.Type", "GetTypeFromProgID", true)] // Need to check params in real scenario
-    [InlineData("System.Type", "InvokeMember", true)] // Need to check params in real scenario
+    [InlineData("System.Type", "GetTypeFromProgID", false)] // Context-dependent - needs string param analysis
+    [InlineData("System.Type", "InvokeMember", false)] // Context-dependent - needs string param analysis
     [InlineData("System.Diagnostics.Process", "Start", false)]
     [InlineData("System.IO.File", "Open", false)]
     public void IsSuspicious_VariousMethods_ReturnsExpected(string typeName, string methodName, bool expected)
