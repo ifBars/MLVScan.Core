@@ -19,15 +19,24 @@ namespace MLVScan.Models.Rules
 
         public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
+            if (methodDef == null || instructions == null || instructions.Count == 0)
+                yield break;
+                
             bool hasTypeFromProgID = false;
             bool hasActivatorCreateInstance = false;
             bool hasInvokeMember = false;
-            string progIDValue = null;
-            string invokeMemberMethod = null;
+            string? progIDValue = null;
+            var allStrings = new List<string>();
             
-            // First pass - detect if all components of the attack are present
+            // First pass - collect all string literals and detect method calls
             foreach (var instruction in instructions)
             {
+                // Collect all string literals in the method
+                if (instruction.OpCode == OpCodes.Ldstr && instruction.Operand is string str)
+                {
+                    allStrings.Add(str);
+                }
+                
                 if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt)
                     continue;
                     
@@ -49,9 +58,9 @@ namespace MLVScan.Models.Rules
                     int index = instructions.IndexOf(instruction);
                     for (int i = Math.Max(0, index - 5); i < index; i++)
                     {
-                        if (instructions[i].OpCode == OpCodes.Ldstr && instructions[i].Operand is string str)
+                        if (instructions[i].OpCode == OpCodes.Ldstr && instructions[i].Operand is string str2)
                         {
-                            progIDValue = str;
+                            progIDValue = str2;
                             break;
                         }
                     }
@@ -67,29 +76,30 @@ namespace MLVScan.Models.Rules
                 if (typeName == "System.Type" && methodName == "InvokeMember")
                 {
                     hasInvokeMember = true;
-                    
-                    // Try to extract the method name being invoked
-                    int index = instructions.IndexOf(instruction);
-                    for (int i = Math.Max(0, index - 5); i < index; i++)
-                    {
-                        if (instructions[i].OpCode == OpCodes.Ldstr && instructions[i].Operand is string str)
-                        {
-                            invokeMemberMethod = str;
-                            break;
-                        }
-                    }
                 }
             }
             
             // If we found the full pattern, add a finding
             if (hasTypeFromProgID && (hasActivatorCreateInstance || hasInvokeMember))
             {
-                // If we found Shell.Application and ShellExecute, this is definitely malicious
-                bool isShellExecution = 
-                    (progIDValue != null && progIDValue.Contains("Shell")) ||
-                    (invokeMemberMethod != null && invokeMemberMethod.Contains("ShellExecute"));
+                // Check if any strings indicate shell execution or COM abuse
+                bool hasShellRelatedString = allStrings.Any(s => 
+                    s.Contains("Shell.Application", StringComparison.OrdinalIgnoreCase) ||
+                    s.Contains("WScript.Shell", StringComparison.OrdinalIgnoreCase) ||
+                    s.Contains("ShellExecute", StringComparison.OrdinalIgnoreCase) ||
+                    s.Contains("shell32", StringComparison.OrdinalIgnoreCase));
                 
-                if (isShellExecution || (progIDValue != null && invokeMemberMethod != null))
+                bool hasCommandExecution = allStrings.Any(s =>
+                    s.Contains("cmd.exe", StringComparison.OrdinalIgnoreCase) ||
+                    s.Contains("powershell", StringComparison.OrdinalIgnoreCase) ||
+                    s.Contains("/c ", StringComparison.Ordinal) ||
+                    s.Contains("/k ", StringComparison.Ordinal));
+                
+                // Trigger if:
+                // 1. We have shell-related strings (Shell.Application, ShellExecute, etc.)
+                // 2. We have both GetTypeFromProgID and InvokeMember (even without specific strings, this is suspicious)
+                // 3. We have command execution strings combined with the pattern
+                if (hasShellRelatedString || (hasTypeFromProgID && hasInvokeMember) || hasCommandExecution)
                 {
                     var fullMethodSnippet = new System.Text.StringBuilder();
                     
@@ -99,9 +109,15 @@ namespace MLVScan.Models.Rules
                         fullMethodSnippet.AppendLine(instr.ToString());
                     }
                     
+                    var description = "Detected reflective COM invocation pattern (GetTypeFromProgID + InvokeMember)";
+                    if (hasShellRelatedString)
+                        description += " with shell execution indicators";
+                    if (hasCommandExecution)
+                        description += " and command execution strings";
+                    
                     yield return new ScanFinding(
                         $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
-                        $"Reflective shell execution detected via COM (GetTypeFromProgID + InvokeMember pattern)",
+                        description,
                         Severity.Critical,
                         fullMethodSnippet.ToString().TrimEnd());
                 }
