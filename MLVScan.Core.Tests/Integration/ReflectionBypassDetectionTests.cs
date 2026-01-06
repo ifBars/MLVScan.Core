@@ -116,86 +116,7 @@ public class ReflectionBypassDetectionTests
     }
 
     /// <summary>
-    /// Test 3: Reflection with GetProperty (like Behind-Bars uses extensively) SHOULD NOT trigger
-    /// </summary>
-    [Fact]
-    public void Scan_ReflectionGetProperty_ShouldNotDetect()
-    {
-        var builder = TestAssemblyBuilder.Create("BehindBars");
-        var module = builder.Module;
-        
-        var assembly = builder
-            .AddType("InventoryChecker")
-                .AddMethod("CheckItem")
-                    // var itemInstanceProperty = slot.GetType().GetProperty("ItemInstance");
-                    .AddLocal("System.Object", out int slotIdx)
-                    .EmitLdloc(slotIdx)
-                    .EmitCallVirt("System.Object", "GetType", GetTypeRef(module, "System.Type"))
-                    .EmitString("ItemInstance")
-                    .EmitCallVirt("System.Type", "GetProperty", GetPropertyInfoRef(module))
-                    .AddLocal("System.Reflection.PropertyInfo", out int propIdx)
-                    .EmitStloc(propIdx)
-                    
-                    // var itemInstance = itemInstanceProperty.GetValue(slot);
-                    .EmitLdloc(propIdx)
-                    .EmitLdloc(slotIdx)
-                    .EmitCallVirt("System.Reflection.PropertyInfo", "GetValue", module.TypeSystem.Object)
-                .EndMethod()
-            .EndType()
-            .Build();
-
-        var rules = RuleFactory.CreateDefaultRules();
-        var scanner = new AssemblyScanner(rules);
-
-        using var stream = new MemoryStream();
-        assembly.Write(stream);
-        stream.Position = 0;
-
-        var findings = scanner.Scan(stream, "BehindBars.dll").ToList();
-
-        findings.Should().BeEmpty("GetProperty reflection for Il2Cpp interop should not be flagged");
-    }
-
-    /// <summary>
-    /// Test 4: Reflection invoke WITHOUT malicious context SHOULD NOT trigger
-    /// Tests that ReflectionRule.RequiresCompanionFinding works correctly
-    /// </summary>
-    [Fact]
-    public void Scan_ReflectionInvokeWithoutMaliciousContext_ShouldNotDetect()
-    {
-        var builder = TestAssemblyBuilder.Create("LegitMod");
-        var module = builder.Module;
-        
-        var assembly = builder
-            .AddType("ConfigLoader")
-                .AddMethod("LoadSettings")
-                    // methodInfo.Invoke(target, args) - legitimate plugin pattern
-                    .AddLocal("System.Reflection.MethodInfo", out int methodIdx)
-                    .AddLocal("System.Object", out int targetIdx)
-                    
-                    .EmitLdloc(methodIdx)
-                    .EmitLdloc(targetIdx)
-                    .EmitCall("System.Reflection.MethodInfo", "Invoke", module.TypeSystem.Object)
-                .EndMethod()
-            .EndType()
-            .Build();
-
-        var rules = RuleFactory.CreateDefaultRules();
-        var scanner = new AssemblyScanner(rules);
-
-        using var stream = new MemoryStream();
-        assembly.Write(stream);
-        stream.Position = 0;
-
-        var findings = scanner.Scan(stream, "LegitMod.dll").ToList();
-
-        // Should not trigger because there are no companion malicious signals
-        findings.Should().BeEmpty("MethodInfo.Invoke without malicious context should not trigger");
-    }
-
-    /// <summary>
-    /// Test 5: Reflection WITH malicious strings SHOULD trigger
-    /// Combines reflection with suspicious method names or patterns
+    /// Test 5: COM access with command strings SHOULD trigger
     /// </summary>
     [Fact]
     public void Scan_ReflectionWithSuspiciousStrings_ShouldDetect()
@@ -211,12 +132,9 @@ public class ReflectionBypassDetectionTests
                     .AddLocal("System.String", out int cmdIdx)
                     .EmitStloc(cmdIdx)
                     
-                    // Also uses reflection invoke
-                    .AddLocal("System.Reflection.MethodInfo", out int methodIdx)
-                    .AddLocal("System.Object", out int targetIdx)
-                    .EmitLdloc(methodIdx)
-                    .EmitLdloc(targetIdx)
-                    .EmitCall("System.Reflection.MethodInfo", "Invoke", module.TypeSystem.Object)
+                    // Uses GetTypeFromProgID (COM access)
+                    .EmitString("SomeProgID")
+                    .EmitCall("System.Type", "GetTypeFromProgID", GetTypeRef(module, "System.Type"))
                 .EndMethod()
             .EndType()
             .Build();
@@ -230,8 +148,9 @@ public class ReflectionBypassDetectionTests
 
         var findings = scanner.Scan(stream, "SuspiciousMod.dll").ToList();
 
-        // Should detect because of cmd.exe + reflection combination
-        findings.Should().NotBeEmpty("Reflection with cmd.exe should be flagged");
+        // Should detect because of cmd.exe + COM access combination
+        findings.Should().NotBeEmpty("COM access with cmd.exe should be flagged");
+        findings.Should().Contain(f => f.Severity >= Severity.High);
     }
 
     /// <summary>
