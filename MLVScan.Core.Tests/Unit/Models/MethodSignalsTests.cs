@@ -84,7 +84,43 @@ public class MethodSignalsTests
     }
 
     [Fact]
-    public void IsHighRiskCombination_TwoNonCriticalSignals_ReturnsTrue()
+    public void IsHighRiskCombination_SensitiveFolderPlusNetwork_ReturnsTrue()
+    {
+        var signals = new MethodSignals
+        {
+            UsesSensitiveFolder = true,
+            HasNetworkCall = true
+        };
+
+        signals.IsHighRiskCombination().Should().BeTrue();
+    }
+    
+    [Fact]
+    public void IsHighRiskCombination_SensitiveFolderPlusProcess_ReturnsTrue()
+    {
+        var signals = new MethodSignals
+        {
+            UsesSensitiveFolder = true,
+            HasProcessLikeCall = true
+        };
+
+        signals.IsHighRiskCombination().Should().BeTrue();
+    }
+    
+    [Fact]
+    public void IsHighRiskCombination_NetworkPlusFileWrite_ReturnsTrue()
+    {
+        var signals = new MethodSignals
+        {
+            HasNetworkCall = true,
+            HasFileWrite = true
+        };
+
+        signals.IsHighRiskCombination().Should().BeTrue();
+    }
+    
+    [Fact]
+    public void IsHighRiskCombination_Base64PlusNetwork_ReturnsTrue()
     {
         var signals = new MethodSignals
         {
@@ -112,6 +148,33 @@ public class MethodSignalsTests
     public void IsHighRiskCombination_SingleSignal_ReturnsFalse()
     {
         var signals = new MethodSignals { HasBase64 = true };
+
+        signals.IsHighRiskCombination().Should().BeFalse();
+    }
+    
+    [Fact]
+    public void IsHighRiskCombination_SensitiveFolderPlusExceptionHandler_ReturnsFalse()
+    {
+        // This is a legitimate pattern (fallback save directory in catch block)
+        // Should NOT trigger high severity
+        var signals = new MethodSignals
+        {
+            UsesSensitiveFolder = true,
+            HasSuspiciousExceptionHandling = true
+        };
+
+        signals.IsHighRiskCombination().Should().BeFalse();
+    }
+    
+    [Fact]
+    public void IsHighRiskCombination_TwoHarmlessPrecursors_ReturnsFalse()
+    {
+        // Two precursors that can't cause harm alone should not be high risk
+        var signals = new MethodSignals
+        {
+            UsesSensitiveFolder = true,
+            HasSuspiciousLocalVariables = true
+        };
 
         signals.IsHighRiskCombination().Should().BeFalse();
     }

@@ -101,8 +101,30 @@ namespace MLVScan.Models
 
         public bool IsHighRiskCombination()
         {
-            // High risk: Any 2+ signals (but not critical combinations)
-            return SignalCount >= 2 && !IsCriticalCombination();
+            // High risk requires dangerous signal combinations that can be abused maliciously
+            // NOT just any 2+ signals - precursors alone stay Low/Medium
+            
+            // Sensitive folder + network = potential exfiltration
+            if (UsesSensitiveFolder && HasNetworkCall)
+                return true;
+            
+            // Sensitive folder + process = run malware from hidden location
+            if (UsesSensitiveFolder && HasProcessLikeCall)
+                return true;
+            
+            // Network + file write = download & execute payload
+            if (HasNetworkCall && HasFileWrite)
+                return true;
+            
+            // Base64 + network or process = obfuscated payload execution
+            if (HasBase64 && (HasNetworkCall || HasProcessLikeCall))
+                return true;
+            
+            // Encoded strings + dangerous execution
+            if (HasEncodedStrings && (HasProcessLikeCall || HasNetworkCall))
+                return true;
+            
+            return false;
         }
 
         public string GetCombinationDescription()

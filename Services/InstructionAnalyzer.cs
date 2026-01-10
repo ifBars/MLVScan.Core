@@ -36,6 +36,10 @@ namespace MLVScan.Services
                                                           MethodSignals? methodSignals, string typeFullName)
         {
             var result = new InstructionAnalysisResult();
+            
+            // Build set of instruction offsets inside exception handlers
+            // These are analyzed by ExceptionHandlerAnalyzer with proper context, skip here to prevent duplicates
+            var exceptionHandlerOffsets = BuildExceptionHandlerOffsets(method, instructions);
 
             for (int i = 0; i < instructions.Count; i++)
             {
@@ -63,6 +67,10 @@ namespace MLVScan.Services
                             }
                         }
 
+                        // Skip AnalyzeContextualPattern for instructions inside exception handlers
+                        // Those are already analyzed by ExceptionHandlerAnalyzer with proper context
+                        if (!exceptionHandlerOffsets.Contains(instruction.Offset))
+                        {
                         // Call AnalyzeContextualPattern for all rules
                         foreach (var rule in _rules)
                         {
@@ -102,6 +110,7 @@ namespace MLVScan.Services
                                 }
                             }
                         }
+                        } // end exception handler skip
 
                         // For reflection invocations, only flag if combined with other malicious patterns
                         bool isReflectionInvoke = _reflectionDetector.IsReflectionInvokeMethod(calledMethod);
@@ -152,7 +161,8 @@ namespace MLVScan.Services
                                 _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRule.RuleId);
                             }
                         }
-                        else if (_rules.Any(r => r.IsSuspicious(calledMethod)))
+                        // Check for suspicious patterns using IsSuspicious (skip for exception handlers)
+                        if (!exceptionHandlerOffsets.Contains(instruction.Offset) && _rules.Any(r => r.IsSuspicious(calledMethod)))
                         {
                             var rule = _rules.First(r => r.IsSuspicious(calledMethod));
                             var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
@@ -194,6 +204,37 @@ namespace MLVScan.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Builds a set of instruction offsets that are inside exception handler blocks.
+        /// These are already analyzed by ExceptionHandlerAnalyzer with proper context.
+        /// </summary>
+        private HashSet<int> BuildExceptionHandlerOffsets(MethodDefinition method, Mono.Collections.Generic.Collection<Instruction> instructions)
+        {
+            var offsets = new HashSet<int>();
+            
+            if (!_config.AnalyzeExceptionHandlers || !method.Body.HasExceptionHandlers)
+                return offsets;
+            
+            foreach (var handler in method.Body.ExceptionHandlers)
+            {
+                if (handler.HandlerStart == null)
+                    continue;
+                    
+                var startOffset = handler.HandlerStart.Offset;
+                var endOffset = handler.HandlerEnd?.Offset ?? int.MaxValue;
+                
+                foreach (var instr in instructions)
+                {
+                    if (instr.Offset >= startOffset && instr.Offset < endOffset)
+                    {
+                        offsets.Add(instr.Offset);
+                    }
+                }
+            }
+            
+            return offsets;
         }
     }
 }
