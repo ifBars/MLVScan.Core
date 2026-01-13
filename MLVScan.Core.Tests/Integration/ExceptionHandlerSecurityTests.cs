@@ -110,7 +110,7 @@ public class ExceptionHandlerSecurityTests
             f.Description.Contains("sensitive") ||
             f.RuleId == "EnvironmentPathRule").ToList();
         
-        envPathFindings.Count.Should().BeLessOrEqualTo(2, 
+        envPathFindings.Count.Should().BeLessThanOrEqualTo(2, 
             "Should not produce excessive duplicate findings");
         
         // Verify context annotation exists
