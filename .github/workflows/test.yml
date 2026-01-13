@@ -28,7 +28,7 @@ jobs:
       run: dotnet test MLVScan.Core.sln --no-build --verbosity normal /p:CollectCoverage=true /p:CoverletOutputFormat=lcov /p:CoverletOutput=./coverage/lcov.info
     
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}  # Not required for public repos
         files: MLVScan.Core.Tests/coverage/lcov.info

@@ -40,5 +40,17 @@ Complete documentation is available in the **[MLVScan.Core Wiki](https://github.
 *   **Stream Support**: Scan files from memory without writing to disk.
 *   **Deep IL Analysis**: Detects patterns in compiled code, not just metadata.
 
+## 🧪 Testing
+
+Run all tests:
+```bash
+dotnet test MLVScan.Core.sln
+```
+
+**Note**: Some tests are designed to fail locally to document features that need implementation, but pass in CI. To run tests with CI behavior locally:
+```bash
+CI=true dotnet test MLVScan.Core.sln
+```
+
 ---
 *Licensed under GPL-3.0*
