@@ -8,12 +8,19 @@ namespace MLVScan.Services
     public class DllImportScanner
     {
         private readonly IEnumerable<IScanRule> _rules;
+        private readonly CallGraphBuilder? _callGraphBuilder;
 
-        public DllImportScanner(IEnumerable<IScanRule> rules)
+        public DllImportScanner(IEnumerable<IScanRule> rules, CallGraphBuilder? callGraphBuilder = null)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+            _callGraphBuilder = callGraphBuilder;
         }
 
+        /// <summary>
+        /// Scans for suspicious P/Invoke declarations and registers them with the call graph builder.
+        /// Returns an empty list when call graph builder is provided (findings are generated later by BuildCallChainFindings).
+        /// Returns direct findings when no call graph builder is provided (legacy behavior).
+        /// </summary>
         public IEnumerable<ScanFinding> ScanForDllImports(ModuleDefinition module)
         {
             var findings = new List<ScanFinding>();
@@ -39,11 +46,27 @@ namespace MLVScan.Services
                                 var dllName = method.PInvokeInfo.Module.Name;
                                 var entryPoint = method.PInvokeInfo.EntryPoint ?? method.Name;
                                 var snippet = $"[DllImport(\"{dllName}\", EntryPoint = \"{entryPoint}\")]\n{method.ReturnType.Name} {method.Name}({string.Join(", ", method.Parameters.Select(p => $"{p.ParameterType.Name} {p.Name}"))});";
-                                findings.Add(new ScanFinding(
-                                    $"{method.DeclaringType.FullName}.{method.Name}", 
-                                    rule.Description, 
-                                    rule.Severity,
-                                    snippet).WithRuleMetadata(rule));
+                                var description = $"P/Invoke declaration imports {entryPoint} from {dllName}";
+
+                                if (_callGraphBuilder != null)
+                                {
+                                    // Register with call graph builder for consolidation
+                                    _callGraphBuilder.RegisterSuspiciousDeclaration(
+                                        method,
+                                        rule,
+                                        snippet,
+                                        description
+                                    );
+                                }
+                                else
+                                {
+                                    // Legacy behavior: create direct finding
+                                    findings.Add(new ScanFinding(
+                                        $"{method.DeclaringType.FullName}.{method.Name}",
+                                        rule.Description,
+                                        rule.Severity,
+                                        snippet).WithRuleMetadata(rule));
+                                }
                             }
                         }
                         catch (Exception)

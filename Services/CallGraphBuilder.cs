@@ -1,0 +1,322 @@
+using MLVScan.Models;
+using MLVScan.Models.Rules;
+using Mono.Cecil;
+
+namespace MLVScan.Services
+{
+    /// <summary>
+    /// Tracks call relationships between methods and builds call chains for suspicious patterns.
+    /// This allows consolidating multiple related findings into a single finding with full attack path visibility.
+    /// </summary>
+    public class CallGraphBuilder
+    {
+        private readonly IEnumerable<IScanRule> _rules;
+        private readonly CodeSnippetBuilder _snippetBuilder;
+
+        /// <summary>
+        /// Suspicious method declarations (e.g., P/Invoke methods) indexed by their full name.
+        /// </summary>
+        private readonly Dictionary<string, SuspiciousDeclaration> _suspiciousDeclarations = new();
+
+        /// <summary>
+        /// Call sites where suspicious methods are invoked, indexed by the callee's full name.
+        /// </summary>
+        private readonly Dictionary<string, List<CallSite>> _callSites = new();
+
+        public CallGraphBuilder(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder)
+        {
+            _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+            _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
+        }
+
+        /// <summary>
+        /// Clears all tracked data. Call before scanning a new assembly.
+        /// </summary>
+        public void Clear()
+        {
+            _suspiciousDeclarations.Clear();
+            _callSites.Clear();
+        }
+
+        /// <summary>
+        /// Registers a suspicious P/Invoke or method declaration.
+        /// </summary>
+        public void RegisterSuspiciousDeclaration(
+            MethodDefinition method,
+            IScanRule triggeringRule,
+            string codeSnippet,
+            string description)
+        {
+            var key = GetMethodKey(method);
+            if (_suspiciousDeclarations.ContainsKey(key))
+                return; // Already registered
+
+            _suspiciousDeclarations[key] = new SuspiciousDeclaration
+            {
+                Method = method,
+                MethodKey = key,
+                Rule = triggeringRule,
+                CodeSnippet = codeSnippet,
+                Description = description,
+                Location = $"{method.DeclaringType?.FullName}.{method.Name}"
+            };
+        }
+
+        /// <summary>
+        /// Registers a call site where a method calls another method.
+        /// </summary>
+        public void RegisterCallSite(
+            MethodDefinition callerMethod,
+            MethodReference calledMethod,
+            int instructionOffset,
+            string codeSnippet)
+        {
+            var calleeKey = GetMethodKey(calledMethod);
+
+            if (!_callSites.TryGetValue(calleeKey, out var sites))
+            {
+                sites = new List<CallSite>();
+                _callSites[calleeKey] = sites;
+            }
+
+            // Avoid duplicates
+            var callerKey = GetMethodKey(callerMethod);
+            if (sites.Any(s => s.CallerMethodKey == callerKey && s.InstructionOffset == instructionOffset))
+                return;
+
+            sites.Add(new CallSite
+            {
+                CallerMethod = callerMethod,
+                CallerMethodKey = callerKey,
+                CalledMethodKey = calleeKey,
+                InstructionOffset = instructionOffset,
+                CodeSnippet = codeSnippet,
+                Location = $"{callerMethod.DeclaringType?.FullName}.{callerMethod.Name}:{instructionOffset}"
+            });
+        }
+
+        /// <summary>
+        /// Checks if a method reference points to a registered suspicious declaration.
+        /// </summary>
+        public bool IsSuspiciousMethod(MethodReference method)
+        {
+            var key = GetMethodKey(method);
+            return _suspiciousDeclarations.ContainsKey(key);
+        }
+
+        /// <summary>
+        /// Checks if any rule considers this method suspicious (for tracking calls to suspicious methods).
+        /// </summary>
+        public bool IsMethodSuspiciousByRule(MethodReference method)
+        {
+            return _rules.Any(rule => rule.IsSuspicious(method));
+        }
+
+        /// <summary>
+        /// Builds consolidated call chain findings from all tracked data.
+        /// Returns findings with full attack path visibility.
+        /// </summary>
+        public IEnumerable<ScanFinding> BuildCallChainFindings()
+        {
+            var findings = new List<ScanFinding>();
+            var processedDeclarations = new HashSet<string>();
+
+            foreach (var (declKey, declaration) in _suspiciousDeclarations)
+            {
+                if (processedDeclarations.Contains(declKey))
+                    continue;
+
+                // Check if there are any call sites for this suspicious declaration
+                if (_callSites.TryGetValue(declKey, out var callSites) && callSites.Count > 0)
+                {
+                    // Build a consolidated finding with call chain
+                    var callChain = BuildCallChain(declaration, callSites);
+                    var finding = CreateCallChainFinding(callChain, declaration);
+                    findings.Add(finding);
+                }
+                else
+                {
+                    // No callers found - emit as standalone finding (declaration without usage)
+                    var finding = CreateStandaloneDeclarationFinding(declaration);
+                    findings.Add(finding);
+                }
+
+                processedDeclarations.Add(declKey);
+            }
+
+            return findings;
+        }
+
+        /// <summary>
+        /// Gets the count of registered suspicious declarations.
+        /// </summary>
+        public int SuspiciousDeclarationCount => _suspiciousDeclarations.Count;
+
+        /// <summary>
+        /// Gets the count of registered call sites.
+        /// </summary>
+        public int CallSiteCount => _callSites.Values.Sum(list => list.Count);
+
+        private CallChain BuildCallChain(SuspiciousDeclaration declaration, List<CallSite> callSites)
+        {
+            var callChain = new CallChain(
+                chainId: $"{declaration.Rule.RuleId}:{declaration.MethodKey}",
+                ruleId: declaration.Rule.RuleId,
+                severity: declaration.Rule.Severity,
+                summary: BuildChainSummary(declaration, callSites)
+            );
+
+            // Add callers as entry points (we show all call sites for this malicious method)
+            foreach (var callSite in callSites)
+            {
+                // Try to determine if this is a well-known entry point (like MelonLoader hooks)
+                var nodeType = IsLikelyEntryPoint(callSite.CallerMethod)
+                    ? CallChainNodeType.EntryPoint
+                    : CallChainNodeType.IntermediateCall;
+
+                var callerDescription = nodeType == CallChainNodeType.EntryPoint
+                    ? $"Entry point calls {declaration.Method.Name}"
+                    : $"Calls {declaration.Method.Name}";
+
+                callChain.AppendNode(new CallChainNode(
+                    callSite.Location,
+                    callerDescription,
+                    nodeType,
+                    callSite.CodeSnippet
+                ));
+            }
+
+            // Add the suspicious declaration as the final node
+            callChain.AppendNode(new CallChainNode(
+                declaration.Location,
+                declaration.Description,
+                CallChainNodeType.SuspiciousDeclaration,
+                declaration.CodeSnippet
+            ));
+
+            return callChain;
+        }
+
+        private string BuildChainSummary(SuspiciousDeclaration declaration, List<CallSite> callSites)
+        {
+            var callerNames = callSites
+                .Select(cs => cs.CallerMethod.Name)
+                .Distinct()
+                .Take(3);
+
+            var callersStr = string.Join(", ", callerNames);
+            if (callSites.Count > 3)
+                callersStr += $" (+{callSites.Count - 3} more)";
+
+            return $"{declaration.Rule.Description} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
+        }
+
+        private ScanFinding CreateCallChainFinding(CallChain callChain, SuspiciousDeclaration declaration)
+        {
+            // Use the first caller as the primary location (this is where the attack is initiated)
+            var primaryLocation = callChain.Nodes.Count > 1
+                ? callChain.Nodes[0].Location
+                : declaration.Location;
+
+            // Use the concise summary for Description; the full call chain is available via CallChain property
+            var finding = new ScanFinding(
+                primaryLocation,
+                callChain.Summary,
+                callChain.Severity,
+                callChain.ToCombinedCodeSnippet()
+            );
+
+            finding.RuleId = declaration.Rule.RuleId;
+            finding.DeveloperGuidance = declaration.Rule.DeveloperGuidance;
+            finding.CallChain = callChain;
+
+            return finding;
+        }
+
+        private ScanFinding CreateStandaloneDeclarationFinding(SuspiciousDeclaration declaration)
+        {
+            var finding = new ScanFinding(
+                declaration.Location,
+                $"{declaration.Rule.Description} - {declaration.Description} (no callers detected - may be dead code or called via reflection)",
+                declaration.Rule.Severity,
+                declaration.CodeSnippet
+            );
+
+            finding.RuleId = declaration.Rule.RuleId;
+            finding.DeveloperGuidance = declaration.Rule.DeveloperGuidance;
+
+            return finding;
+        }
+
+        private bool IsLikelyEntryPoint(MethodDefinition method)
+        {
+            var name = method.Name;
+
+            // MelonLoader entry points
+            if (name.StartsWith("OnMelon") ||
+                name.StartsWith("OnApplication") ||
+                name.StartsWith("OnScene") ||
+                name == "OnInitializeMelon" ||
+                name == "OnLateInitializeMelon" ||
+                name == "OnPreInitialization" ||
+                name == "OnPreModsLoaded" ||
+                name == "OnUpdate" ||
+                name == "OnLateUpdate" ||
+                name == "OnFixedUpdate" ||
+                name == "OnGUI")
+                return true;
+
+            // Unity MonoBehaviour entry points
+            if (name == "Awake" ||
+                name == "Start" ||
+                name == "Update" ||
+                name == "LateUpdate" ||
+                name == "FixedUpdate" ||
+                name == "OnEnable" ||
+                name == "OnDisable")
+                return true;
+
+            // Static constructors
+            if (name == ".cctor")
+                return true;
+
+            return false;
+        }
+
+        private static string GetMethodKey(MethodReference method)
+        {
+            return $"{method.DeclaringType?.FullName}.{method.Name}";
+        }
+
+        private static string GetMethodKey(MethodDefinition method)
+        {
+            return $"{method.DeclaringType?.FullName}.{method.Name}";
+        }
+
+        /// <summary>
+        /// Internal representation of a suspicious method declaration.
+        /// </summary>
+        private class SuspiciousDeclaration
+        {
+            public MethodDefinition Method { get; set; } = null!;
+            public string MethodKey { get; set; } = null!;
+            public IScanRule Rule { get; set; } = null!;
+            public string CodeSnippet { get; set; } = null!;
+            public string Description { get; set; } = null!;
+            public string Location { get; set; } = null!;
+        }
+
+        /// <summary>
+        /// Internal representation of a call site.
+        /// </summary>
+        private class CallSite
+        {
+            public MethodDefinition CallerMethod { get; set; } = null!;
+            public string CallerMethodKey { get; set; } = null!;
+            public string CalledMethodKey { get; set; } = null!;
+            public int InstructionOffset { get; set; }
+            public string CodeSnippet { get; set; } = null!;
+            public string Location { get; set; } = null!;
+        }
+    }
+}

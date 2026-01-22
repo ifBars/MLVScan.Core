@@ -14,6 +14,7 @@ namespace MLVScan.Services
         private readonly TypeScanner _typeScanner;
         private readonly MetadataScanner _metadataScanner;
         private readonly DllImportScanner _dllImportScanner;
+        private readonly CallGraphBuilder _callGraphBuilder;
         private readonly IAssemblyResolverProvider _resolverProvider;
         private readonly ScanConfig _config;
 
@@ -35,8 +36,12 @@ namespace MLVScan.Services
             var snippetBuilder = new CodeSnippetBuilder();
             var signalTracker = new SignalTracker(_config);
             var stringPatternDetector = new StringPatternDetector();
+            
+            // Create call graph builder for finding consolidation
+            _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder);
+            
             var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
-            var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config);
+            var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);
             var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, _config);
             var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, _config);
             var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, _config);
@@ -44,7 +49,7 @@ namespace MLVScan.Services
             
             _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules, _config);
             _metadataScanner = new MetadataScanner(rules);
-            _dllImportScanner = new DllImportScanner(rules);
+            _dllImportScanner = new DllImportScanner(rules, _callGraphBuilder);
         }
 
         /// <summary>
@@ -66,6 +71,9 @@ namespace MLVScan.Services
 
             try
             {
+                // Clear call graph builder for fresh scan
+                _callGraphBuilder.Clear();
+
                 var readerParameters = new ReaderParameters
                 {
                     ReadWrite = false,
@@ -76,6 +84,10 @@ namespace MLVScan.Services
 
                 var assembly = AssemblyDefinition.ReadAssembly(assemblyPath, readerParameters);
                 ScanAssembly(assembly, findings);
+                
+                // Build consolidated call chain findings
+                var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
+                findings.AddRange(callChainFindings);
             }
             catch (Exception)
             {
@@ -109,6 +121,9 @@ namespace MLVScan.Services
 
             try
             {
+                // Clear call graph builder for fresh scan
+                _callGraphBuilder.Clear();
+
                 var readerParameters = new ReaderParameters
                 {
                     ReadWrite = false,
@@ -119,6 +134,10 @@ namespace MLVScan.Services
 
                 var assembly = AssemblyDefinition.ReadAssembly(assemblyStream, readerParameters);
                 ScanAssembly(assembly, findings);
+                
+                // Build consolidated call chain findings
+                var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
+                findings.AddRange(callChainFindings);
             }
             catch (Exception)
             {
@@ -141,7 +160,9 @@ namespace MLVScan.Services
                     findings.AddRange(_metadataScanner.ScanAssemblyMetadata(assembly));
                 }
 
-                findings.AddRange(_dllImportScanner.ScanForDllImports(module));
+                // Scan for P/Invoke declarations - these are registered with CallGraphBuilder
+                // and findings are generated later in BuildCallChainFindings()
+                _dllImportScanner.ScanForDllImports(module);
 
                 foreach (var type in module.Types)
                 {

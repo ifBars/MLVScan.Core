@@ -19,6 +19,18 @@ namespace MLVScan.Models
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance { get; set; }
 
+        /// <summary>
+        /// The call chain showing how malicious code is reached.
+        /// When present, this finding represents a consolidated view of an attack pattern
+        /// (e.g., entry point -> wrapper method -> P/Invoke declaration).
+        /// </summary>
+        public CallChain? CallChain { get; set; }
+
+        /// <summary>
+        /// Indicates whether this finding has call chain information.
+        /// </summary>
+        public bool HasCallChain => CallChain != null && CallChain.Nodes.Count > 0;
+
         public override string ToString()
         {
             var logMessage = $"[{Severity}] {Description} at {Location}";

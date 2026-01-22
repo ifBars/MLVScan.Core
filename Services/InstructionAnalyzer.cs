@@ -14,9 +14,11 @@ namespace MLVScan.Services
         private readonly StringPatternDetector _stringPatternDetector;
         private readonly CodeSnippetBuilder _snippetBuilder;
         private readonly ScanConfig _config;
+        private readonly CallGraphBuilder? _callGraphBuilder;
 
         public InstructionAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker, ReflectionDetector reflectionDetector, 
-                                   StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder, ScanConfig config)
+                                   StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder, ScanConfig config,
+                                   CallGraphBuilder? callGraphBuilder = null)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
@@ -24,6 +26,7 @@ namespace MLVScan.Services
             _stringPatternDetector = stringPatternDetector ?? throw new ArgumentNullException(nameof(stringPatternDetector));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
             _config = config ?? new ScanConfig();
+            _callGraphBuilder = callGraphBuilder;
         }
 
         public class InstructionAnalysisResult
@@ -65,6 +68,30 @@ namespace MLVScan.Services
                                     _signalTracker.MarkSensitiveFolder(methodSignals, method.DeclaringType);
                                 }
                             }
+                        }
+
+                        // Check if this call is to a suspicious method that's tracked by CallGraphBuilder
+                        bool isCallToTrackedSuspiciousMethod = _callGraphBuilder != null && 
+                            _callGraphBuilder.IsSuspiciousMethod(calledMethod);
+
+                        if (isCallToTrackedSuspiciousMethod)
+                        {
+                            // Register this call site with the call graph builder instead of creating a finding
+                            var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
+                            _callGraphBuilder!.RegisterCallSite(method, calledMethod, instruction.Offset, snippet);
+                            
+                            // Mark rule as triggered for signal tracking
+                            if (methodSignals != null)
+                            {
+                                var rule = _rules.FirstOrDefault(r => r.IsSuspicious(calledMethod));
+                                if (rule != null)
+                                {
+                                    _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                                }
+                            }
+                            
+                            // Skip normal finding creation for this call - it will be consolidated later
+                            continue;
                         }
 
                         // Skip AnalyzeContextualPattern for instructions inside exception handlers
@@ -162,7 +189,12 @@ namespace MLVScan.Services
                             }
                         }
                         // Check for suspicious patterns using IsSuspicious (skip for exception handlers)
-                        if (!exceptionHandlerOffsets.Contains(instruction.Offset) && _rules.Any(r => r.IsSuspicious(calledMethod)))
+                        // Also skip if CallGraphBuilder is tracking this method (will be consolidated)
+                        // Note: isCallToTrackedSuspiciousMethod is checked at the top and continues early,
+                        // but we also need to skip if the method is tracked (for methods matched by rules)
+                        if (!exceptionHandlerOffsets.Contains(instruction.Offset) && 
+                            !isCallToTrackedSuspiciousMethod &&
+                            _rules.Any(r => r.IsSuspicious(calledMethod)))
                         {
                             var rule = _rules.First(r => r.IsSuspicious(calledMethod));
                             var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
