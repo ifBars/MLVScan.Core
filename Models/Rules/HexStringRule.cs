@@ -29,6 +29,9 @@ namespace MLVScan.Models.Rules
         public bool IsSuspicious(MethodReference method)
         {
             // This rule focuses on string literals, but we could also look for Convert.FromHexString in the future.
+            if (method?.DeclaringType == null)
+                return false;
+                
             if (method.Name == "FromHexString" && method.DeclaringType.Name == "Convert")
             {
                 return true;
