@@ -84,8 +84,8 @@ namespace MLVScan.Models.Rules
             
             // Check for legitimate sources (GitHub releases, mod hosting sites, common CDNs)
             bool isLegitimateSource = literals.Any(s =>
-                (s.Contains("github.com/releases", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("github.com/release", StringComparison.OrdinalIgnoreCase) ||
+                ((s.Contains("github.com", StringComparison.OrdinalIgnoreCase) && s.Contains("/releases", StringComparison.OrdinalIgnoreCase)) ||
+                 (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) && s.Contains("/release", StringComparison.OrdinalIgnoreCase)) ||
                  s.Contains("api.github.com/repos", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
