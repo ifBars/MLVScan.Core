@@ -40,7 +40,7 @@ public class DataInfiltrationRuleTests
     public void DeveloperGuidance_IsNotNull()
     {
         _rule.DeveloperGuidance.Should().NotBeNull();
-        _rule.DeveloperGuidance!.Description.Should().Contain("GitHub");
+        _rule.DeveloperGuidance!.Remediation.Should().Contain("GitHub");
     }
 
     [Fact]
