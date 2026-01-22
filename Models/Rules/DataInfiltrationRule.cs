@@ -50,9 +50,11 @@ namespace MLVScan.Models.Rules
             bool isReadOnlyOperation = calledMethodName.Contains("GetStringAsync", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase) ||
+                                       calledMethodName.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase);
+                                       calledMethodName.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase) ||
+                                       calledMethodName.Equals("Get", StringComparison.OrdinalIgnoreCase);
 
             // Skip if this is not a download operation
             if (!isReadOnlyOperation)
