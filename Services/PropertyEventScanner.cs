@@ -100,7 +100,7 @@ namespace MLVScan.Services
             try
             {
                 var result = _methodScanner.ScanMethod(method, typeFullName);
-                
+
                 // Add context to findings about property location
                 foreach (var finding in result.Findings)
                 {
@@ -109,7 +109,7 @@ namespace MLVScan.Services
                         finding.Description + $" (found in property {accessorType}: {propertyName})",
                         finding.Severity,
                         finding.CodeSnippet);
-                    
+
                     findings.Add(contextualFinding);
                 }
             }
@@ -128,7 +128,7 @@ namespace MLVScan.Services
             try
             {
                 var result = _methodScanner.ScanMethod(method, typeFullName);
-                
+
                 // Add context to findings about event location
                 foreach (var finding in result.Findings)
                 {
@@ -137,7 +137,7 @@ namespace MLVScan.Services
                         finding.Description + $" (found in event {handlerType}: {eventName})",
                         finding.Severity,
                         finding.CodeSnippet);
-                    
+
                     findings.Add(contextualFinding);
                 }
             }

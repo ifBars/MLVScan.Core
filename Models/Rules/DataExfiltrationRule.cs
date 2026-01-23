@@ -1,7 +1,7 @@
+using System.Text.RegularExpressions;
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
-using System.Text.RegularExpressions;
 
 namespace MLVScan.Models.Rules
 {
@@ -60,7 +60,7 @@ namespace MLVScan.Models.Rules
                                        calledMethodName.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
                                        calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase);
-            
+
             bool isDataSendingOperation = calledMethodName.Contains("PostAsync", StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("PutAsync", StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("SendAsync", StringComparison.OrdinalIgnoreCase) ||
@@ -78,7 +78,7 @@ namespace MLVScan.Models.Rules
                 s.Contains("hastebin.com/raw", StringComparison.OrdinalIgnoreCase));
             bool hasBareIpUrl = literals.Any(s => Regex.IsMatch(s, @"https?://\d{1,3}(?:\.\d{1,3}){3}", RegexOptions.IgnoreCase));
             bool mentionsNgrokOrTelegram = literals.Any(s => s.Contains("ngrok", StringComparison.OrdinalIgnoreCase) || s.Contains("telegram", StringComparison.OrdinalIgnoreCase));
-            
+
             // Check for legitimate sources (GitHub releases, mod hosting sites, common CDNs)
             // Note: raw.githubusercontent.com is allowed for GET operations as it's commonly used for version checking
             bool isLegitimateSource = literals.Any(s =>
@@ -97,19 +97,19 @@ namespace MLVScan.Models.Rules
                  s.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("googleapis.com", StringComparison.OrdinalIgnoreCase)) &&
                 !s.Contains("discord.com", StringComparison.OrdinalIgnoreCase));
-            
+
             // Detect specific legitimate source types for more detailed reporting
             bool isGitHubSource = literals.Any(s =>
                 (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("github.io", StringComparison.OrdinalIgnoreCase)) &&
                 !s.Contains("discord.com", StringComparison.OrdinalIgnoreCase));
-            
+
             bool isModHostingSource = literals.Any(s =>
                 s.Contains("modrinth.com", StringComparison.OrdinalIgnoreCase) ||
                 s.Contains("curseforge.com", StringComparison.OrdinalIgnoreCase) ||
                 s.Contains("nexusmods.com", StringComparison.OrdinalIgnoreCase));
-            
+
             bool isCDNSource = literals.Any(s =>
                 s.Contains("cdn.jsdelivr.net", StringComparison.OrdinalIgnoreCase) ||
                 s.Contains("unpkg.com", StringComparison.OrdinalIgnoreCase) ||
@@ -143,10 +143,10 @@ namespace MLVScan.Models.Rules
                 }
             }
             urls = urls.Distinct().ToList();
-            
+
             // Build URL list string for inclusion in descriptions
-            string urlList = urls.Count > 0 
-                ? $" URL(s): {string.Join(", ", urls)}" 
+            string urlList = urls.Count > 0
+                ? $" URL(s): {string.Join(", ", urls)}"
                 : string.Empty;
 
             // Build code snippet
@@ -154,8 +154,10 @@ namespace MLVScan.Models.Rules
             int contextLines = 2;
             for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
             {
-                if (j == instructionIndex) snippetBuilder.Append(">>> ");
-                else snippetBuilder.Append("    ");
+                if (j == instructionIndex)
+                    snippetBuilder.Append(">>> ");
+                else
+                    snippetBuilder.Append("    ");
                 snippetBuilder.AppendLine(instructions[j].ToString());
             }
 
@@ -192,7 +194,7 @@ namespace MLVScan.Models.Rules
                 string sourceType = isGitHubSource ? "GitHub" :
                                     isModHostingSource ? "mod hosting site" :
                                     isCDNSource ? "CDN" : "unknown source";
-                
+
                 yield return new ScanFinding(
                     $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
                     $"Data-sending operation to {sourceType} (unusual but potentially legitimate - API interaction).{urlList}",

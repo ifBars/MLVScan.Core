@@ -34,16 +34,16 @@ namespace MLVScan.Services
             try
             {
                 string typeFullName = type.FullName;
-                
+
                 // Initialize type-level signal tracking for this type
                 if (_config.EnableMultiSignalDetection)
                 {
                     _signalTracker.GetOrCreateTypeSignals(typeFullName);
                 }
-                
+
                 // Queue of pending reflection findings that need type-level signals to be confirmed
                 var pendingReflectionFindings = new List<(MethodDefinition method, Instruction instruction, int index, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>();
-                
+
                 // Scan methods in this type
                 foreach (var method in type.Methods)
                 {
@@ -51,7 +51,7 @@ namespace MLVScan.Services
                     findings.AddRange(methodResult.Findings);
                     pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
                 }
-                
+
                 // Scan property accessors
                 var propertyFindings = _propertyEventScanner.ScanProperties(type, typeFullName);
                 findings.AddRange(propertyFindings);
@@ -59,13 +59,13 @@ namespace MLVScan.Services
                 // Scan event handlers
                 var eventFindings = _propertyEventScanner.ScanEvents(type, typeFullName);
                 findings.AddRange(eventFindings);
-                
+
                 // After scanning all methods, check pending reflection findings with type-level signals
                 if (_config.EnableMultiSignalDetection)
                 {
                     ProcessPendingReflectionFindings(pendingReflectionFindings, typeFullName, findings);
                 }
-                
+
                 // Clear type signals after processing
                 _signalTracker.ClearTypeSignals(typeFullName);
 
@@ -97,7 +97,7 @@ namespace MLVScan.Services
             var reflectionRule = _rules.FirstOrDefault(r => r is ReflectionRule);
             if (reflectionRule == null)
                 return;
-                
+
             bool hasTypeLevelTriggeredRules = typeSignal.HasTriggeredRuleOtherThan(reflectionRule.RuleId);
 
             if (!hasTypeLevelTriggeredRules)

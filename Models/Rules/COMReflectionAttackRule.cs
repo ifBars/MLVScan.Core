@@ -1,6 +1,6 @@
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
 {
@@ -39,7 +39,7 @@ namespace MLVScan.Models.Rules
         // Command execution indicators
         private static readonly string[] CommandStrings =
         {
-            "cmd.exe", "powershell", "pwsh", "/c ", "/k ", 
+            "cmd.exe", "powershell", "pwsh", "/c ", "/k ",
             "wscript", "cscript", "mshta", "regsvr32"
         };
 

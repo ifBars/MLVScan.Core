@@ -55,7 +55,7 @@ namespace MLVScan.Services
                         if (methodSignals != null)
                         {
                             _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
-                            
+
                             // Mark suspicious local variables for backward compatibility
                             _signalTracker.MarkSuspiciousLocalVariables(methodSignals, method.DeclaringType);
                         }

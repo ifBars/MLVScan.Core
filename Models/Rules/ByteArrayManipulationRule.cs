@@ -1,5 +1,5 @@
-using Mono.Cecil;
 using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {

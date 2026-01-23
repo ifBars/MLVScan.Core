@@ -1,6 +1,6 @@
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
 {
@@ -76,8 +76,10 @@ namespace MLVScan.Models.Rules
                 int contextLines = 2;
                 for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
                 {
-                    if (j == instructionIndex) snippetBuilder.Append(">>> ");
-                    else snippetBuilder.Append("    ");
+                    if (j == instructionIndex)
+                        snippetBuilder.Append(">>> ");
+                    else
+                        snippetBuilder.Append("    ");
                     snippetBuilder.AppendLine(instructions[j].ToString());
                 }
 

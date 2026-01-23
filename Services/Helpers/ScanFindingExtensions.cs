@@ -21,7 +21,7 @@ namespace MLVScan.Services.Helpers
 
             finding.RuleId = rule.RuleId;
             finding.DeveloperGuidance = rule.DeveloperGuidance;
-            
+
             return finding;
         }
     }

@@ -1,5 +1,5 @@
-using Mono.Cecil;
 using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
@@ -7,7 +7,7 @@ namespace MLVScan.Models.Rules
     {
         private Severity _severity = Severity.Medium;
         private string _description = "Detected DLL import";
-        
+
         public string Description => _description;
         public Severity Severity => _severity;
         public string RuleId => "DllImportRule";
@@ -19,7 +19,7 @@ namespace MLVScan.Models.Rules
             null,
             false
         );
-        
+
         // List of DLLs that are often misused for malicious purposes
         private static readonly string[] HighRiskDlls =
         [
@@ -82,8 +82,9 @@ namespace MLVScan.Models.Rules
             if (method?.DeclaringType == null)
                 return false;
 
-            if (method.Resolve() is not { } methodDef) return false;
-            
+            if (method.Resolve() is not { } methodDef)
+                return false;
+
             // Check if this is a PInvoke method
             if ((methodDef.Attributes & MethodAttributes.PInvokeImpl) == 0)
                 return false;
@@ -94,7 +95,7 @@ namespace MLVScan.Models.Rules
 
             var dllName = methodDef.PInvokeInfo.Module.Name;
             var entryPoint = methodDef.PInvokeInfo.EntryPoint ?? method.Name;
-            
+
             var lowerDllName = dllName.ToLower();
             var entryPointLower = entryPoint.ToLower();
 

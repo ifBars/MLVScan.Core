@@ -15,6 +15,7 @@ namespace MLVScan.Services
         private readonly MetadataScanner _metadataScanner;
         private readonly DllImportScanner _dllImportScanner;
         private readonly CallGraphBuilder _callGraphBuilder;
+        private readonly DataFlowAnalyzer _dataFlowAnalyzer;
         private readonly IAssemblyResolverProvider _resolverProvider;
         private readonly ScanConfig _config;
 
@@ -25,7 +26,7 @@ namespace MLVScan.Services
         /// <param name="config">Optional configuration. Uses defaults if not specified.</param>
         /// <param name="resolverProvider">Optional assembly resolver provider for resolving referenced assemblies.</param>
         public AssemblyScanner(
-            IEnumerable<IScanRule> rules, 
+            IEnumerable<IScanRule> rules,
             ScanConfig? config = null,
             IAssemblyResolverProvider? resolverProvider = null)
         {
@@ -36,17 +37,20 @@ namespace MLVScan.Services
             var snippetBuilder = new CodeSnippetBuilder();
             var signalTracker = new SignalTracker(_config);
             var stringPatternDetector = new StringPatternDetector();
-            
+
             // Create call graph builder for finding consolidation
             _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder);
-            
+
+            // Create data flow analyzer for tracking data movement through operations
+            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
             var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
             var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);
             var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, _config);
             var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, _config);
             var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, _config);
             var propertyEventScanner = new PropertyEventScanner(methodScanner, _config);
-            
+
             _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules, _config);
             _metadataScanner = new MetadataScanner(rules);
             _dllImportScanner = new DllImportScanner(rules, _callGraphBuilder);
@@ -71,8 +75,9 @@ namespace MLVScan.Services
 
             try
             {
-                // Clear call graph builder for fresh scan
+                // Clear builders for fresh scan
                 _callGraphBuilder.Clear();
+                _dataFlowAnalyzer.Clear();
 
                 var readerParameters = new ReaderParameters
                 {
@@ -84,10 +89,14 @@ namespace MLVScan.Services
 
                 var assembly = AssemblyDefinition.ReadAssembly(assemblyPath, readerParameters);
                 ScanAssembly(assembly, findings);
-                
+
                 // Build consolidated call chain findings
                 var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
                 findings.AddRange(callChainFindings);
+
+                // Build data flow findings
+                var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
+                findings.AddRange(dataFlowFindings);
             }
             catch (Exception)
             {
@@ -121,8 +130,9 @@ namespace MLVScan.Services
 
             try
             {
-                // Clear call graph builder for fresh scan
+                // Clear builders for fresh scan
                 _callGraphBuilder.Clear();
+                _dataFlowAnalyzer.Clear();
 
                 var readerParameters = new ReaderParameters
                 {
@@ -134,10 +144,14 @@ namespace MLVScan.Services
 
                 var assembly = AssemblyDefinition.ReadAssembly(assemblyStream, readerParameters);
                 ScanAssembly(assembly, findings);
-                
+
                 // Build consolidated call chain findings
                 var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
                 findings.AddRange(callChainFindings);
+
+                // Build data flow findings
+                var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
+                findings.AddRange(dataFlowFindings);
             }
             catch (Exception)
             {
@@ -167,6 +181,12 @@ namespace MLVScan.Services
                 foreach (var type in module.Types)
                 {
                     findings.AddRange(_typeScanner.ScanType(type));
+
+                    // Analyze data flow for each method in the type
+                    foreach (var method in type.Methods)
+                    {
+                        _dataFlowAnalyzer.AnalyzeMethod(method);
+                    }
                 }
             }
         }
@@ -174,8 +194,8 @@ namespace MLVScan.Services
         private static IEnumerable<ScanFinding> FilterEmptyFindings(List<ScanFinding> findings)
         {
             // Filter out single low-severity warning when nothing else was found
-            if (findings.Count == 1 && 
-                findings[0].Location == "Assembly scanning" && 
+            if (findings.Count == 1 &&
+                findings[0].Location == "Assembly scanning" &&
                 string.IsNullOrEmpty(findings[0].CodeSnippet))
             {
                 return new List<ScanFinding>();

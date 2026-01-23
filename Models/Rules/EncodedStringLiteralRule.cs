@@ -1,7 +1,7 @@
-using Mono.Cecil;
-using Mono.Cecil.Cil;
 using System.Text.RegularExpressions;
 using MLVScan.Models;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
@@ -55,7 +55,7 @@ namespace MLVScan.Models.Rules
         public IEnumerable<ScanFinding> AnalyzeAssemblyMetadata(AssemblyDefinition assembly)
         {
             var findings = new List<ScanFinding>();
-            
+
             try
             {
                 foreach (var attr in assembly.CustomAttributes)
@@ -101,7 +101,7 @@ namespace MLVScan.Models.Rules
             {
                 // Skip metadata scanning if it fails
             }
-            
+
             return findings;
         }
 
@@ -120,8 +120,10 @@ namespace MLVScan.Models.Rules
             try
             {
                 char delimiter = '-';
-                if (encoded.Contains('.')) delimiter = '.';
-                else if (encoded.Contains('`')) delimiter = '`';
+                if (encoded.Contains('.'))
+                    delimiter = '.';
+                else if (encoded.Contains('`'))
+                    delimiter = '`';
 
                 var parts = encoded.Split(delimiter);
                 var decoded = new char[parts.Length];

@@ -1,5 +1,5 @@
-using Mono.Cecil;
 using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
@@ -21,18 +21,18 @@ namespace MLVScan.Models.Rules
         {
             if (method == null || method.DeclaringType == null)
                 return false;
-                
+
             string typeName = method.DeclaringType.FullName;
             string methodName = method.Name;
-            
+
             // Direct Shell.Application method calls
             if (typeName.Contains("Shell.Application") || typeName.Contains("Shell32"))
                 return true;
-                
+
             // Shell Execute via COM
             if (methodName == "ShellExecute" || methodName == "ShellExec")
                 return true;
-                
+
             // Type.GetTypeFromProgID with Shell.Application
             if (methodName == "GetTypeFromProgID")
             {
@@ -43,13 +43,13 @@ namespace MLVScan.Models.Rules
                         return true;
                 }
             }
-            
+
             // COM Type activation related to shell
-            if (methodName == "GetTypeFromProgID" && 
-                method.Parameters.Count > 0 && 
+            if (methodName == "GetTypeFromProgID" &&
+                method.Parameters.Count > 0 &&
                 method.Parameters[0].Name.Contains("Shell"))
                 return true;
-                
+
             // InvokeMember calls to ShellExecute
             if (methodName == "InvokeMember")
             {
@@ -61,7 +61,7 @@ namespace MLVScan.Models.Rules
                         return true;
                 }
             }
-            
+
             // Check for cmd.exe execution
             if (methodName == "Start" || methodName == "Process" || methodName == "Execute")
             {
@@ -71,7 +71,7 @@ namespace MLVScan.Models.Rules
                         return true;
                 }
             }
-                
+
             return false;
         }
     }

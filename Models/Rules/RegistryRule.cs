@@ -1,5 +1,5 @@
-using Mono.Cecil;
 using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
@@ -16,7 +16,7 @@ namespace MLVScan.Models.Rules
             new[] { "MelonPreferences.CreateEntry<T>" },
             false  // Registry access is inherently suspicious
         );
-        
+
         private static readonly string[] RegistryFunctions =
         [
             "regcreatekeyex",
@@ -67,8 +67,9 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            if (method.Resolve() is not { } methodDef) return false;
-            
+            if (method.Resolve() is not { } methodDef)
+                return false;
+
             // Check if this is a PInvoke method
             if ((methodDef.Attributes & MethodAttributes.PInvokeImpl) == 0)
                 return false;

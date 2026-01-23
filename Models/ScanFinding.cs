@@ -31,6 +31,18 @@ namespace MLVScan.Models
         /// </summary>
         public bool HasCallChain => CallChain != null && CallChain.Nodes.Count > 0;
 
+        /// <summary>
+        /// The data flow chain showing how data moves through suspicious operations.
+        /// When present, this finding represents a data flow analysis result
+        /// (e.g., network download -> decode -> file write -> process start).
+        /// </summary>
+        public DataFlowChain? DataFlowChain { get; set; }
+
+        /// <summary>
+        /// Indicates whether this finding has data flow information.
+        /// </summary>
+        public bool HasDataFlow => DataFlowChain != null && DataFlowChain.Nodes.Count > 0;
+
         public override string ToString()
         {
             var logMessage = $"[{Severity}] {Description} at {Location}";

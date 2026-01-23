@@ -1,5 +1,5 @@
-using Mono.Cecil;
 using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
@@ -16,7 +16,7 @@ namespace MLVScan.Models.Rules
             new[] { "MelonPreferences.CreateEntry<T>", "MelonPreferences.GetEntry<T>" },
             true
         );
-        
+
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)

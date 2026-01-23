@@ -16,7 +16,7 @@ namespace MLVScan.Services
         private readonly CodeSnippetBuilder _snippetBuilder;
         private readonly ScanConfig _config;
 
-        public ExceptionHandlerAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker, 
+        public ExceptionHandlerAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
                                         CodeSnippetBuilder snippetBuilder, ScanConfig config)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
@@ -25,8 +25,8 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
         }
 
-        public IEnumerable<ScanFinding> AnalyzeExceptionHandlers(MethodDefinition method, 
-            Mono.Collections.Generic.Collection<ExceptionHandler> exceptionHandlers, 
+        public IEnumerable<ScanFinding> AnalyzeExceptionHandlers(MethodDefinition method,
+            Mono.Collections.Generic.Collection<ExceptionHandler> exceptionHandlers,
             MethodSignals? methodSignals, string typeFullName)
         {
             var findings = new List<ScanFinding>();
@@ -42,10 +42,10 @@ namespace MLVScan.Services
                     if (handler.HandlerStart != null && handler.HandlerEnd != null)
                     {
                         var handlerFindings = AnalyzeHandlerBlock(
-                            method, 
-                            handler, 
-                            method.Body.Instructions, 
-                            methodSignals, 
+                            method,
+                            handler,
+                            method.Body.Instructions,
+                            methodSignals,
                             typeFullName);
                         findings.AddRange(handlerFindings);
                     }
@@ -59,10 +59,10 @@ namespace MLVScan.Services
             return findings;
         }
 
-        private IEnumerable<ScanFinding> AnalyzeHandlerBlock(MethodDefinition method, 
-            ExceptionHandler handler, 
-            Mono.Collections.Generic.Collection<Instruction> allInstructions, 
-            MethodSignals? methodSignals, 
+        private IEnumerable<ScanFinding> AnalyzeHandlerBlock(MethodDefinition method,
+            ExceptionHandler handler,
+            Mono.Collections.Generic.Collection<Instruction> allInstructions,
+            MethodSignals? methodSignals,
             string typeFullName)
         {
             var findings = new List<ScanFinding>();
@@ -70,8 +70,8 @@ namespace MLVScan.Services
             try
             {
                 var handlerInstructions = GetInstructionsInRange(
-                    allInstructions, 
-                    handler.HandlerStart, 
+                    allInstructions,
+                    handler.HandlerStart,
                     handler.HandlerEnd);
 
                 if (handlerInstructions.Count == 0)
@@ -121,8 +121,8 @@ namespace MLVScan.Services
         }
 
         private static List<Instruction> GetInstructionsInRange(
-            Mono.Collections.Generic.Collection<Instruction> allInstructions, 
-            Instruction start, 
+            Mono.Collections.Generic.Collection<Instruction> allInstructions,
+            Instruction start,
             Instruction? end)
         {
             var result = new List<Instruction>();

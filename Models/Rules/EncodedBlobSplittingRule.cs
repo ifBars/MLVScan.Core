@@ -1,6 +1,6 @@
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
 {
@@ -21,18 +21,18 @@ namespace MLVScan.Models.Rules
         public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             var findings = new List<ScanFinding>();
-            
+
             try
             {
                 bool hasSplitWithSeparator = false;
                 int splitIndex = -1;
                 char separatorChar = '\0';
-                
+
                 // Find Split calls with suspicious separators
                 for (int i = 0; i < instructions.Count; i++)
                 {
                     var instr = instructions[i];
-                    
+
                     if (instr.OpCode == OpCodes.Callvirt && instr.Operand is MethodReference calledMethod &&
                         calledMethod.DeclaringType != null &&
                         calledMethod.DeclaringType.FullName == "System.String" &&
@@ -45,7 +45,7 @@ namespace MLVScan.Models.Rules
                             for (int j = Math.Max(0, i - 5); j < i; j++)
                             {
                                 var prevInstr = instructions[j];
-                                
+
                                 // Check for ldc.i4.s (load constant byte) with value 96 (`) or 45 (-)
                                 if (prevInstr.OpCode == OpCodes.Ldc_I4_S && prevInstr.Operand is sbyte byteVal)
                                 {
@@ -72,22 +72,22 @@ namespace MLVScan.Models.Rules
                         }
                     }
                 }
-                
+
                 if (!hasSplitWithSeparator || splitIndex < 0)
                     return findings;
-                
+
                 // Now check if the split result is used in a loop pattern
                 // Look for: ldloc.* → clt → brtrue (back edge)
                 bool hasLoopPattern = false;
                 int loopStartIndex = -1;
                 int loopEndIndex = -1;
-                
+
                 // Search for loop pattern after the split
                 // Pattern: clt → brtrue/brtrue.s with backward branch (loop)
                 for (int i = splitIndex + 1; i < instructions.Count - 1; i++)
                 {
                     var instr = instructions[i];
-                    
+
                     // Check for clt (compare less than)
                     if (instr.OpCode == OpCodes.Clt)
                     {
@@ -95,7 +95,7 @@ namespace MLVScan.Models.Rules
                         for (int j = i + 1; j < Math.Min(instructions.Count, i + 5); j++)
                         {
                             var branchInstr = instructions[j];
-                            
+
                             // Check for brtrue/brtrue.s (branch if true - loop back)
                             if (branchInstr.OpCode == OpCodes.Brtrue || branchInstr.OpCode == OpCodes.Brtrue_S)
                             {
@@ -118,7 +118,7 @@ namespace MLVScan.Models.Rules
                                                 break;
                                             }
                                         }
-                                        
+
                                         if (hasLdlocBefore)
                                         {
                                             hasLoopPattern = true;
@@ -131,17 +131,17 @@ namespace MLVScan.Models.Rules
                             }
                         }
                     }
-                    
+
                     if (hasLoopPattern)
                         break;
                 }
-                
+
                 if (hasLoopPattern && loopStartIndex >= 0)
                 {
                     var snippetBuilder = new System.Text.StringBuilder();
                     int startIdx = Math.Max(0, splitIndex - 3);
                     int endIdx = Math.Min(instructions.Count, loopEndIndex + 3);
-                    
+
                     for (int j = startIdx; j < endIdx; j++)
                     {
                         if (j == splitIndex || (j >= loopStartIndex && j <= loopEndIndex))
@@ -150,7 +150,7 @@ namespace MLVScan.Models.Rules
                             snippetBuilder.Append("    ");
                         snippetBuilder.AppendLine(instructions[j].ToString());
                     }
-                    
+
                     string separatorName = separatorChar == 96 ? "backtick (`)" : "dash (-)";
                     findings.Add(new ScanFinding(
                         $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
@@ -163,7 +163,7 @@ namespace MLVScan.Models.Rules
             {
                 // Skip if detection fails
             }
-            
+
             return findings;
         }
     }

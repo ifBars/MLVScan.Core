@@ -10,8 +10,10 @@ namespace MLVScan.Services
 
             for (int j = Math.Max(0, index - contextLines); j < Math.Min(instructions.Count, index + contextLines + 1); j++)
             {
-                if (j == index) snippetBuilder.Append(">>> ");
-                else snippetBuilder.Append("    ");
+                if (j == index)
+                    snippetBuilder.Append(">>> ");
+                else
+                    snippetBuilder.Append("    ");
                 snippetBuilder.AppendLine(instructions[j].ToString());
             }
 

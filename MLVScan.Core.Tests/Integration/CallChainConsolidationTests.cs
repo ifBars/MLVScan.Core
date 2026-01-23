@@ -3,6 +3,7 @@ using MLVScan.Models;
 using MLVScan.Services;
 using Xunit;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace MLVScan.Core.Tests.Integration;
 
@@ -50,17 +51,15 @@ public class CallChainConsolidationTests
     /// <summary>
     /// Diagnostic test to see what findings are produced for NoMoreTrash.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public void Scan_NoMoreTrash_DiagnoseAllFindings()
     {
         // Arrange
         var quarantineFolder = FindQuarantineFolder();
-        if (quarantineFolder == null)
-            return; // Skip if QUARANTINE not available (CI environment)
+        Skip.If(quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
 
-        var noMoreTrashPath = Path.Combine(quarantineFolder, "NoMoreTrash.dll.di");
-        if (!File.Exists(noMoreTrashPath))
-            return; // Skip if file not found
+        var noMoreTrashPath = Path.Combine(quarantineFolder!, "NoMoreTrash.dll.di");
+        Skip.IfNot(File.Exists(noMoreTrashPath), "NoMoreTrash.dll.di not found in QUARANTINE folder.");
 
         var rules = RuleFactory.CreateDefaultRules();
         var scanner = new AssemblyScanner(rules);
@@ -97,17 +96,15 @@ public class CallChainConsolidationTests
     /// Test that NoMoreTrash.dll.di produces a single consolidated finding for the suspicious DllImport
     /// instead of separate findings for the P/Invoke declaration and call site.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public void Scan_NoMoreTrash_ShouldConsolidateFindings()
     {
         // Arrange
         var quarantineFolder = FindQuarantineFolder();
-        if (quarantineFolder == null)
-            return; // Skip if QUARANTINE not available (CI environment)
+        Skip.If(quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
 
-        var noMoreTrashPath = Path.Combine(quarantineFolder, "NoMoreTrash.dll.di");
-        if (!File.Exists(noMoreTrashPath))
-            return; // Skip if file not found
+        var noMoreTrashPath = Path.Combine(quarantineFolder!, "NoMoreTrash.dll.di");
+        Skip.IfNot(File.Exists(noMoreTrashPath), "NoMoreTrash.dll.di not found in QUARANTINE folder.");
 
         var rules = RuleFactory.CreateDefaultRules();
         var scanner = new AssemblyScanner(rules);
@@ -139,17 +136,15 @@ public class CallChainConsolidationTests
     /// <summary>
     /// Test that severity is preserved from the original rule.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public void Scan_NoMoreTrash_SeverityShouldBeHighOrCritical()
     {
         // Arrange
         var quarantineFolder = FindQuarantineFolder();
-        if (quarantineFolder == null)
-            return; // Skip if QUARANTINE not available (CI environment)
+        Skip.If(quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
 
-        var noMoreTrashPath = Path.Combine(quarantineFolder, "NoMoreTrash.dll.di");
-        if (!File.Exists(noMoreTrashPath))
-            return; // Skip if file not found
+        var noMoreTrashPath = Path.Combine(quarantineFolder!, "NoMoreTrash.dll.di");
+        Skip.IfNot(File.Exists(noMoreTrashPath), "NoMoreTrash.dll.di not found in QUARANTINE folder.");
 
         var rules = RuleFactory.CreateDefaultRules();
         var scanner = new AssemblyScanner(rules);

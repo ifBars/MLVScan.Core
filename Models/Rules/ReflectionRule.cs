@@ -1,6 +1,6 @@
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
 {

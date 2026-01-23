@@ -1,10 +1,10 @@
-using MLVScan.Models;
-using Mono.Cecil;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using MLVScan.Models;
+using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
@@ -31,7 +31,7 @@ namespace MLVScan.Models.Rules
             // This rule focuses on string literals, but we could also look for Convert.FromHexString in the future.
             if (method?.DeclaringType == null)
                 return false;
-                
+
             if (method.Name == "FromHexString" && method.DeclaringType.Name == "Convert")
             {
                 return true;
@@ -41,14 +41,15 @@ namespace MLVScan.Models.Rules
 
         public IEnumerable<ScanFinding> AnalyzeStringLiteral(string literal, MethodDefinition method, int instructionIndex)
         {
-            if (string.IsNullOrWhiteSpace(literal)) yield break;
+            if (string.IsNullOrWhiteSpace(literal))
+                yield break;
 
             // Check if it looks like a hex string (must be even length for byte decoding)
             if (literal.Length % 2 == 0 && HexPattern.IsMatch(literal))
             {
                 // Attempt to decode
                 var decoded = DecodeHexString(literal);
-                
+
                 // Check if the decoded content is suspicious
                 if (decoded != null && EncodedStringLiteralRule.ContainsSuspiciousContent(decoded))
                 {

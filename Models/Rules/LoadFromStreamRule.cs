@@ -1,6 +1,6 @@
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Models;
 
 namespace MLVScan.Models.Rules
 {
@@ -10,7 +10,7 @@ namespace MLVScan.Models.Rules
         public Severity Severity => Severity.Critical;
         public string RuleId => "LoadFromStreamRule";
         public bool RequiresCompanionFinding => false;
-        
+
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)
@@ -54,7 +54,7 @@ namespace MLVScan.Models.Rules
                         "Detected embedded resource being loaded as executable assembly (GetManifestResourceStream -> Assembly.Load pattern)",
                         Severity.Critical,
                         GetSnippetForPattern(instructions, instructionIndex));
-                    
+
                     findings.Add(finding);
                 }
             }
@@ -66,11 +66,11 @@ namespace MLVScan.Models.Rules
         {
             // Look ahead up to 20 instructions for Assembly.Load pattern
             int lookAheadLimit = Math.Min(startIndex + 20, instructions.Count);
-            
+
             for (int i = startIndex + 1; i < lookAheadLimit; i++)
             {
                 var instruction = instructions[i];
-                
+
                 if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
                     instruction.Operand is MethodReference calledMethod)
                 {
@@ -78,7 +78,7 @@ namespace MLVScan.Models.Rules
                     var calledMethodName = calledMethod.Name;
 
                     // Check for Assembly.Load
-                    if (calledTypeName.Contains("Assembly") && 
+                    if (calledTypeName.Contains("Assembly") &&
                         (calledMethodName == "Load" || calledMethodName.Contains("LoadFrom")))
                     {
                         return true;
@@ -92,7 +92,7 @@ namespace MLVScan.Models.Rules
         private static string GetSnippetForPattern(Mono.Collections.Generic.Collection<Instruction> instructions, int startIndex)
         {
             var snippetLines = new List<string>();
-            
+
             // Include a few instructions before and after
             int start = Math.Max(0, startIndex - 2);
             int end = Math.Min(instructions.Count - 1, startIndex + 10);
