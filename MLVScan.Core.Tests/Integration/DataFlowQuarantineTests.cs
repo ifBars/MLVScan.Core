@@ -25,7 +25,7 @@ public class DataFlowQuarantineTests
     private static string? FindQuarantineFolder()
     {
         var currentDir = Directory.GetCurrentDirectory();
-        
+
         while (currentDir != null)
         {
             var quarantinePath = Path.Combine(currentDir, "QUARANTINE");
@@ -33,7 +33,7 @@ public class DataFlowQuarantineTests
             {
                 return quarantinePath;
             }
-            
+
             var mlvScanCorePath = Path.Combine(currentDir, "MLVScan.Core", "QUARANTINE");
             if (Directory.Exists(mlvScanCorePath))
             {
@@ -50,10 +50,10 @@ public class DataFlowQuarantineTests
     private string GetSamplePath(string filename)
     {
         Skip.If(_quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
-            
+
         var path = Path.Combine(_quarantineFolder, filename);
         Skip.IfNot(File.Exists(path), $"Sample {filename} not found in QUARANTINE folder.");
-            
+
         return path;
     }
 
@@ -61,29 +61,29 @@ public class DataFlowQuarantineTests
     {
         _output.WriteLine($"=== {sampleName} - Data Flow Analysis ===");
         _output.WriteLine($"Total findings: {findings.Count}");
-        
+
         var dataFlowFindings = findings.Where(f => f.RuleId == "DataFlowAnalysis" || f.HasDataFlow).ToList();
         _output.WriteLine($"Data flow findings: {dataFlowFindings.Count}");
         _output.WriteLine("");
-        
+
         foreach (var finding in dataFlowFindings)
         {
             _output.WriteLine($"[{finding.Severity}] {finding.RuleId ?? "Unknown"}");
             _output.WriteLine($"  Location: {finding.Location}");
             _output.WriteLine($"  Description: {finding.Description}");
-            
+
             if (finding.HasDataFlow)
             {
                 _output.WriteLine($"  Data Flow Pattern: {finding.DataFlowChain!.Pattern}");
                 _output.WriteLine($"  Confidence: {finding.DataFlowChain.Confidence:P0}");
                 _output.WriteLine($"  Operations in chain: {finding.DataFlowChain.Nodes.Count}");
-                
+
                 foreach (var node in finding.DataFlowChain.Nodes)
                 {
                     _output.WriteLine($"    {node}");
                 }
             }
-            
+
             _output.WriteLine("");
         }
     }
@@ -101,7 +101,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -149,7 +149,7 @@ public class DataFlowQuarantineTests
                 .Select(f => f.DataFlowChain!.Pattern)
                 .Distinct()
                 .ToList();
-            
+
             var avgConfidence = dataFlowFindings
                 .Where(f => f.HasDataFlow)
                 .Select(f => f.DataFlowChain!.Confidence)
@@ -170,20 +170,20 @@ public class DataFlowQuarantineTests
         _output.WriteLine("");
         _output.WriteLine("| Sample | Total Findings | Data Flow Findings | Patterns Detected | Avg Confidence |");
         _output.WriteLine("|--------|----------------|---------------------|-------------------|----------------|");
-        
+
         foreach (var (sample, total, dataFlow, patterns, confidence) in results)
         {
-            var patternsStr = patterns.Count > 0 
+            var patternsStr = patterns.Count > 0
                 ? string.Join(", ", patterns.Take(2)) + (patterns.Count > 2 ? $" (+{patterns.Count - 2})" : "")
                 : "None";
-            
+
             _output.WriteLine($"| {sample,-30} | {total,14} | {dataFlow,19} | {patternsStr,-17} | {confidence,13:P0} |");
         }
 
         _output.WriteLine("");
         _output.WriteLine($"Total samples scanned: {results.Count}");
         _output.WriteLine($"Samples with data flow findings: {results.Count(r => r.DataFlowFindings > 0)}");
-        
+
         var allPatterns = results.SelectMany(r => r.Patterns).Distinct().ToList();
         _output.WriteLine($"Unique patterns detected: {string.Join(", ", allPatterns)}");
 
@@ -206,7 +206,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -232,7 +232,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -259,7 +259,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available
         var path = GetSamplePath("NoMoreTrash.dll.di");
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -269,10 +269,10 @@ public class DataFlowQuarantineTests
         // Assert - Should have both call chain and potentially data flow findings
         var callChainFindings = findings.Where(f => f.HasCallChain).ToList();
         var dataFlowFindings = findings.Where(f => f.RuleId == "DataFlowAnalysis").ToList();
-        
+
         // NoMoreTrash should have call chain findings (we know this from existing tests)
         callChainFindings.Should().NotBeEmpty();
-        
+
         // Data flow analysis should run without interfering with call chain analysis
         _output.WriteLine($"Call chain findings: {callChainFindings.Count}");
         _output.WriteLine($"Data flow findings: {dataFlowFindings.Count}");
@@ -290,7 +290,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -310,7 +310,7 @@ public class DataFlowQuarantineTests
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
-            
+
         // Arrange
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -321,7 +321,7 @@ public class DataFlowQuarantineTests
 
         // Assert - Should complete within reasonable time (10 seconds)
         _output.WriteLine($"Scan time for {filename}: {sw.ElapsedMilliseconds}ms");
-        sw.ElapsedMilliseconds.Should().BeLessThan(10000, 
+        sw.ElapsedMilliseconds.Should().BeLessThan(10000,
             "Data flow analysis should not significantly slow down scanning");
     }
 

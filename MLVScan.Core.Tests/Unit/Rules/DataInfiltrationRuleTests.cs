@@ -491,7 +491,7 @@ public class DataInfiltrationRuleTests
     {
         var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetStringAsync");
         var instructions = new Mono.Collections.Generic.Collection<Instruction>();
-        
+
         // Add string far before the call (outside 10-instruction window)
         for (int i = 0; i < 15; i++)
         {
@@ -504,7 +504,7 @@ public class DataInfiltrationRuleTests
         }
         int callIndex = instructions.Count;
         instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
-        
+
         var methodSignals = new MethodSignals();
 
         var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, callIndex, methodSignals).ToList();

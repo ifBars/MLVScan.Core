@@ -94,7 +94,7 @@ public class MethodSignalsTests
 
         signals.IsHighRiskCombination().Should().BeTrue();
     }
-    
+
     [Fact]
     public void IsHighRiskCombination_SensitiveFolderPlusProcess_ReturnsTrue()
     {
@@ -106,7 +106,7 @@ public class MethodSignalsTests
 
         signals.IsHighRiskCombination().Should().BeTrue();
     }
-    
+
     [Fact]
     public void IsHighRiskCombination_NetworkPlusFileWrite_ReturnsTrue()
     {
@@ -118,7 +118,7 @@ public class MethodSignalsTests
 
         signals.IsHighRiskCombination().Should().BeTrue();
     }
-    
+
     [Fact]
     public void IsHighRiskCombination_Base64PlusNetwork_ReturnsTrue()
     {
@@ -151,7 +151,7 @@ public class MethodSignalsTests
 
         signals.IsHighRiskCombination().Should().BeFalse();
     }
-    
+
     [Fact]
     public void IsHighRiskCombination_SensitiveFolderPlusExceptionHandler_ReturnsFalse()
     {
@@ -165,7 +165,7 @@ public class MethodSignalsTests
 
         signals.IsHighRiskCombination().Should().BeFalse();
     }
-    
+
     [Fact]
     public void IsHighRiskCombination_TwoHarmlessPrecursors_ReturnsFalse()
     {

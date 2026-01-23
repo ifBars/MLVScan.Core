@@ -23,7 +23,7 @@ public class ConstantsTests
     public void GetVersionString_ContainsPrefix()
     {
         var versionString = Constants.GetVersionString();
-        
+
         versionString.Should().StartWith("MLVScan.Core v");
     }
 
@@ -31,7 +31,7 @@ public class ConstantsTests
     public void GetVersionString_ContainsCoreVersion()
     {
         var versionString = Constants.GetVersionString();
-        
+
         versionString.Should().Contain(Constants.CoreVersion);
     }
 
@@ -39,7 +39,7 @@ public class ConstantsTests
     public void GetVersionString_ReturnsExpectedFormat()
     {
         var versionString = Constants.GetVersionString();
-        
+
         versionString.Should().Be($"MLVScan.Core v{Constants.CoreVersion}");
     }
 }

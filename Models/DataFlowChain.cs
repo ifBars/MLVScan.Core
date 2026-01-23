@@ -35,7 +35,23 @@ namespace MLVScan.Models
         /// </summary>
         public string? CodeSnippet { get; set; }
 
-        public DataFlowNode(string location, string operation, DataFlowNodeType nodeType, string dataDescription, int instructionOffset, string? codeSnippet = null)
+        /// <summary>
+        /// The method key where this node occurs (for cross-method tracking).
+        /// Format: Namespace.Type.Method
+        /// </summary>
+        public string? MethodKey { get; set; }
+
+        /// <summary>
+        /// Whether this node represents a method call that passes data to another method.
+        /// </summary>
+        public bool IsMethodBoundary { get; set; }
+
+        /// <summary>
+        /// For method boundary nodes, the target method being called.
+        /// </summary>
+        public string? TargetMethodKey { get; set; }
+
+        public DataFlowNode(string location, string operation, DataFlowNodeType nodeType, string dataDescription, int instructionOffset, string? codeSnippet = null, string? methodKey = null)
         {
             Location = location;
             Operation = operation;
@@ -43,6 +59,7 @@ namespace MLVScan.Models
             DataDescription = dataDescription;
             InstructionOffset = instructionOffset;
             CodeSnippet = codeSnippet;
+            MethodKey = methodKey;
         }
 
         public override string ToString()
@@ -55,7 +72,8 @@ namespace MLVScan.Models
                 DataFlowNodeType.Intermediate => "[PASS]",
                 _ => "[???]"
             };
-            return $"{prefix} {Operation} → {DataDescription}";
+            var methodInfo = IsMethodBoundary && TargetMethodKey != null ? $" → calls {TargetMethodKey}" : "";
+            return $"{prefix} {Operation} → {DataDescription}{methodInfo}";
         }
     }
 
@@ -88,6 +106,7 @@ namespace MLVScan.Models
     /// <summary>
     /// Represents a complete data flow from source to sink(s).
     /// Used to track how suspicious data moves through operations.
+    /// Supports both single-method and cross-method data flows.
     /// </summary>
     public class DataFlowChain
     {
@@ -127,7 +146,7 @@ namespace MLVScan.Models
         public string Summary { get; set; }
 
         /// <summary>
-        /// The method where this data flow occurs.
+        /// The method where this data flow occurs (primary method for single-method flows).
         /// </summary>
         public string MethodLocation { get; set; }
 
@@ -135,6 +154,21 @@ namespace MLVScan.Models
         /// True if this data flow matches a known malicious pattern.
         /// </summary>
         public bool IsSuspicious => Pattern != DataFlowPattern.Legitimate && Pattern != DataFlowPattern.Unknown;
+
+        /// <summary>
+        /// True if this data flow spans multiple methods.
+        /// </summary>
+        public bool IsCrossMethod { get; set; }
+
+        /// <summary>
+        /// All methods involved in this data flow (for cross-method flows).
+        /// </summary>
+        public List<string> InvolvedMethods { get; set; } = new();
+
+        /// <summary>
+        /// The depth of the call chain (1 = single method, 2+ = cross-method).
+        /// </summary>
+        public int CallDepth => InvolvedMethods.Count > 0 ? InvolvedMethods.Count : 1;
 
         public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, double confidence, string summary, string methodLocation)
         {

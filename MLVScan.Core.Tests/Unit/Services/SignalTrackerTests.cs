@@ -1,7 +1,7 @@
 using FluentAssertions;
+using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Services;
-using MLVScan.Core.Tests.TestUtilities;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Services;

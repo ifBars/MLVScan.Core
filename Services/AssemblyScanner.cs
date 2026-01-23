@@ -182,13 +182,16 @@ namespace MLVScan.Services
                 {
                     findings.AddRange(_typeScanner.ScanType(type));
 
-                    // Analyze data flow for each method in the type
+                    // Phase 1: Analyze data flow for each method in the type (single-method analysis)
                     foreach (var method in type.Methods)
                     {
                         _dataFlowAnalyzer.AnalyzeMethod(method);
                     }
                 }
             }
+
+            // Phase 2: Analyze cross-method data flows after all methods have been processed
+            _dataFlowAnalyzer.AnalyzeCrossMethodFlows();
         }
 
         private static IEnumerable<ScanFinding> FilterEmptyFindings(List<ScanFinding> findings)

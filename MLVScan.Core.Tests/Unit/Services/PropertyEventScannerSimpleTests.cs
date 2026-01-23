@@ -27,11 +27,11 @@ public class PropertyEventScannerSimpleTests
         var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
         var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
         var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
-        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, 
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
                                                           stringPatternDetector, snippetBuilder, config, null);
-        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, 
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
                                               localVariableAnalyzer, exceptionHandlerAnalyzer, config);
-        
+
         var act = () => new PropertyEventScanner(methodScanner, null!);
 
         act.Should().NotThrow();
@@ -48,12 +48,12 @@ public class PropertyEventScannerSimpleTests
         var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
         var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
         var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
-        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, 
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
                                                           stringPatternDetector, snippetBuilder, config, null);
-        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, 
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
                                               localVariableAnalyzer, exceptionHandlerAnalyzer, config);
         var scanner = new PropertyEventScanner(methodScanner, config);
-        
+
         // Create a minimal type - we can't easily test with null due to internal checks
         var assembly = TestUtilities.TestAssemblyBuilder.Create()
             .AddType("TestClass")
@@ -77,12 +77,12 @@ public class PropertyEventScannerSimpleTests
         var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
         var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
         var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
-        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, 
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
                                                           stringPatternDetector, snippetBuilder, config, null);
-        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, 
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
                                               localVariableAnalyzer, exceptionHandlerAnalyzer, config);
         var scanner = new PropertyEventScanner(methodScanner, config);
-        
+
         var assembly = TestUtilities.TestAssemblyBuilder.Create()
             .AddType("TestClass")
             .EndType()

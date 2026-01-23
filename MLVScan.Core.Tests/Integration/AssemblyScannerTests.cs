@@ -112,7 +112,7 @@ public class AssemblyScannerTests
     {
         // "Process" encoded as numeric string: 80-114-111-99-101-115-115
         var encodedProcess = "80-114-111-99-101-115-115";
-        
+
         var assembly = TestAssemblyBuilder.Create("ObfuscatedMod")
             .AddType("Loader")
                 .AddMethod("Execute")

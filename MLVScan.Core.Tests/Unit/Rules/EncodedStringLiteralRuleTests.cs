@@ -61,7 +61,7 @@ public class EncodedStringLiteralRuleTests
     {
         // "Hello" = 72-101-108-108-111
         var encoded = "72-101-108-108-111";
-        
+
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
         result.Should().Be("Hello");
@@ -72,7 +72,7 @@ public class EncodedStringLiteralRuleTests
     {
         // "Hi" = 72.105
         var encoded = "72.105";
-        
+
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
         result.Should().Be("Hi");
@@ -83,7 +83,7 @@ public class EncodedStringLiteralRuleTests
     {
         // "Hi" = 72`105
         var encoded = "72`105";
-        
+
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
         result.Should().Be("Hi");
@@ -94,7 +94,7 @@ public class EncodedStringLiteralRuleTests
     {
         // 999 is not a valid ASCII code (> 127)
         var encoded = "72-999-108";
-        
+
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
         result.Should().BeNull();
@@ -104,7 +104,7 @@ public class EncodedStringLiteralRuleTests
     public void DecodeNumericString_NonNumericSegment_ReturnsNull()
     {
         var encoded = "72-abc-108";
-        
+
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
         result.Should().BeNull();

@@ -39,7 +39,7 @@ public class TestAssemblyBuilder
     public TestAssemblyBuilder AddAssemblyAttribute(string attributeTypeName, params object[] constructorArgs)
     {
         var attrType = new TypeReference("System.Reflection", attributeTypeName, _module, _module.TypeSystem.CoreLibrary);
-        
+
         // For AssemblyMetadataAttribute specifically
         if (attributeTypeName == "AssemblyMetadataAttribute")
         {
@@ -238,6 +238,74 @@ public class MethodBuilder
             _ => _il.Create(OpCodes.Ldloc, _method.Body.Variables[index])
         };
         _il.Append(instr);
+        return this;
+    }
+
+    /// <summary>
+    /// Emits a call to another method defined in the same assembly.
+    /// </summary>
+    public MethodBuilder EmitCallInternal(MethodDefinition targetMethod)
+    {
+        _il.Append(_il.Create(OpCodes.Call, targetMethod));
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a method call instruction with parameter types.
+    /// </summary>
+    public MethodBuilder EmitCallWithParams(
+        string declaringTypeFullName,
+        string methodName,
+        TypeReference? returnType,
+        params TypeReference[] parameterTypes)
+    {
+        var typeRef = CreateTypeReference(declaringTypeFullName);
+        var methodRef = new MethodReference(methodName, returnType ?? Module.TypeSystem.Void, typeRef)
+        {
+            HasThis = false
+        };
+
+        foreach (var paramType in parameterTypes)
+        {
+            methodRef.Parameters.Add(new ParameterDefinition(paramType));
+        }
+
+        _il.Append(_il.Create(OpCodes.Call, methodRef));
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a parameter to the method.
+    /// </summary>
+    public MethodBuilder AddParameter(string name, TypeReference type)
+    {
+        _method.Parameters.Add(new ParameterDefinition(name, ParameterAttributes.None, type));
+        return this;
+    }
+
+    /// <summary>
+    /// Emits load argument instruction.
+    /// </summary>
+    public MethodBuilder EmitLdarg(int index)
+    {
+        var instr = index switch
+        {
+            0 => _il.Create(OpCodes.Ldarg_0),
+            1 => _il.Create(OpCodes.Ldarg_1),
+            2 => _il.Create(OpCodes.Ldarg_2),
+            3 => _il.Create(OpCodes.Ldarg_3),
+            _ => _il.Create(OpCodes.Ldarg, _method.Parameters[index])
+        };
+        _il.Append(instr);
+        return this;
+    }
+
+    /// <summary>
+    /// Emits pop instruction (discards top of stack).
+    /// </summary>
+    public MethodBuilder EmitPop()
+    {
+        _il.Append(_il.Create(OpCodes.Pop));
         return this;
     }
 

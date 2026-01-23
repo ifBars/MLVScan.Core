@@ -49,7 +49,7 @@ public class NullScanLoggerTests
     {
         var exception = new InvalidOperationException("Test exception");
         var act = () => NullScanLogger.Instance.Error("Test error with exception", exception);
-        
+
         act.Should().NotThrow();
     }
 

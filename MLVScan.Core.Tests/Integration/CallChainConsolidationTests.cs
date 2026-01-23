@@ -24,7 +24,7 @@ public class CallChainConsolidationTests
     private static string? FindQuarantineFolder()
     {
         var currentDir = Directory.GetCurrentDirectory();
-        
+
         // Walk up the directory tree to find the QUARANTINE folder
         while (currentDir != null)
         {
@@ -33,7 +33,7 @@ public class CallChainConsolidationTests
             {
                 return quarantinePath;
             }
-            
+
             // Also check if we're in MLVScan.Core
             var mlvScanCorePath = Path.Combine(currentDir, "MLVScan.Core", "QUARANTINE");
             if (Directory.Exists(mlvScanCorePath))
@@ -116,8 +116,8 @@ public class CallChainConsolidationTests
         findings.Should().NotBeEmpty("NoMoreTrash contains malicious patterns");
 
         // Get DllImport-related findings (this rule properly detects shell32.dll P/Invoke)
-        var dllImportFindings = findings.Where(f => 
-            f.RuleId == "DllImportRule" && 
+        var dllImportFindings = findings.Where(f =>
+            f.RuleId == "DllImportRule" &&
             f.Description.Contains("shell32", StringComparison.OrdinalIgnoreCase)).ToList();
 
         // Log what we found

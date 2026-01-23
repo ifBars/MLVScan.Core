@@ -24,7 +24,7 @@ public class ReflectionBypassDetectionTests
         // Build an assembly that mimics MLVBypass's reflective shell execution
         var builder = TestAssemblyBuilder.Create("MLVBypass");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("BypassPayload.ReflectiveShellMod")
                 .AddMethod("OnInitializeMelon")
@@ -33,13 +33,13 @@ public class ReflectionBypassDetectionTests
                     .EmitCall("System.Type", "GetTypeFromProgID", GetTypeRef(module, "System.Type"))
                     .AddLocal("System.Type", out int shellTypeIdx)
                     .EmitStloc(shellTypeIdx)
-                    
+
                     // object shell = Activator.CreateInstance(shellType);
                     .EmitLdloc(shellTypeIdx)
                     .EmitCall("System.Activator", "CreateInstance", module.TypeSystem.Object)
                     .AddLocal("System.Object", out int shellObjIdx)
                     .EmitStloc(shellObjIdx)
-                    
+
                     // shellType.InvokeMember("ShellExecute", ...)
                     .EmitLdloc(shellTypeIdx)
                     .EmitString("ShellExecute")
@@ -60,12 +60,12 @@ public class ReflectionBypassDetectionTests
 
         // Should detect the malicious pattern
         findings.Should().NotBeEmpty("MLVBypass pattern should be detected");
-        findings.Should().Contain(f => 
+        findings.Should().Contain(f =>
             f.Description.Contains("reflection", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("Shell", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("InvokeMember", StringComparison.OrdinalIgnoreCase),
             "Should detect reflection-based shell execution");
-        
+
         // Should have high or critical severity
         findings.Should().Contain(f => f.Severity >= Severity.High,
             "Shell execution via reflection should be high severity");
@@ -81,7 +81,7 @@ public class ReflectionBypassDetectionTests
         // Build an assembly that uses reflection like Behind-Bars does
         var builder = TestAssemblyBuilder.Create("Behind-Bars");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("Behind_Bars.Systems.Jail.InventoryProcessor")
                 .AddMethod("GetAllInventorySlots")
@@ -93,7 +93,7 @@ public class ReflectionBypassDetectionTests
                     .EmitCallVirt("System.Type", "GetMethod", GetMethodInfoRef(module))
                     .AddLocal("System.Reflection.MethodInfo", out int methodIdx)
                     .EmitStloc(methodIdx)
-                    
+
                     // var allSlots = getAllSlotsMethod.Invoke(inventory, null);
                     .EmitLdloc(methodIdx)
                     .EmitLdloc(inventoryIdx)
@@ -123,7 +123,7 @@ public class ReflectionBypassDetectionTests
     {
         var builder = TestAssemblyBuilder.Create("SuspiciousMod");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("ShellLoader")
                 .AddMethod("ExecuteCommand")
@@ -131,7 +131,7 @@ public class ReflectionBypassDetectionTests
                     .EmitString("cmd.exe")
                     .AddLocal("System.String", out int cmdIdx)
                     .EmitStloc(cmdIdx)
-                    
+
                     // Uses GetTypeFromProgID (COM access)
                     .EmitString("SomeProgID")
                     .EmitCall("System.Type", "GetTypeFromProgID", GetTypeRef(module, "System.Type"))
@@ -161,7 +161,7 @@ public class ReflectionBypassDetectionTests
     {
         var builder = TestAssemblyBuilder.Create("ShellMod");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("ShellAccess")
                 .AddMethod("GetShellType")
@@ -182,7 +182,7 @@ public class ReflectionBypassDetectionTests
 
         // Should detect Shell.Application COM access
         findings.Should().NotBeEmpty("Shell.Application COM access should be flagged");
-        findings.Should().Contain(f => 
+        findings.Should().Contain(f =>
             f.Description.Contains("Shell", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("COM", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("reflection", StringComparison.OrdinalIgnoreCase));
@@ -196,7 +196,7 @@ public class ReflectionBypassDetectionTests
     {
         var builder = TestAssemblyBuilder.Create("FactoryMod");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("ObjectFactory")
                 .AddMethod("CreateObject")
@@ -230,14 +230,14 @@ public class ReflectionBypassDetectionTests
     {
         var builder = TestAssemblyBuilder.Create("EncodedMod");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("DataLoader")
                 .AddMethod("LoadEncoded")
                     // Base64 decode
                     .EmitString("U2hlbGxFeGVjdXRl") // "ShellExecute" in base64
                     .EmitCall("System.Convert", "FromBase64String", new ArrayType(module.TypeSystem.Byte))
-                    
+
                     // Reflection invoke
                     .AddLocal("System.Reflection.MethodInfo", out int methodIdx)
                     .AddLocal("System.Object", out int targetIdx)
@@ -269,7 +269,7 @@ public class ReflectionBypassDetectionTests
     {
         var builder = TestAssemblyBuilder.Create("FieldMod");
         var module = builder.Module;
-        
+
         var assembly = builder
             .AddType("FieldAccessor")
                 .AddMethod("ReadField")
@@ -280,7 +280,7 @@ public class ReflectionBypassDetectionTests
                     .EmitCallVirt("System.Type", "GetField", GetFieldInfoRef(module))
                     .AddLocal("System.Reflection.FieldInfo", out int fieldIdx)
                     .EmitStloc(fieldIdx)
-                    
+
                     // var value = field.GetValue(obj);
                     .EmitLdloc(fieldIdx)
                     .AddLocal("System.Object", out int objIdx)

@@ -34,7 +34,7 @@ public class RealWorldModScanTests
     private static string GetRepositoryRoot()
     {
         var currentDir = Directory.GetCurrentDirectory();
-        
+
         // Walk up the directory tree to find the repo root
         while (currentDir != null)
         {
@@ -79,20 +79,20 @@ public class RealWorldModScanTests
 
         // MLVBypass MUST be detected
         findings.Should().NotBeEmpty("MLVBypass uses reflective shell execution and must be detected");
-        
+
         // Should have high-severity findings
         findings.Should().Contain(f => f.Severity >= Severity.High,
             "MLVBypass contains critical shell execution patterns");
-        
+
         // Should mention reflection, shell, or COM-based execution
-        var hasRelevantFinding = findings.Any(f => 
+        var hasRelevantFinding = findings.Any(f =>
             f.Description.Contains("reflection", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("Shell", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("InvokeMember", StringComparison.OrdinalIgnoreCase) ||
             f.Description.Contains("COM", StringComparison.OrdinalIgnoreCase) ||
             (f.RuleId != null && f.RuleId.Contains("Shell", StringComparison.OrdinalIgnoreCase)) ||
             (f.RuleId != null && f.RuleId.Contains("Reflection", StringComparison.OrdinalIgnoreCase)));
-        
+
         hasRelevantFinding.Should().BeTrue("Should specifically identify the reflective shell execution technique");
     }
 
@@ -171,7 +171,7 @@ public class RealWorldModScanTests
         var findings = scanner.Scan(mlvBypassPath).ToList();
 
         findings.Should().NotBeEmpty();
-        
+
         // In developer mode, findings may include guidance
         // This test validates the integration with DevCLI-style usage
         findings.Should().Contain(f => f.Severity >= Severity.High);
@@ -211,11 +211,11 @@ public class RealWorldModScanTests
 
         // Even with multi-signal detection, Behind-Bars shouldn't be flagged as malicious
         var highSeverityFindings = findings.Where(f => f.Severity >= Severity.High).ToList();
-        
+
         // Allow for possible low-severity informational findings, but not high/critical reflection issues
         var maliciousReflectionFindings = highSeverityFindings.Where(f =>
             f.Description.Contains("reflection", StringComparison.OrdinalIgnoreCase) ||
-            f.Description.Contains("invoke", StringComparison.OrdinalIgnoreCase) && 
+            f.Description.Contains("invoke", StringComparison.OrdinalIgnoreCase) &&
             f.RuleId?.Contains("Reflection", StringComparison.OrdinalIgnoreCase) == true).ToList();
 
         maliciousReflectionFindings.Should().BeEmpty(

@@ -74,7 +74,7 @@ public class ConsoleScanLoggerTests : IDisposable
     public void Error_WithException_WritesToConsoleWithExceptionDetails()
     {
         var exception = new InvalidOperationException("Test exception");
-        
+
         _logger.Error("Test error with exception", exception);
 
         var output = _stringWriter.ToString();

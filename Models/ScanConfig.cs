@@ -43,5 +43,14 @@ namespace MLVScan.Models
 
         // Developer mode: Show remediation guidance for mod developers
         public bool DeveloperMode { get; set; } = false;
+
+        // Enable cross-method data flow analysis (traces data across method boundaries)
+        public bool EnableCrossMethodAnalysis { get; set; } = true;
+
+        // Maximum depth for cross-method call chain analysis (higher = more thorough but slower)
+        public int MaxCallChainDepth { get; set; } = 5;
+
+        // Enable return value data flow tracking (callee returns data → caller uses it)
+        public bool EnableReturnValueTracking { get; set; } = true;
     }
 }
