@@ -208,7 +208,7 @@ namespace MLVScan.Models
             {
                 Summary,
                 "",
-                $"Data Flow Chain (Confidence: {Confidence:P0}):"
+                $"Data Flow Chain (Confidence: {Confidence * 100:F0}%):"
             };
 
             for (int i = 0; i < Nodes.Count; i++)
