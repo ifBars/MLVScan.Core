@@ -8,7 +8,7 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>MLVScan.Core</PackageId>
-    <Version>1.1.3</Version>
+    <Version>1.1.4</Version>
     <Authors>Bars</Authors>
     <Description>Core scanning engine for MLVScan - a security-focused scanner that detects malicious patterns in Unity mod assemblies (MelonLoader, BepInEx).</Description>
     <PackageTags>security;malware;scanner;melonloader;bepinex;unity;mods;antivirus</PackageTags>
