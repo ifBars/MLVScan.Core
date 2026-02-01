@@ -8,7 +8,7 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>MLVScan.Core</PackageId>
-    <Version>1.1.4</Version>
+    <Version>1.1.5</Version>
     <Authors>Bars</Authors>
     <Description>Core scanning engine for MLVScan - a security-focused scanner that detects malicious patterns in Unity mod assemblies (MelonLoader, BepInEx).</Description>
     <PackageTags>security;malware;scanner;melonloader;bepinex;unity;mods;antivirus</PackageTags>
@@ -30,12 +30,18 @@
   
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+    <None Remove="QUARANTINE\**" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Exclude test project from compilation -->
     <Compile Remove="MLVScan.Core.Tests/**/*.cs" />
     <None Include="MLVScan.Core.Tests/**/*" />
+    <Compile Remove="QUARANTINE\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Remove="QUARANTINE\**" />
   </ItemGroup>
 
 </Project>
