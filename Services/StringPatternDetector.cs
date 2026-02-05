@@ -71,7 +71,9 @@ namespace MLVScan.Services
                     string methodName = calledMethod.Name;
 
                     if ((typeName.Contains("Assembly") || typeName.Contains("AssemblyLoadContext")) &&
-                        (methodName == "Load" || methodName.Contains("LoadFrom")))
+                        (methodName == "Load" || methodName.Contains("LoadFrom") ||
+                         methodName == "LoadFile" || methodName == "LoadFromStream" ||
+                         methodName == "LoadFromAssemblyPath"))
                     {
                         return true;
                     }

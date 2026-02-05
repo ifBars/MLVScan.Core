@@ -32,7 +32,7 @@ public class RuleFactoryTests
         rules.Should().ContainSingle(r => r is Base64Rule);
         rules.Should().ContainSingle(r => r is ProcessStartRule);
         rules.Should().ContainSingle(r => r is Shell32Rule);
-        rules.Should().ContainSingle(r => r is LoadFromStreamRule);
+        rules.Should().ContainSingle(r => r is AssemblyDynamicLoadRule);
         rules.Should().ContainSingle(r => r is ByteArrayManipulationRule);
         rules.Should().ContainSingle(r => r is DllImportRule);
         rules.Should().ContainSingle(r => r is RegistryRule);

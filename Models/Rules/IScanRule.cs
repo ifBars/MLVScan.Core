@@ -54,5 +54,16 @@ namespace MLVScan.Models
         {
             return Enumerable.Empty<ScanFinding>();
         }
+
+        /// <summary>
+        /// Called after all methods have been scanned and DataFlowAnalyzer has completed analysis.
+        /// Allows rules to refine their findings using cross-method data flow information.
+        /// The module parameter provides access to embedded resources for recursive scanning.
+        /// Returns additional or refined findings; empty by default for backward compatibility.
+        /// </summary>
+        IEnumerable<ScanFinding> PostAnalysisRefine(ModuleDefinition module, IEnumerable<ScanFinding> existingFindings)
+        {
+            return Enumerable.Empty<ScanFinding>();
+        }
     }
 }

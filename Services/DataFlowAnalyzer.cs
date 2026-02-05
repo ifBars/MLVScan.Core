@@ -257,6 +257,9 @@ namespace MLVScan.Services
             if (IsRegistrySource(declType, methodName))
                 return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "string (registry data)");
 
+            if (IsResourceSource(declType, methodName))
+                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "stream/byte[] (embedded resource)");
+
             // Transform operations (data is modified)
             if (IsBase64Decode(declType, methodName))
                 return (DataFlowNodeType.Transform, "Convert.FromBase64String", "byte[] (decoded)");
@@ -264,10 +267,19 @@ namespace MLVScan.Services
             if (IsEncoding(declType, methodName))
                 return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/string (encoded)");
 
-            if (IsAssemblyLoad(declType, methodName))
-                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "Assembly (loaded code)");
+            if (IsCryptoOperation(declType, methodName))
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[] (crypto operation)");
 
-            // Sink operations (where data is consumed)
+            if (IsCompressionOperation(declType, methodName))
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/stream (decompressed)");
+
+            if (IsStreamMaterialization(declType, methodName))
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[] (materialized from stream)");
+
+            // Sink operations (where data is consumed in a dangerous way)
+            if (IsAssemblyLoad(declType, methodName))
+                return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}", "Assembly (dynamic code loaded)");
+
             if (IsProcessStart(declType, methodName))
                 return (DataFlowNodeType.Sink, "Process.Start", "Executes process");
 
@@ -568,6 +580,11 @@ namespace MLVScan.Services
         private bool IsRegistrySource(string declType, string methodName) =>
             declType.Contains("Microsoft.Win32.Registry") && methodName.Contains("GetValue");
 
+        private bool IsResourceSource(string declType, string methodName) =>
+            (declType == "System.Reflection.Assembly" && methodName == "GetManifestResourceStream") ||
+            (declType.Contains("ResourceManager") &&
+             (methodName == "GetObject" || methodName == "GetStream"));
+
         private bool IsBase64Decode(string declType, string methodName) =>
             declType == "System.Convert" && methodName == "FromBase64String";
 
@@ -575,9 +592,36 @@ namespace MLVScan.Services
             declType.Contains("System.Text.Encoding") ||
             (declType == "System.Convert" && methodName == "ToBase64String");
 
+        private bool IsCryptoOperation(string declType, string methodName) =>
+            // Crypto context creation
+            (declType.Contains("System.Security.Cryptography") &&
+             (methodName == "Create" || methodName == "CreateDecryptor" || methodName == "CreateEncryptor" ||
+              methodName == "TransformFinalBlock" || methodName == "TransformBlock")) ||
+            // CryptoStream construction
+            (declType == "System.Security.Cryptography.CryptoStream" && methodName == ".ctor") ||
+            // Known crypto type constructors
+            (declType.Contains("RijndaelManaged") && methodName == ".ctor") ||
+            (declType.Contains("DESCryptoServiceProvider") && methodName == ".ctor") ||
+            (declType.Contains("TripleDESCryptoServiceProvider") && methodName == ".ctor") ||
+            (declType.Contains("RC2CryptoServiceProvider") && methodName == ".ctor");
+
+        private bool IsCompressionOperation(string declType, string methodName) =>
+            (declType == "System.IO.Compression.GZipStream" && methodName == ".ctor") ||
+            (declType == "System.IO.Compression.DeflateStream" && methodName == ".ctor") ||
+            (declType == "System.IO.Compression.BrotliStream" && methodName == ".ctor") ||
+            // CopyTo on compression streams
+            (declType.Contains("System.IO.Compression") && methodName == "CopyTo");
+
+        private bool IsStreamMaterialization(string declType, string methodName) =>
+            (declType == "System.IO.MemoryStream" && methodName == "ToArray") ||
+            (declType == "System.IO.MemoryStream" && methodName == "GetBuffer") ||
+            (declType == "System.IO.Stream" && methodName == "CopyTo");
+
         private bool IsAssemblyLoad(string declType, string methodName) =>
-            declType == "System.Reflection.Assembly" &&
-            (methodName == "Load" || methodName == "LoadFrom" || methodName == "LoadFile");
+            (declType == "System.Reflection.Assembly" &&
+             (methodName == "Load" || methodName == "LoadFrom" || methodName == "LoadFile")) ||
+            (declType.Contains("AssemblyLoadContext") &&
+             (methodName == "LoadFromStream" || methodName == "LoadFromAssemblyPath"));
 
         private bool IsProcessStart(string declType, string methodName) =>
             declType.Contains("System.Diagnostics.Process") && methodName == "Start";

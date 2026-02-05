@@ -43,6 +43,20 @@ namespace MLVScan.Models
         /// </summary>
         public bool HasDataFlow => DataFlowChain != null && DataFlowChain.Nodes.Count > 0;
 
+        /// <summary>
+        /// When true, this finding bypasses the RequiresCompanionFinding check on its rule.
+        /// Used by rules that compute high-confidence scores internally (e.g., AssemblyDynamicLoadRule
+        /// with a full provenance chain or recursive resource scan that found malware).
+        /// </summary>
+        public bool BypassCompanionCheck { get; set; } = false;
+
+        /// <summary>
+        /// Optional numeric risk score computed by rules that use scoring models.
+        /// Used for transparency in findings output (e.g., "score 82" in descriptions).
+        /// Not used by the scanner for severity decisions — severity is set by the rule.
+        /// </summary>
+        public int? RiskScore { get; set; }
+
         public override string ToString()
         {
             var logMessage = $"[{Severity}] {Description} at {Location}";

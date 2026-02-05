@@ -11,6 +11,7 @@ namespace MLVScan.Services
     /// </summary>
     public class AssemblyScanner
     {
+        private readonly IEnumerable<IScanRule> _rules;
         private readonly TypeScanner _typeScanner;
         private readonly MetadataScanner _metadataScanner;
         private readonly DllImportScanner _dllImportScanner;
@@ -32,6 +33,7 @@ namespace MLVScan.Services
         {
             _config = config ?? new ScanConfig();
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
+            _rules = rules;
 
             // Create all services using composition
             var snippetBuilder = new CodeSnippetBuilder();
@@ -192,6 +194,17 @@ namespace MLVScan.Services
 
             // Phase 2: Analyze cross-method data flows after all methods have been processed
             _dataFlowAnalyzer.AnalyzeCrossMethodFlows();
+
+            // Phase 3: Allow rules to refine findings using post-analysis information
+            // (e.g., recursive embedded resource scanning, DataFlowAnalyzer chain correlation)
+            foreach (var module in assembly.Modules)
+            {
+                foreach (var rule in _rules)
+                {
+                    var refinedFindings = rule.PostAnalysisRefine(module, findings);
+                    findings.AddRange(refinedFindings);
+                }
+            }
         }
 
         private static IEnumerable<ScanFinding> FilterEmptyFindings(List<ScanFinding> findings)

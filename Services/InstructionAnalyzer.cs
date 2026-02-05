@@ -106,7 +106,8 @@ namespace MLVScan.Services
                                 {
                                     // If rule requires companion finding, check if other rules have been triggered
                                     // Exception: Low severity findings are always allowed (e.g., legitimate update checkers)
-                                    if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low)
+                                    // Exception: Findings with BypassCompanionCheck are always allowed (high-confidence scored findings)
+                                    if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low && !finding.BypassCompanionCheck)
                                     {
                                         bool hasOtherTriggeredRules = methodSignals != null &&
                                             methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);

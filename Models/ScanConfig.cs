@@ -52,5 +52,11 @@ namespace MLVScan.Models
 
         // Enable return value data flow tracking (callee returns data → caller uses it)
         public bool EnableReturnValueTracking { get; set; } = true;
+
+        // Enable recursive scanning of embedded resources loaded as assemblies
+        public bool EnableRecursiveResourceScanning { get; set; } = true;
+
+        // Maximum size (in MB) of embedded resources to attempt recursive scanning on
+        public int MaxRecursiveResourceSizeMB { get; set; } = 10;
     }
 }

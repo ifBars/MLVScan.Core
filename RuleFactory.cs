@@ -20,7 +20,7 @@ namespace MLVScan
                 new Base64Rule(),
                 new ProcessStartRule(),
                 new Shell32Rule(),
-                new LoadFromStreamRule(),
+                new AssemblyDynamicLoadRule(),
                 new ByteArrayManipulationRule(),
                 new DllImportRule(),
                 new RegistryRule(),
