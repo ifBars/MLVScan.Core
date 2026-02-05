@@ -1,6 +1,8 @@
 using FluentAssertions;
+using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using Mono.Cecil.Cil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Rules;
@@ -37,6 +39,61 @@ public class EnvironmentPathRuleSimpleTests
     public void IsSuspicious_NullMethod_ReturnsFalse()
     {
         _rule.IsSuspicious(null!).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSuspicious_EnvironmentGetFolderPath_ReturnsTrue()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Environment", "GetFolderPath");
+
+        _rule.IsSuspicious(methodRef).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_SensitiveFolderConstant_ReturnsFinding()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Environment", "GetFolderPath");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldc_I4, 28),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, new MethodSignals()).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Description.Should().Contain("LocalApplicationData");
+        findings[0].CodeSnippet.Should().Contain("Environment.GetFolderPath(28)");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_NonSensitiveFolderConstant_ReturnsEmpty()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Environment", "GetFolderPath");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldc_I4, 2),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_NoIntegerArgument_ReturnsEmpty()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Environment", "GetFolderPath");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "not-a-folder-enum"),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
     }
 
     [Theory]

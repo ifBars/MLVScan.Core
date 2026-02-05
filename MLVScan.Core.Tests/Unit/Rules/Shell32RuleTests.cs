@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using Mono.Cecil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Rules;
@@ -59,5 +60,40 @@ public class Shell32RuleTests
         var methodRef = MethodReferenceFactory.CreateWithNullType("ShellExecute");
 
         _rule.IsSuspicious(methodRef).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSuspicious_GetTypeFromProgIdWithShellParameter_ReturnsTrue()
+    {
+        var methodRef = CreateMethodWithParameterNames("System.Type", "GetTypeFromProgID", "Shell.Application");
+
+        _rule.IsSuspicious(methodRef).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsSuspicious_InvokeMemberWithExecuteParameter_ReturnsTrue()
+    {
+        var methodRef = CreateMethodWithParameterNames("System.Type", "InvokeMember", "ShellExecute");
+
+        _rule.IsSuspicious(methodRef).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsSuspicious_ProcessStartWithCmdParameter_ReturnsTrue()
+    {
+        var methodRef = CreateMethodWithParameterNames("System.Diagnostics.Process", "Start", "cmd.exe");
+
+        _rule.IsSuspicious(methodRef).Should().BeTrue();
+    }
+
+    private static MethodReference CreateMethodWithParameterNames(string declaringTypeFullName, string methodName, params string[] paramNames)
+    {
+        var methodRef = MethodReferenceFactory.Create(declaringTypeFullName, methodName);
+        foreach (var paramName in paramNames)
+        {
+            methodRef.Parameters.Add(new ParameterDefinition(paramName, ParameterAttributes.None, new TypeReference("System", "String", methodRef.Module, methodRef.Module.TypeSystem.CoreLibrary)));
+        }
+
+        return methodRef;
     }
 }
