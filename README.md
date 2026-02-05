@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/ifBars/MLVScan.Core/branch/main/graph/badge.svg)](https://codecov.io/gh/ifBars/MLVScan.Core)
 [![NuGet](https://img.shields.io/nuget/v/MLVScan.Core.svg)](https://www.nuget.org/packages/MLVScan.Core/)
 
-**MLVScan.Core** is a cross-platform malware detection engine for .NET assemblies, powered by IL analysis (Mono.Cecil). It serves as the scanning backbone for [MLVScan](https://github.com/ifBars/MLVScan) (MelonLoader) and [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) (Blazor).
+**MLVScan.Core** is a cross-platform malware detection engine for .NET assemblies, powered by IL analysis (Mono.Cecil). It serves as the scanning backbone for [MLVScan](https://github.com/ifBars/MLVScan) (MelonLoader, BepInEx 5.x, and BepInEx 6.x Mono/Il2Cpp) and [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) (Blazor).
 
 ## 📦 Installation
 
