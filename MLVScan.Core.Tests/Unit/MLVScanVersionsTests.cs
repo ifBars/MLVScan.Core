@@ -1,5 +1,6 @@
 using FluentAssertions;
 using MLVScan;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit;
@@ -67,5 +68,13 @@ public class MLVScanVersionsTests
 
         version1.Should().Be(version2);
         version1.Should().Be(version3);
+    }
+
+    [Fact]
+    public void CoreVersion_BeginsWithThreeNumericSegments()
+    {
+        var match = Regex.Match(MLVScanVersions.CoreVersion, @"^\d+\.\d+\.\d+");
+
+        match.Success.Should().BeTrue();
     }
 }

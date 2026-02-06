@@ -1,6 +1,8 @@
 using FluentAssertions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Rules;
@@ -141,5 +143,74 @@ public class EncodedStringLiteralRuleTests
         EncodedStringLiteralRule.ContainsSuspiciousContent("powershell").Should().BeTrue();
     }
 
+    [Fact]
+    public void AnalyzeStringLiteral_EncodedWithSuspiciousDecodedContent_ReturnsFinding()
+    {
+        var method = CreateMethodDefinition("RunLiteral");
+        var encoded = "112-111-119-101-114-115-104-101-108-108-46-101-120-101"; // powershell.exe
+
+        var findings = _rule.AnalyzeStringLiteral(encoded, method, 3).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Decoded: powershell.exe");
+    }
+
+    [Fact]
+    public void AnalyzeStringLiteral_EncodedWithoutSuspiciousDecodedContent_ReturnsEmpty()
+    {
+        var method = CreateMethodDefinition("RunLiteral");
+        var encoded = "72-101-108-108-111-32-87-111-114-108-100"; // Hello World
+
+        var findings = _rule.AnalyzeStringLiteral(encoded, method, 1).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeAssemblyMetadata_WithEncodedAttributeValue_ReturnsCriticalFinding()
+    {
+        var assembly = TestUtilities.TestAssemblyBuilder.Create("MetaEncoded")
+            .AddAssemblyAttribute("AssemblyMetadataAttribute", "k", "112-111-119-101-114-115-104-101-108-108-120")
+            .Build();
+
+        var findings = _rule.AnalyzeAssemblyMetadata(assembly).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Hidden payload in assembly metadata");
+    }
+
+    [Fact]
+    public void AnalyzeAssemblyMetadata_WithDotSeparatedFourDigitEncoding_UsesFallbackBranch()
+    {
+        var encoded = "0112.0111.0119.0101.0114.0115.0104.0101.0108.0108"; // powershell
+        var assembly = TestUtilities.TestAssemblyBuilder.Create("MetaEncodedDot")
+            .AddAssemblyAttribute("AssemblyMetadataAttribute", "k", encoded)
+            .Build();
+
+        var findings = _rule.AnalyzeAssemblyMetadata(assembly).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+    }
+
     #endregion
+
+    private static MethodDefinition CreateMethodDefinition(string methodName)
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("EncodedLiteralRuleTest", new Version(1, 0, 0, 0)), "EncodedLiteralRuleTest", ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "LiteralType", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var method = new MethodDefinition(methodName, MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void)
+        {
+            Body = new MethodBody(null!)
+        };
+        method.Body = new MethodBody(method);
+        method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(method);
+        return method;
+    }
 }
