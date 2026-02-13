@@ -452,4 +452,215 @@ public class DataFlowAnalyzerTests
     }
 
     #endregion
+
+    #region Null and Edge Case Handling
+
+    [Fact]
+    public void AnalyzeMethod_NullMethod_ReturnsEmptyList()
+    {
+        // Arrange
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        // Act
+        var result = analyzer.AnalyzeMethod(null!);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeMethod_MethodWithNullBody_ReturnsEmptyList()
+    {
+        // Arrange
+        var assembly = TestAssemblyBuilder.Create("NullBodyTest").Build();
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("EmptyMethod", MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual, module.TypeSystem.Void);
+        type.Methods.Add(method);
+
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        // Act
+        var result = analyzer.AnalyzeMethod(method);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeMethod_MethodWithEmptyInstructions_ReturnsEmptyList()
+    {
+        // Arrange
+        var assembly = TestAssemblyBuilder.Create("EmptyInstructionsTest").Build();
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("EmptyMethod", MethodAttributes.Public, module.TypeSystem.Void);
+        method.Body = new MethodBody(method);
+        type.Methods.Add(method);
+
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        // Act
+        var result = analyzer.AnalyzeMethod(method);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Configuration Tests
+
+    [Fact]
+    public void Constructor_WithConfigParameter_CreatesInstanceWithConfig()
+    {
+        // Arrange
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var config = new DataFlowAnalyzerConfig
+        {
+            EnableCrossMethodAnalysis = false,
+            MaxCallChainDepth = 10,
+            EnableReturnValueTracking = false
+        };
+
+        // Act
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder, config);
+
+        // Assert
+        analyzer.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AnalyzeCrossMethodFlows_WithDisabledConfig_DoesNotAnalyze()
+    {
+        // Arrange
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var config = new DataFlowAnalyzerConfig { EnableCrossMethodAnalysis = false };
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder, config);
+
+        var builder = TestAssemblyBuilder.Create("DisabledCrossMethodTest");
+        var module = builder.Module;
+        var typeBuilder = builder.AddType("TestNamespace.TestClass");
+
+        typeBuilder.AddMethod("SinkMethod", MethodAttributes.Public | MethodAttributes.Static)
+            .AddParameter("data", module.TypeSystem.String)
+            .EmitLdarg(0)
+            .EmitCall("System.Diagnostics.Process", "Start", module.TypeSystem.Object)
+            .EmitPop()
+            .EndMethod();
+
+        var sinkMethod = typeBuilder.TypeDefinition.Methods.First(m => m.Name == "SinkMethod");
+
+        typeBuilder.AddMethod("SourceMethod", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(module.TypeSystem.String, out var localIdx)
+            .EmitCall("System.Net.WebClient", "DownloadString", module.TypeSystem.String)
+            .EmitStloc(localIdx)
+            .EmitLdloc(localIdx)
+            .EmitCallInternal(sinkMethod)
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var testType = assembly.MainModule.Types.First(t => t.Name == "TestClass");
+        var sourceMethod = testType.Methods.First(m => m.Name == "SourceMethod");
+        var targetMethod = testType.Methods.First(m => m.Name == "SinkMethod");
+
+        analyzer.AnalyzeMethod(sourceMethod);
+        analyzer.AnalyzeMethod(targetMethod);
+
+        // Act
+        analyzer.AnalyzeCrossMethodFlows();
+
+        // Assert
+        analyzer.CrossMethodChainCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void AnalyzeCrossMethodFlows_WithMaxDepthLessThan3_DoesNotRunDeepAnalysis()
+    {
+        // Arrange
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var config = new DataFlowAnalyzerConfig { MaxCallChainDepth = 2 };
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder, config);
+
+        // Act - should not throw
+        var act = () => analyzer.AnalyzeCrossMethodFlows();
+
+        // Assert
+        act.Should().NotThrow();
+    }
+
+    #endregion
+
+    #region Data Flow Chain Properties Tests
+
+    [Fact]
+    public void DataFlowChain_SuspiciousFlag_SingleMethodChain()
+    {
+        var chain = new DataFlowChain(
+            "test-chain",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            0.95,
+            "Test chain",
+            "TestClass.Method");
+
+        chain.IsSuspicious.Should().BeTrue();
+        chain.IsCrossMethod.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DataFlowChain_ToDetailedDescription_ContainsSummary()
+    {
+        var chain = new DataFlowChain(
+            "test-chain",
+            DataFlowPattern.DataExfiltration,
+            Severity.Critical,
+            0.90,
+            "Data exfiltration detected",
+            "TestClass.Method");
+
+        // Add nodes to trigger full description
+        chain.AppendNode(new DataFlowNode("loc1", "File.ReadAllText", DataFlowNodeType.Source, "file data", 0, "var data = File.ReadAllText(...)"));
+        chain.AppendNode(new DataFlowNode("loc2", "WebClient.UploadString", DataFlowNodeType.Sink, "network send", 10, "client.UploadString(...)"));
+
+        var description = chain.ToDetailedDescription();
+
+        // The description should contain the summary and chain info when nodes are present
+        description.Should().Contain("Data exfiltration detected");
+        description.Should().Contain("Data Flow Chain");
+        description.Should().Contain("Confidence: 90%");
+    }
+
+    [Fact]
+    public void DataFlowChain_ToCombinedCodeSnippet_CombinesNodeSnippets()
+    {
+        var chain = new DataFlowChain(
+            "test-chain",
+            DataFlowPattern.DynamicCodeLoading,
+            Severity.High,
+            0.85,
+            "Dynamic loading",
+            "TestClass.Method");
+
+        chain.AppendNode(new DataFlowNode("loc1", "Op1", DataFlowNodeType.Source, "data", 0, "snippet1"));
+        chain.AppendNode(new DataFlowNode("loc2", "Op2", DataFlowNodeType.Sink, "result", 10, "snippet2"));
+
+        var combined = chain.ToCombinedCodeSnippet();
+
+        combined.Should().Contain("snippet1");
+        combined.Should().Contain("snippet2");
+    }
+
+    #endregion
 }
