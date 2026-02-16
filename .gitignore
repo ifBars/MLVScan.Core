@@ -38,4 +38,9 @@ packages/
 
 ## Project-specific
 nuget-upload.txt
-#AGENTS.md
+AGENTS.md
+.opencode/
+
+## Testing Mods
+FALSE_POSITIVES/
+QUARANTINE/

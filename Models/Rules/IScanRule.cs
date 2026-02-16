@@ -56,6 +56,16 @@ namespace MLVScan.Models
         }
 
         /// <summary>
+        /// Determines if a finding should be suppressed based on contextual analysis.
+        /// Called when IsSuspicious returns true, before creating a finding.
+        /// Return true to suppress the finding entirely.
+        /// </summary>
+        bool ShouldSuppressFinding(MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex, MethodSignals methodSignals, MethodSignals? typeSignals = null)
+        {
+            return false;
+        }
+
+        /// <summary>
         /// Called after all methods have been scanned and DataFlowAnalyzer has completed analysis.
         /// Allows rules to refine their findings using cross-method data flow information.
         /// The module parameter provides access to embedded resources for recursive scanning.

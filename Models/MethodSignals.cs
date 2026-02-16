@@ -14,6 +14,8 @@ namespace MLVScan.Models
         public bool HasFileWrite { get; set; }
         public bool HasSuspiciousLocalVariables { get; set; }
         public bool HasSuspiciousExceptionHandling { get; set; }
+        public bool HasPathManipulation { get; set; }
+        public bool HasEnvironmentVariableModification { get; set; }
 
         private HashSet<string> _triggeredRuleIds = new HashSet<string>();
 

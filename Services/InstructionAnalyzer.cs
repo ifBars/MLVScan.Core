@@ -198,6 +198,20 @@ namespace MLVScan.Services
                             _rules.Any(r => r.IsSuspicious(calledMethod)))
                         {
                             var rule = _rules.First(r => r.IsSuspicious(calledMethod));
+
+                            // Get type-level signals for cross-method detection (e.g., file writes in other methods)
+                            MethodSignals? typeSignals = null;
+                            if (!string.IsNullOrEmpty(typeFullName))
+                            {
+                                typeSignals = _signalTracker.GetTypeSignals(typeFullName);
+                            }
+
+                            // Check if rule wants to suppress this finding based on contextual analysis
+                            if (rule.ShouldSuppressFinding(calledMethod, instructions, i, methodSignals, typeSignals))
+                            {
+                                continue;
+                            }
+
                             var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
 
                             var finding = new ScanFinding(

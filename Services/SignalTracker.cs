@@ -120,6 +120,21 @@ namespace MLVScan.Services
                     }
                 }
             }
+
+            // Check for environment variable manipulation (e.g., PATH modification attacks)
+            if (typeName == "System.Environment" && methodName == "SetEnvironmentVariable")
+            {
+                signals.HasEnvironmentVariableModification = true;
+                // Mark type-level signal
+                if (declaringType != null)
+                {
+                    var typeSignal = GetOrCreateTypeSignals(declaringType.FullName);
+                    if (typeSignal != null)
+                    {
+                        typeSignal.HasEnvironmentVariableModification = true;
+                    }
+                }
+            }
         }
 
         public void MarkEncodedStrings(MethodSignals? methodSignals, TypeDefinition? declaringType)
