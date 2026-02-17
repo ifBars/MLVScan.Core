@@ -31,6 +31,7 @@ public static class ScanResultMapper
             {
                 CoreVersion = options.CoreVersion,
                 PlatformVersion = options.PlatformVersion,
+                ScannerVersion = options.PlatformVersion,
                 Timestamp = DateTime.UtcNow.ToString("o"),
                 ScanMode = options.ScanMode,
                 Platform = options.Platform

@@ -30,4 +30,10 @@ public class ScanMetadataDto
     /// Platform where the scan was executed (e.g., "wasm", "cli", "server", "desktop").
     /// </summary>
     public string Platform { get; set; } = "core";
+
+    /// <summary>
+    /// Version of the scanner implementation (e.g., "1.0.2" for DevCLI, "0.1.0" for WASM).
+    /// Used by frontend components to display the scanner version.
+    /// </summary>
+    public string ScannerVersion { get; set; } = "0.0.0";
 }
