@@ -17,7 +17,10 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '8.0.x'
-    
+
+    - name: Install WASM workload
+      run: dotnet workload install wasm-tools-net8 --skip-manifest-update
+
     - name: Restore dependencies
       run: dotnet restore MLVScan.Core.sln
     
