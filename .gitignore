@@ -44,3 +44,7 @@ AGENTS.md
 ## Testing Mods
 FALSE_POSITIVES/
 QUARANTINE/
+
+## WASM / NPM
+MLVScan.WASM/npm/dist/
+MLVScan.WASM/npm/node_modules/

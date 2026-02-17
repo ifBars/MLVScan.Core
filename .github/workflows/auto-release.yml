@@ -7,6 +7,7 @@ on:
       - master
     paths:
       - 'MLVScan.Core.csproj'
+      - 'Directory.Build.props'
   workflow_dispatch:
     inputs:
       version:
@@ -38,8 +39,8 @@ jobs:
           exit 0
         fi
         
-        # Get current version from .csproj
-        CURRENT_VERSION=$(grep -oP '<Version>\K[^<]+' MLVScan.Core.csproj)
+        # Get current version from Directory.Build.props
+        CURRENT_VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
         echo "Current version: $CURRENT_VERSION"
         
         # If manually triggered without version, always use current version
@@ -51,12 +52,12 @@ jobs:
         fi
         
         # Get previous version from git
-        git checkout HEAD~1 -- MLVScan.Core.csproj 2>/dev/null || echo "First commit"
-        PREVIOUS_VERSION=$(grep -oP '<Version>\K[^<]+' MLVScan.Core.csproj 2>/dev/null || echo "0.0.0")
+        git checkout HEAD~1 -- Directory.Build.props 2>/dev/null || echo "First commit"
+        PREVIOUS_VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props 2>/dev/null || echo "0.0.0")
         echo "Previous version: $PREVIOUS_VERSION"
         
         # Restore current version
-        git checkout HEAD -- MLVScan.Core.csproj
+        git checkout HEAD -- Directory.Build.props
         
         # Compare versions
         if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
@@ -153,4 +154,4 @@ jobs:
         echo "**Version:** v${{ needs.check-version.outputs.new-version }}" >> $GITHUB_STEP_SUMMARY
         echo "**Tag:** v${{ needs.check-version.outputs.new-version }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "The NuGet publish workflow will be triggered automatically." >> $GITHUB_STEP_SUMMARY
+        echo "The NuGet and npm publish workflows will be triggered automatically." >> $GITHUB_STEP_SUMMARY

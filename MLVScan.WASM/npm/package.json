@@ -1,0 +1,19 @@
+{
+  "name": "@mlvscan/wasm-core",
+  "version": "1.1.7",
+  "description": "WebAssembly core for MLVScan - scanning Unity mods in the browser",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "copy:framework": "node scripts/copy-framework.cjs"
+  },
+  "author": "Bars",
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^18.0.0"
+  }
+}

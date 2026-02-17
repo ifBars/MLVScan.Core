@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    
+    <!-- Package metadata -->
+    <PackageId>MLVScan.WASM</PackageId>
+    <Authors>Bars</Authors>
+    <Description>WebAssembly adapter for MLVScan.Core - enables in-browser scanning of Unity mod assemblies.</Description>
+    <PackageTags>security;malware;scanner;wasm;webassembly;browser;melonloader;bepinex</PackageTags>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <AssemblyName>MLVScan.WASM</AssemblyName>
+    <RootNamespace>MLVScan.WASM</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference MLVScan.Core from local path -->
+    <ProjectReference Include="..\MLVScan.Core.csproj" />
+  </ItemGroup>
+
+</Project>

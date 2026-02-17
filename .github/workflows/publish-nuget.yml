@@ -45,8 +45,8 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
         else
-          # Fallback: read from .csproj
-          VERSION=$(grep -oP '<Version>\K[^<]+' MLVScan.Core.csproj)
+          # Fallback: read from Directory.Build.props
+          VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
         fi
       shell: bash

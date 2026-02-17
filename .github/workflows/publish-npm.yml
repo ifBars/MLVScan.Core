@@ -1,0 +1,90 @@
+# Publishes @mlvscan/wasm-core.
+# First publish (package doesn't exist yet): Add NPM_TOKEN secret in repo Settings → Secrets.
+#   Create token at npmjs.com → Access Tokens → "Automation" or "Publish", then add as NPM_TOKEN.
+# After first publish: npmjs.com → Package @mlvscan/wasm-core → Settings → Trusted publishing
+#   → Add GitHub Actions publisher with workflow filename: publish-npm.yml.
+#   Then you can remove NPM_TOKEN; future publishes use OIDC (Trusted Publishing).
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["Auto Release on Version Change"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    permissions:
+      id-token: write   # Required for npm Trusted Publishing (OIDC)
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Extract version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" == "release" ]; then
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        else
+          VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Publish WASM
+      run: dotnet publish MLVScan.WASM/MLVScan.WASM.csproj -c Release
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+        cache-dependency-path: MLVScan.WASM/npm/package-lock.json
+
+    - name: Install npm dependencies
+      working-directory: MLVScan.WASM/npm
+      run: npm ci
+
+    - name: Copy Blazor framework to dist
+      working-directory: MLVScan.WASM/npm
+      run: npm run copy:framework
+
+    - name: Build TypeScript
+      working-directory: MLVScan.WASM/npm
+      run: npm run build
+
+    - name: Set package version
+      working-directory: MLVScan.WASM/npm
+      run: npm version ${{ steps.get_version.outputs.version }} --no-git-tag-version --allow-same-version
+
+    - name: Publish to npm
+      working-directory: MLVScan.WASM/npm
+      run: npm publish --access public
+      env:
+        # Optional: needed for first-ever publish (creates the package). Omit after Trusted Publishing is set up.
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Summary
+      run: |
+        echo "### ✅ npm package published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Package:** \`@mlvscan/wasm-core\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
