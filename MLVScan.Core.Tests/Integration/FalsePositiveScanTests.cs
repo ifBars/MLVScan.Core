@@ -97,9 +97,9 @@ public class FalsePositiveScanTests
     /// 1. Opening folders in Windows Explorer (Process.Start("explorer.exe", path))
     /// 2. Restarting the current game process
     /// 
-    /// With the updated ProcessStartRule, these patterns are now recognized as safe
-    /// and suppressed. However, it still triggers SuspiciousLocalVariableRule (Low severity)
-    /// which is expected behavior - the rule correctly identifies the use of Process types.
+    /// With the updated ProcessStartRule, these patterns are recognized as safe
+    /// and suppressed. SuspiciousLocalVariableRule is now supporting-signal only,
+    /// so it should not emit standalone findings.
     /// </summary>
     [SkippableFact]
     public void Scan_LethalLizardModManager_ShouldNotProduceCriticalFindings()
@@ -115,12 +115,27 @@ public class FalsePositiveScanTests
         findings.Should().NotContain(f => f.Severity == Severity.Critical,
             "LethalLizard.ModManager.dll should not trigger Critical findings after ProcessStartRule fix");
 
-        // Low findings are expected (SuspiciousLocalVariableRule correctly identifies Process usage)
-        // This is acceptable as it's just a signal for multi-pattern detection
-        var lowFindings = findings.Where(f => f.Severity == Severity.Low).ToList();
-        lowFindings.Should().NotBeEmpty("LethalLizard.ModManager.dll should have Low findings from SuspiciousLocalVariableRule");
-        lowFindings.Should().OnlyContain(f => f.RuleId == "SuspiciousLocalVariableRule",
-            "Only SuspiciousLocalVariableRule should trigger for this sample");
+        findings.Should().BeEmpty(
+            "LethalLizard.ModManager.dll should not emit standalone findings when only supporting signals are present");
+    }
+
+    /// <summary>
+    /// CustomTV legitimately uses System.Diagnostics.Process for controlled yt-dlp execution
+    /// (UseShellExecute=false, output redirection, timeout-based WaitForExit).
+    /// The SuspiciousLocalVariableRule should suppress this low-signal pattern.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_CustomTV_ShouldNotProduceSuspiciousLocalVariableFindings()
+    {
+        var path = GetSamplePath("CustomTV.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "CustomTV.dll");
+
+        findings.Should().NotContain(f => f.RuleId == "SuspiciousLocalVariableRule",
+            "CustomTV's controlled yt-dlp process usage should not trigger SuspiciousLocalVariableRule");
     }
 
     #endregion
@@ -199,13 +214,12 @@ public class FalsePositiveScanTests
         results.Should().AllSatisfy(r =>
             r.HighSeverity.Should().Be(0, $"{r.Sample} is a known false positive and should not trigger High+ severity findings"));
 
-        // LethalLizard.ModManager.dll is expected to have Low findings (SuspiciousLocalVariableRule)
-        // which is acceptable since it's just a signal for multi-pattern detection
+        // SuspiciousLocalVariableRule is supporting-signal only and should not emit standalone findings
         var lethalLizardResult = results.FirstOrDefault(r => r.Sample == "LethalLizard.ModManager.dll");
         if (lethalLizardResult.Sample != null)
         {
-            lethalLizardResult.LowSeverity.Should().BeGreaterThanOrEqualTo(1,
-                "LethalLizard.ModManager.dll should have Low findings from SuspiciousLocalVariableRule");
+            lethalLizardResult.TotalFindings.Should().Be(0,
+                "LethalLizard.ModManager.dll should have no standalone findings when only supporting signals are present");
         }
     }
 

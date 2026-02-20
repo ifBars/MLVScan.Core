@@ -10,7 +10,7 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class SuspiciousLocalVariableRule : IScanRule
     {
-        public string Description => "Method uses variable types commonly seen in malicious code";
+        public string Description => "Supporting signal: method uses variable types commonly seen in malicious code";
         public Severity Severity => Severity.Low;
         public string RuleId => "SuspiciousLocalVariableRule";
         public bool RequiresCompanionFinding => true;
@@ -29,6 +29,7 @@ namespace MLVScan.Models.Rules
                 return findings;
 
             var suspiciousTypes = new List<string>();
+            bool suppressControlledProcessPattern = ShouldSuppressControlledProcessPattern(instructions, methodSignals);
 
             foreach (var variable in method.Body.Variables)
             {
@@ -37,22 +38,157 @@ namespace MLVScan.Models.Rules
                 // Check for suspicious types
                 if (IsSuspiciousVariableType(variableType))
                 {
+                    if (suppressControlledProcessPattern && IsProcessVariableType(variableType))
+                        continue;
+
                     suspiciousTypes.Add($"{variableType} (var_{variable.Index})");
                 }
             }
 
-            if (suspiciousTypes.Count > 0)
+            if (suspiciousTypes.Count > 0 && methodSignals != null)
             {
-                var finding = new ScanFinding(
-                    $"{method.DeclaringType?.FullName}.{method.Name}",
-                    Description + $": {string.Join(", ", suspiciousTypes.Take(3))}{(suspiciousTypes.Count > 3 ? $" and {suspiciousTypes.Count - 3} more" : "")}",
-                    Severity,
-                    $"Suspicious local variable types detected: {string.Join(", ", suspiciousTypes)}");
-
-                findings.Add(finding);
+                // Supporting-signal only: contribute to method signals and companion checks,
+                // but do not emit a standalone finding.
+                methodSignals.HasSuspiciousLocalVariables = true;
+                methodSignals.MarkRuleTriggered(RuleId);
             }
 
             return findings;
+        }
+
+        private static bool ShouldSuppressControlledProcessPattern(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            MethodSignals methodSignals)
+        {
+            if (methodSignals?.HasEnvironmentVariableModification == true)
+                return false;
+
+            bool hasProcessStart = false;
+            bool hasUseShellExecuteFalse = false;
+            bool hasOutputRedirection = false;
+            bool hasWaitForExit = false;
+            bool hasDangerousCommandLiteral = false;
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                var instruction = instructions[i];
+
+                if (instruction.OpCode == OpCodes.Ldstr &&
+                    instruction.Operand is string literal &&
+                    IsDangerousProcessCommandLiteral(literal))
+                {
+                    hasDangerousCommandLiteral = true;
+                }
+
+                if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt)
+                    continue;
+
+                if (instruction.Operand is not MethodReference methodRef)
+                    continue;
+
+                var declaringType = methodRef.DeclaringType?.FullName ?? string.Empty;
+                var methodName = methodRef.Name ?? string.Empty;
+
+                if (declaringType == "System.Diagnostics.Process")
+                {
+                    if (methodName == "Start")
+                    {
+                        hasProcessStart = true;
+                    }
+                    else if (methodName == "WaitForExit")
+                    {
+                        hasWaitForExit = true;
+                    }
+
+                    continue;
+                }
+
+                if (declaringType != "System.Diagnostics.ProcessStartInfo")
+                    continue;
+
+                if (methodName == "set_UseShellExecute")
+                {
+                    bool? value = TryGetBooleanArgument(instructions, i);
+                    if (value == false)
+                    {
+                        hasUseShellExecuteFalse = true;
+                    }
+                }
+                else if (methodName == "set_RedirectStandardOutput" || methodName == "set_RedirectStandardError")
+                {
+                    bool? value = TryGetBooleanArgument(instructions, i);
+                    if (value == true)
+                    {
+                        hasOutputRedirection = true;
+                    }
+                }
+            }
+
+            return hasProcessStart &&
+                   hasUseShellExecuteFalse &&
+                   hasOutputRedirection &&
+                   hasWaitForExit &&
+                   !hasDangerousCommandLiteral;
+        }
+
+        private static bool? TryGetBooleanArgument(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callInstructionIndex)
+        {
+            if (callInstructionIndex <= 0)
+                return null;
+
+            var previous = instructions[callInstructionIndex - 1];
+
+            if (previous.OpCode == OpCodes.Ldc_I4_0)
+                return false;
+
+            if (previous.OpCode == OpCodes.Ldc_I4_1)
+                return true;
+
+            if (previous.OpCode == OpCodes.Ldc_I4_S && previous.Operand is sbyte sbyteValue)
+            {
+                if (sbyteValue == 0)
+                    return false;
+
+                if (sbyteValue == 1)
+                    return true;
+            }
+
+            if (previous.OpCode == OpCodes.Ldc_I4 && previous.Operand is int intValue)
+            {
+                if (intValue == 0)
+                    return false;
+
+                if (intValue == 1)
+                    return true;
+            }
+
+            return null;
+        }
+
+        private static bool IsDangerousProcessCommandLiteral(string literal)
+        {
+            if (string.IsNullOrWhiteSpace(literal))
+                return false;
+
+            string normalized = literal.Trim().ToLowerInvariant();
+
+            return normalized.Contains("cmd.exe") ||
+                   normalized.Contains("powershell") ||
+                   normalized.Contains("pwsh") ||
+                   normalized.Contains("wscript") ||
+                   normalized.Contains("cscript") ||
+                   normalized.Contains("mshta") ||
+                   normalized.Contains("rundll32") ||
+                   normalized.Contains("regsvr32") ||
+                   normalized.Contains("certutil") ||
+                   normalized.Contains("bitsadmin");
+        }
+
+        private static bool IsProcessVariableType(string typeName)
+        {
+            return typeName.StartsWith("System.Diagnostics.Process", StringComparison.Ordinal);
         }
 
         private static bool IsSuspiciousVariableType(string typeName)
@@ -86,4 +222,3 @@ namespace MLVScan.Models.Rules
         }
     }
 }
-

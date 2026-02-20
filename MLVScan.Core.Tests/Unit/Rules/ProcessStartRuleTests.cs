@@ -68,6 +68,123 @@ public class ProcessStartRuleTests
         _rule.IsSuspicious(methodRef).Should().BeFalse();
     }
 
+    [Fact]
+    public void GetFindingDescription_WithStartInfoFileNameLiteral_IncludesTarget()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
+
+        description.Should().Contain("Target: \"yt-dlp.exe\"");
+    }
+
+    [Fact]
+    public void GetFindingDescription_WithDynamicStartInfoFileName_IncludesDynamicMarker()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldloc_0);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
+
+        description.Should().Contain("Target: <local V_0>");
+    }
+
+    [Fact]
+    public void GetFindingDescription_WithPathCombineInSetFileName_ExtractsExecutableName()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldstr, "C:\\Tools");
+        processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
+        processor.Emit(OpCodes.Call, new MethodReference("Combine", new TypeReference("", "String", null, null), new TypeReference("System.IO", "Path", null, null))
+        {
+            Parameters =
+            {
+                new ParameterDefinition(new TypeReference("", "String", null, null)),
+                new ParameterDefinition(new TypeReference("", "String", null, null))
+            }
+        });
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
+
+        description.Should().Contain("Target: \"yt-dlp.exe\"");
+    }
+
+    [Fact]
+    public void GetFindingDescription_WithFieldBackedFileName_ExtractsExecutableName()
+    {
+        var type = new TypeDefinition("Tests", "Holder", TypeAttributes.Public | TypeAttributes.Class, new TypeReference("", "Object", null, null));
+        var field = new FieldDefinition("ytDlpExePath", FieldAttributes.Public | FieldAttributes.Static, new TypeReference("", "String", null, null));
+        type.Fields.Add(field);
+
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static, new TypeReference("", "Void", null, null));
+        type.Methods.Add(method);
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
+        processor.Emit(OpCodes.Stsfld, field);
+        processor.Emit(OpCodes.Ldsfld, field);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
+
+        description.Should().Contain("Target: \"yt-dlp.exe\"");
+    }
+
+    [Fact]
+    public void GetFindingDescription_WithStartStringArguments_UsesFirstParameterAsTarget()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
+        processor.Emit(OpCodes.Ldstr, "--help");
+
+        var startRef = new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null))
+        {
+            HasThis = false
+        };
+        startRef.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        startRef.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        processor.Emit(OpCodes.Call, startRef);
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+
+        string description = _rule.GetFindingDescription(startRef, instructions, callIndex);
+
+        description.Should().Contain("Target: \"yt-dlp.exe\"");
+    }
+
     #region ShouldSuppressFinding Tests
 
     [Fact]

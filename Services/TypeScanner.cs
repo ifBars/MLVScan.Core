@@ -112,7 +112,11 @@ namespace MLVScan.Services
                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                     reflectionRule.Description + " (combined with other suspicious patterns detected in this type)",
                     reflectionRule.Severity,
-                    snippet);
+                    snippet)
+                {
+                    RuleId = reflectionRule.RuleId,
+                    DeveloperGuidance = reflectionRule.DeveloperGuidance
+                };
                 findings.Add(finding);
                 // Mark rule as triggered
                 if (methodSignals != null)

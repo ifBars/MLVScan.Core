@@ -66,6 +66,24 @@ namespace MLVScan.Models
         }
 
         /// <summary>
+        /// Builds the finding description for a suspicious method call.
+        /// Rules can override this to include contextual details (for example, target executable names).
+        /// </summary>
+        string GetFindingDescription(MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
+        {
+            return Description;
+        }
+
+        /// <summary>
+        /// Builds the finding description for a suspicious method call with access to the containing method.
+        /// Rules can override this to perform deeper contextual extraction using the surrounding method body/module.
+        /// </summary>
+        string GetFindingDescription(MethodDefinition containingMethod, MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
+        {
+            return GetFindingDescription(method, instructions, instructionIndex);
+        }
+
+        /// <summary>
         /// Called after all methods have been scanned and DataFlowAnalyzer has completed analysis.
         /// Allows rules to refine their findings using cross-method data flow information.
         /// The module parameter provides access to embedded resources for recursive scanning.

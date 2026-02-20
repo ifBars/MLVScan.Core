@@ -13,6 +13,12 @@ public partial class ScannerExports
     }
 
     [JSExport]
+    public static string ScanAssemblyWithConfig(byte[] assemblyBytes, string fileName, string configJson)
+    {
+        return _scanner.ScanAssemblyWithConfig(assemblyBytes, fileName, configJson);
+    }
+
+    [JSExport]
     public static string GetVersion()
     {
         return WasmScanner.GetVersion();

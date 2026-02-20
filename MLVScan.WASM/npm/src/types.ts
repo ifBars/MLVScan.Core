@@ -141,3 +141,38 @@ export interface DeveloperGuidance {
   alternativeApis?: string[]
   isRemediable: boolean
 }
+
+export interface DeepBehaviorAnalysisConfig {
+  enableDeepAnalysis?: boolean
+  emitDiagnosticFindings?: boolean
+  requireCorrelatedBaseFinding?: boolean
+  deepScanOnlyFlaggedMethods?: boolean
+  enableStringDecodeFlow?: boolean
+  enableExecutionChainAnalysis?: boolean
+  enableResourcePayloadAnalysis?: boolean
+  enableDynamicLoadCorrelation?: boolean
+  enableNativeInteropCorrelation?: boolean
+  enableScriptHostLaunchAnalysis?: boolean
+  enableEnvironmentPivotCorrelation?: boolean
+  enableNetworkToExecutionCorrelation?: boolean
+
+  maxInstructionsPerMethod?: number
+  maxAnalysisTimeMsPerMethod?: number
+  maxDeepMethodsPerAssembly?: number
+  maxTrackedDataFlowEdgesPerMethod?: number
+}
+
+export interface ScanConfigInput {
+  developerMode?: boolean
+  enableCrossMethodAnalysis?: boolean
+  maxCallChainDepth?: number
+  enableReturnValueTracking?: boolean
+  detectAssemblyMetadata?: boolean
+  enableMultiSignalDetection?: boolean
+  analyzeExceptionHandlers?: boolean
+  analyzeLocalVariables?: boolean
+  analyzePropertyAccessors?: boolean
+  enableRecursiveResourceScanning?: boolean
+  maxRecursiveResourceSizeMB?: number
+  deepAnalysis?: DeepBehaviorAnalysisConfig
+}

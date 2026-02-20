@@ -58,5 +58,8 @@ namespace MLVScan.Models
 
         // Maximum size (in MB) of embedded resources to attempt recursive scanning on
         public int MaxRecursiveResourceSizeMB { get; set; } = 10;
+
+        // Deep behavior analysis configuration for practical Unity-mod threat detection
+        public DeepBehaviorAnalysisConfig DeepAnalysis { get; set; } = new DeepBehaviorAnalysisConfig();
     }
 }

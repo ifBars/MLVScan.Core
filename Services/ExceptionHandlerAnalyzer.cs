@@ -97,7 +97,11 @@ namespace MLVScan.Services
                                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                                     rule.Description + $" (found in exception {handlerTypeDesc})",
                                     rule.Severity,
-                                    snippet);
+                                    snippet)
+                                {
+                                    RuleId = rule.RuleId,
+                                    DeveloperGuidance = rule.DeveloperGuidance
+                                };
 
                                 findings.Add(finding);
 

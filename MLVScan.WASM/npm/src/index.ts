@@ -19,7 +19,7 @@
  * ```
  */
 
-import type { ScanResult } from './types'
+import type { ScanConfigInput, ScanResult } from './types'
 
 let scannerExports: any = null
 let scannerLoaded = false
@@ -223,6 +223,46 @@ export async function scanAssembly(
     return JSON.parse(resultJson) as ScanResult
   } catch (error) {
     throw new Error(`Scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
+/**
+ * Scans an assembly with an explicit scan configuration (including deep analysis options).
+ * Use this for opt-in deep scans while keeping quick scan defaults for normal usage.
+ */
+export async function scanAssemblyWithConfig(
+  fileBytes: Uint8Array,
+  fileName: string,
+  config: ScanConfigInput
+): Promise<ScanResult> {
+  if (!scannerLoaded) {
+    await initScanner()
+  }
+
+  if (useMockScanner || !scannerExports) {
+    return {
+      ...mockScanResult,
+      input: {
+        fileName,
+        sizeBytes: fileBytes.length,
+      },
+    }
+  }
+
+  if (!scannerExports.MLVScan?.WASM?.ScannerExports) {
+    throw new Error('Scanner not properly initialized: MLVScan.WASM.ScannerExports not found')
+  }
+
+  try {
+    const configJson = JSON.stringify(config ?? {})
+    const resultJson = scannerExports.MLVScan.WASM.ScannerExports.ScanAssemblyWithConfig(
+      fileBytes,
+      fileName,
+      configJson
+    )
+    return JSON.parse(resultJson) as ScanResult
+  } catch (error) {
+    throw new Error(`Scan with config failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 

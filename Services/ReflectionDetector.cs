@@ -124,7 +124,10 @@ namespace MLVScan.Services
                         $"{methodDef.DeclaringType?.FullName}.{methodDef.Name}:{instruction.Offset}",
                         "Reflection invocation with non-literal target method name (cannot determine what is being invoked) - combined with other suspicious patterns",
                         severity,
-                        snippet));
+                        snippet)
+                    {
+                        RuleId = "ReflectionRule"
+                    });
                     return findings;
                 }
 
@@ -150,8 +153,12 @@ namespace MLVScan.Services
                     findings.Add(new ScanFinding(
                         $"{methodDef.DeclaringType?.FullName}.{methodDef.Name}:{instruction.Offset}",
                         $"Potential reflection bypass: {rule.Description}",
-                        rule.Severity == Severity.Low ? Severity.Medium : rule.Severity, // Elevate severity for reflection bypasses
-                        snippet));
+                        rule.Severity == Severity.Low ? Severity.Medium : rule.Severity,
+                        snippet)
+                    {
+                        RuleId = rule.RuleId,
+                        DeveloperGuidance = rule.DeveloperGuidance
+                    });
                 }
             }
             catch (Exception)

@@ -108,7 +108,15 @@ namespace MLVScan.Services
                         finding.Location,
                         finding.Description + $" (found in property {accessorType}: {propertyName})",
                         finding.Severity,
-                        finding.CodeSnippet);
+                        finding.CodeSnippet)
+                    {
+                        RuleId = finding.RuleId,
+                        DeveloperGuidance = finding.DeveloperGuidance,
+                        CallChain = finding.CallChain,
+                        DataFlowChain = finding.DataFlowChain,
+                        BypassCompanionCheck = finding.BypassCompanionCheck,
+                        RiskScore = finding.RiskScore
+                    };
 
                     findings.Add(contextualFinding);
                 }
@@ -136,7 +144,15 @@ namespace MLVScan.Services
                         finding.Location,
                         finding.Description + $" (found in event {handlerType}: {eventName})",
                         finding.Severity,
-                        finding.CodeSnippet);
+                        finding.CodeSnippet)
+                    {
+                        RuleId = finding.RuleId,
+                        DeveloperGuidance = finding.DeveloperGuidance,
+                        CallChain = finding.CallChain,
+                        DataFlowChain = finding.DataFlowChain,
+                        BypassCompanionCheck = finding.BypassCompanionCheck,
+                        RiskScore = finding.RiskScore
+                    };
 
                     findings.Add(contextualFinding);
                 }

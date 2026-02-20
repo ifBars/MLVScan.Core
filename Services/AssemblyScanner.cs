@@ -1,6 +1,7 @@
 using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.DeepBehavior;
 using Mono.Cecil;
 
 namespace MLVScan.Services
@@ -11,12 +12,34 @@ namespace MLVScan.Services
     /// </summary>
     public class AssemblyScanner
     {
+        private static readonly HashSet<string> DeepCorrelationRuleIds = new(StringComparer.Ordinal)
+        {
+            "ProcessStartRule",
+            "Shell32Rule",
+            "AssemblyDynamicLoadRule",
+            "DllImportRule",
+            "ReflectionRule",
+            "EnvironmentPathRule",
+            "Base64Rule",
+            "HexStringRule",
+            "EncodedStringLiteralRule",
+            "EncodedStringPipelineRule",
+            "EncodedBlobSplittingRule",
+            "ByteArrayManipulationRule",
+            "RegistryRule",
+            "COMReflectionAttackRule",
+            "DataExfiltrationRule",
+            "DataInfiltrationRule",
+            "PersistenceRule"
+        };
+
         private readonly IEnumerable<IScanRule> _rules;
         private readonly TypeScanner _typeScanner;
         private readonly MetadataScanner _metadataScanner;
         private readonly DllImportScanner _dllImportScanner;
         private readonly CallGraphBuilder _callGraphBuilder;
         private readonly DataFlowAnalyzer _dataFlowAnalyzer;
+        private readonly DeepBehaviorOrchestrator _deepBehaviorOrchestrator;
         private readonly IAssemblyResolverProvider _resolverProvider;
         private readonly ScanConfig _config;
 
@@ -45,6 +68,9 @@ namespace MLVScan.Services
 
             // Create data flow analyzer for tracking data movement through operations
             _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+            // Create deep behavior orchestrator for practical Unity-mod threat correlation
+            _deepBehaviorOrchestrator = new DeepBehaviorOrchestrator(_config.DeepAnalysis, snippetBuilder);
 
             var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
             var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);
@@ -80,6 +106,7 @@ namespace MLVScan.Services
                 // Clear builders for fresh scan
                 _callGraphBuilder.Clear();
                 _dataFlowAnalyzer.Clear();
+                _deepBehaviorOrchestrator.Reset();
 
                 var readerParameters = new ReaderParameters
                 {
@@ -105,7 +132,10 @@ namespace MLVScan.Services
                 findings.Add(new ScanFinding(
                     "Assembly scanning",
                     "Warning: Some parts of the assembly could not be scanned. This doesn't necessarily mean the mod is malicious.",
-                    Severity.Low));
+                    Severity.Low)
+                {
+                    RuleId = "AssemblyScanner"
+                });
             }
 
             return FilterEmptyFindings(findings);
@@ -135,6 +165,7 @@ namespace MLVScan.Services
                 // Clear builders for fresh scan
                 _callGraphBuilder.Clear();
                 _dataFlowAnalyzer.Clear();
+                _deepBehaviorOrchestrator.Reset();
 
                 var readerParameters = new ReaderParameters
                 {
@@ -160,7 +191,10 @@ namespace MLVScan.Services
                 findings.Add(new ScanFinding(
                     virtualPath ?? "Assembly scanning",
                     "Warning: Some parts of the assembly could not be scanned. Please ensure this is a valid Unity mod. This doesn't necessarily mean the mod is malicious.",
-                    Severity.Low));
+                    Severity.Low)
+                {
+                    RuleId = "AssemblyScanner"
+                });
             }
 
             return FilterEmptyFindings(findings);
@@ -205,6 +239,144 @@ namespace MLVScan.Services
                     findings.AddRange(refinedFindings);
                 }
             }
+
+            // Phase 4: Deep behavior analysis (if enabled)
+            // Run practical behavior correlation on flagged methods.
+            if (_config.DeepAnalysis.EnableDeepAnalysis)
+            {
+                RunDeepBehaviorAnalysis(assembly, findings);
+            }
+        }
+
+        /// <summary>
+        /// Runs deep behavior analysis on methods flagged by quick scan.
+        /// </summary>
+        private void RunDeepBehaviorAnalysis(AssemblyDefinition assembly, List<ScanFinding> findings)
+        {
+            foreach (var module in assembly.Modules)
+            {
+                foreach (var type in module.Types)
+                {
+                    var typeFindings = GetTypeFindings(findings, type);
+                    var namespaceFindings = GetNamespaceFindings(findings, type.Namespace);
+
+                    foreach (var method in type.Methods)
+                    {
+                        if (method.Body == null)
+                            continue;
+
+                        var methodFindings = GetMethodFindings(findings, method);
+                        var scopedFindings = methodFindings.Concat(typeFindings).Concat(namespaceFindings).ToList();
+                        var signals = BuildMethodSignals(scopedFindings);
+
+                        if (_deepBehaviorOrchestrator.ShouldDeepScan(method, signals, scopedFindings))
+                        {
+                            var deepFindings = _deepBehaviorOrchestrator.AnalyzeMethod(method, signals, methodFindings, typeFindings, namespaceFindings);
+
+                            if (!_config.DeepAnalysis.EmitDiagnosticFindings)
+                            {
+                                continue;
+                            }
+
+                            if (_config.DeepAnalysis.RequireCorrelatedBaseFinding &&
+                                !HasCorrelatedBaseFinding(scopedFindings, signals))
+                            {
+                                continue;
+                            }
+
+                            findings.AddRange(deepFindings);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static List<ScanFinding> GetMethodFindings(IEnumerable<ScanFinding> findings, MethodDefinition method)
+        {
+            var methodPrefix = method.DeclaringType?.FullName + "." + method.Name;
+            return findings
+                .Where(f => f.Location.StartsWith(methodPrefix, StringComparison.Ordinal))
+                .ToList();
+        }
+
+        private static List<ScanFinding> GetTypeFindings(IEnumerable<ScanFinding> findings, TypeDefinition type)
+        {
+            var typePrefix = type.FullName + ".";
+            return findings
+                .Where(f => f.Location.StartsWith(typePrefix, StringComparison.Ordinal))
+                .ToList();
+        }
+
+        private static List<ScanFinding> GetNamespaceFindings(IEnumerable<ScanFinding> findings, string? @namespace)
+        {
+            if (string.IsNullOrWhiteSpace(@namespace))
+            {
+                return new List<ScanFinding>();
+            }
+
+            var namespacePrefix = @namespace + ".";
+            return findings
+                .Where(f => f.Location.StartsWith(namespacePrefix, StringComparison.Ordinal))
+                .ToList();
+        }
+
+        private static MethodSignals BuildMethodSignals(IEnumerable<ScanFinding> methodFindings)
+        {
+            var findings = methodFindings.ToList();
+            var signals = new MethodSignals
+            {
+                HasSuspiciousReflection = findings.Any(f =>
+                    f.RuleId == "ReflectionRule" ||
+                    f.Description.Contains("reflection invocation", StringComparison.OrdinalIgnoreCase) ||
+                    f.Description.Contains("Activator::CreateInstance", StringComparison.OrdinalIgnoreCase)),
+                HasEncodedStrings = findings.Any(f => f.RuleId != null && DeepBehaviorRuleSets.EncodedRuleIds.Contains(f.RuleId)),
+                HasBase64 = findings.Any(f => f.RuleId == "Base64Rule"),
+                HasProcessLikeCall = findings.Any(f => f.RuleId == "ProcessStartRule" || f.RuleId == "Shell32Rule"),
+                HasNetworkCall = findings.Any(f => f.RuleId == "DataExfiltrationRule" || f.RuleId == "DataInfiltrationRule"),
+                HasFileWrite = findings.Any(f => f.Description.Contains("write", StringComparison.OrdinalIgnoreCase)),
+                UsesSensitiveFolder = findings.Any(f => f.RuleId == "EnvironmentPathRule"),
+                HasPathManipulation = findings.Any(f =>
+                    f.Description.Contains("path", StringComparison.OrdinalIgnoreCase) ||
+                    f.RuleId == "EnvironmentPathRule")
+            };
+
+            foreach (var finding in findings)
+            {
+                if (!string.IsNullOrEmpty(finding.RuleId))
+                {
+                    signals.MarkRuleTriggered(finding.RuleId);
+                }
+            }
+
+            return signals;
+        }
+
+        private static bool HasCorrelatedBaseFinding(IEnumerable<ScanFinding> methodFindings, MethodSignals signals)
+        {
+            if (signals.IsCriticalCombination() || signals.IsHighRiskCombination())
+            {
+                return true;
+            }
+
+            foreach (var finding in methodFindings)
+            {
+                if (finding.RuleId == null)
+                {
+                    continue;
+                }
+
+                if (!DeepCorrelationRuleIds.Contains(finding.RuleId))
+                {
+                    continue;
+                }
+
+                if (finding.Severity >= Severity.High)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static IEnumerable<ScanFinding> FilterEmptyFindings(List<ScanFinding> findings)

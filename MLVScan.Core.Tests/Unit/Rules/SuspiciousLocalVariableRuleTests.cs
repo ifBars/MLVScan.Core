@@ -30,7 +30,7 @@ public class SuspiciousLocalVariableRuleTests
     }
 
     [Fact]
-    public void AnalyzeInstructions_WithSuspiciousLocals_ReturnsFindingWithTruncatedDescription()
+    public void AnalyzeInstructions_WithSuspiciousLocals_MarksSignalWithoutStandaloneFinding()
     {
         var method = CreateMethodWithLocals(
             "System.Diagnostics.Process",
@@ -39,12 +39,60 @@ public class SuspiciousLocalVariableRuleTests
             "System.Net.Http.HttpClient",
             "System.String");
 
-        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, new MethodSignals()).ToList();
+        var methodSignals = new MethodSignals();
 
-        findings.Should().ContainSingle();
-        findings[0].Description.Should().Contain("System.Diagnostics.Process");
-        findings[0].Description.Should().Contain("and 1 more");
-        findings[0].CodeSnippet.Should().Contain("Suspicious local variable types detected");
+        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
+        methodSignals.HasSuspiciousLocalVariables.Should().BeTrue();
+        methodSignals.HasAnyTriggeredRule().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_WithControlledProcessPattern_SuppressesProcessFinding()
+    {
+        var method = CreateMethodWithLocalsAndInstructions(
+            new[] { "System.Diagnostics.Process" },
+            il =>
+            {
+                il.Append(il.Create(OpCodes.Ldc_I4_0));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.ProcessStartInfo", "set_UseShellExecute")));
+                il.Append(il.Create(OpCodes.Ldc_I4_1));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.ProcessStartInfo", "set_RedirectStandardOutput")));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.Process", "Start")));
+                il.Append(il.Create(OpCodes.Ldc_I4, 120000));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.Process", "WaitForExit")));
+            });
+
+        var methodSignals = new MethodSignals();
+        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
+        methodSignals.HasSuspiciousLocalVariables.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_WithDangerousCommandLiteral_MarksSignalWithoutStandaloneFinding()
+    {
+        var method = CreateMethodWithLocalsAndInstructions(
+            new[] { "System.Diagnostics.Process" },
+            il =>
+            {
+                il.Append(il.Create(OpCodes.Ldstr, "powershell.exe -nop"));
+                il.Append(il.Create(OpCodes.Ldc_I4_0));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.ProcessStartInfo", "set_UseShellExecute")));
+                il.Append(il.Create(OpCodes.Ldc_I4_1));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.ProcessStartInfo", "set_RedirectStandardOutput")));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.Process", "Start")));
+                il.Append(il.Create(OpCodes.Ldc_I4, 120000));
+                il.Append(il.Create(OpCodes.Callvirt, CreateMethodReference("System.Diagnostics.Process", "WaitForExit")));
+            });
+
+        var methodSignals = new MethodSignals();
+        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
+        methodSignals.HasSuspiciousLocalVariables.Should().BeTrue();
     }
 
     private static MethodReference CreateMethodReference(string declaringTypeFullName, string methodName)
@@ -85,6 +133,20 @@ public class SuspiciousLocalVariableRuleTests
 
         var il = method.Body.GetILProcessor();
         il.Append(il.Create(OpCodes.Ret));
+        return method;
+    }
+
+    private static MethodDefinition CreateMethodWithLocalsAndInstructions(
+        string[] localTypeNames,
+        Action<ILProcessor> buildInstructions)
+    {
+        var method = CreateMethodWithLocals(localTypeNames);
+        method.Body!.Instructions.Clear();
+
+        var il = method.Body.GetILProcessor();
+        buildInstructions(il);
+        il.Append(il.Create(OpCodes.Ret));
+
         return method;
     }
 }

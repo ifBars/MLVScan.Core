@@ -161,7 +161,10 @@ namespace MLVScan.Services
                             $"{method.DeclaringType?.FullName}.{method.Name}",
                             $"Critical: Multiple suspicious patterns detected ({methodSignals.GetCombinationDescription()})",
                             Severity.Critical,
-                            $"This method contains {methodSignals.SignalCount} suspicious signals that form a likely malicious pattern."));
+                            $"This method contains {methodSignals.SignalCount} suspicious signals that form a likely malicious pattern.")
+                        {
+                            RuleId = "MultiSignalDetection"
+                        });
                     }
                     else if (methodSignals.IsHighRiskCombination())
                     {
@@ -169,7 +172,10 @@ namespace MLVScan.Services
                             $"{method.DeclaringType?.FullName}.{method.Name}",
                             $"High risk: Multiple suspicious patterns detected ({methodSignals.GetCombinationDescription()})",
                             Severity.High,
-                            $"This method contains {methodSignals.SignalCount} suspicious signals."));
+                            $"This method contains {methodSignals.SignalCount} suspicious signals.")
+                        {
+                            RuleId = "MultiSignalDetection"
+                        });
                     }
                 }
             }

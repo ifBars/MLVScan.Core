@@ -1,4 +1,5 @@
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -40,6 +41,27 @@ namespace MLVScan.Models.Rules
 
             return (typeName.Contains("System.Diagnostics.Process") && methodName == "Start") ||
                    (typeName.Contains("Process") && methodName == "Start");
+        }
+
+        public string GetFindingDescription(
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int instructionIndex)
+        {
+            string target = ExtractProcessTarget(null, method, instructions, instructionIndex);
+            string arguments = ExtractProcessArguments(null, instructions, instructionIndex);
+            return $"{Description} Target: {target}. Arguments: {arguments}";
+        }
+
+        public string GetFindingDescription(
+            MethodDefinition containingMethod,
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int instructionIndex)
+        {
+            string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex);
+            string arguments = ExtractProcessArguments(containingMethod, instructions, instructionIndex);
+            return $"{Description} Target: {target}. Arguments: {arguments}";
         }
 
         /// <summary>
@@ -273,6 +295,33 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static string ExtractProcessTarget(
+            MethodDefinition? containingMethod,
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int processStartIndex)
+        {
+            if (InstructionValueResolver.TryResolveProcessTarget(containingMethod, method, instructions, processStartIndex, out string target))
+            {
+                return target;
+            }
+
+            return "<unknown/non-literal>";
+        }
+
+        private static string ExtractProcessArguments(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int processStartIndex)
+        {
+            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, instructions, processStartIndex, out string arguments))
+            {
+                return arguments;
+            }
+
+            return "<unknown/no-arguments>";
         }
     }
 }

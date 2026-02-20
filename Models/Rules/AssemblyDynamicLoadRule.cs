@@ -386,14 +386,22 @@ namespace MLVScan.Models.Rules
             public string GetSummary()
             {
                 var parts = new List<string>();
-                if (HasNetworkSource) parts.Add("network");
-                if (HasBase64) parts.Add("base64");
-                if (HasCrypto) parts.Add("crypto");
-                if (HasCompression) parts.Add("compression");
-                if (HasResourceSource) parts.Add("resource");
-                if (HasTempPath) parts.Add("temp-path");
-                if (HasSensitivePath) parts.Add("sensitive-path");
-                if (HasWriteThenLoad) parts.Add("write-then-load");
+                if (HasNetworkSource)
+                    parts.Add("network");
+                if (HasBase64)
+                    parts.Add("base64");
+                if (HasCrypto)
+                    parts.Add("crypto");
+                if (HasCompression)
+                    parts.Add("compression");
+                if (HasResourceSource)
+                    parts.Add("resource");
+                if (HasTempPath)
+                    parts.Add("temp-path");
+                if (HasSensitivePath)
+                    parts.Add("sensitive-path");
+                if (HasWriteThenLoad)
+                    parts.Add("write-then-load");
                 return parts.Count > 0 ? string.Join(" -> ", parts) : "unknown";
             }
         }
