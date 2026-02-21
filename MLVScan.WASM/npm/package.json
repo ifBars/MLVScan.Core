@@ -1,6 +1,6 @@
 {
   "name": "@mlvscan/wasm-core",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "WebAssembly core for MLVScan - scanning Unity mods in the browser",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
