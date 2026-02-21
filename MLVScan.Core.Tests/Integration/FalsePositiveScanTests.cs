@@ -120,6 +120,30 @@ public class FalsePositiveScanTests
     }
 
     /// <summary>
+    /// S1APILoader uses AssemblyResolve for a legitimate Il2CppInterop fallback and reflection
+    /// to probe MelonLoader internal APIs. Neither pattern alone should trigger blocking findings.
+    /// AssemblyResolve with a safe handler (score &lt; 25) must not serve as a companion signal
+    /// that unlocks ReflectionRule or AssemblyDynamicLoadRule at High/Critical severity.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_S1APILoader_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("S1APILoader.MelonLoader.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "S1APILoader.MelonLoader.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "S1APILoader uses AssemblyResolve for a safe Il2CppInterop fallback and reflection " +
+            "for MelonLoader internal API access — these are legitimate patterns that must not block the mod");
+
+        findings.Should().NotContain(f => f.RuleId == "ReflectionRule",
+            "ReflectionRule should not trigger without a real companion (Low-severity AssemblyResolve is not a companion)");
+    }
+
+    /// <summary>
     /// CustomTV legitimately uses System.Diagnostics.Process for controlled yt-dlp execution
     /// (UseShellExecute=false, output redirection, timeout-based WaitForExit).
     /// The SuspiciousLocalVariableRule should suppress this low-signal pattern.
@@ -155,7 +179,8 @@ public class FalsePositiveScanTests
             "CustomTV.dll",
             "LethalLizard.ModManager.dll",
             "NoMoreTrashMono.dll",
-            "RecipeRandomizer.dll"
+            "RecipeRandomizer.dll",
+            "S1APILoader.MelonLoader.dll"
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());

@@ -87,8 +87,10 @@ namespace MLVScan.Services
                         // Enrich finding with rule metadata
                         finding.WithRuleMetadata(rule);
                         result.Findings.Add(finding);
-                        // Mark rule as triggered
-                        if (methodSignals != null)
+                        // Companion-requiring rules that only emitted a Low finding (audit annotation) must
+                        // not mark themselves as triggered — that would let them bootstrap their own companion.
+                        // Non-companion rules may always mark triggered regardless of severity.
+                        if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                         {
                             _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                         }
@@ -132,8 +134,7 @@ namespace MLVScan.Services
                                 // Enrich finding with rule metadata
                                 finding.WithRuleMetadata(rule);
                                 result.Findings.Add(finding);
-                                // Mark rule as triggered
-                                if (methodSignals != null)
+                                if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                                 {
                                     _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                                 }

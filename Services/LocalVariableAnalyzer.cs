@@ -54,12 +54,14 @@ namespace MLVScan.Services
                         finding.WithRuleMetadata(rule);
                         findings.Add(finding);
 
-                        // Mark rule as triggered and update signals
                         if (methodSignals != null)
                         {
-                            _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                            // Companion-requiring rules must not self-bootstrap via their own Low findings
+                            if (!(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                            {
+                                _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                            }
 
-                            // Mark suspicious local variables for backward compatibility
                             _signalTracker.MarkSuspiciousLocalVariables(methodSignals, method.DeclaringType);
                         }
                     }

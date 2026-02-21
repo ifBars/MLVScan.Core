@@ -131,8 +131,7 @@ namespace MLVScan.Services
                                     // Enrich finding with rule metadata
                                     finding.WithRuleMetadata(rule);
                                     result.Findings.Add(finding);
-                                    // Mark rule as triggered
-                                    if (methodSignals != null)
+                                    if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                                     {
                                         _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                                     }
@@ -183,8 +182,7 @@ namespace MLVScan.Services
                                 reflectionRule.Severity,
                                 snippet).WithRuleMetadata(reflectionRule);
                             result.Findings.Add(finding);
-                            // Mark rule as triggered
-                            if (methodSignals != null)
+                            if (methodSignals != null && !(reflectionRule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                             {
                                 _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRule.RuleId);
                             }
@@ -222,8 +220,7 @@ namespace MLVScan.Services
                                 rule.Severity,
                                 snippet).WithRuleMetadata(rule);
                             result.Findings.Add(finding);
-                            // Mark rule as triggered
-                            if (methodSignals != null)
+                            if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                             {
                                 _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                             }
@@ -234,14 +231,11 @@ namespace MLVScan.Services
                         foreach (var finding in reflectionFindings)
                         {
                             result.Findings.Add(finding);
-                            // Mark ReflectionRule as triggered if this is a reflection finding
-                            if (methodSignals != null)
+                            var reflectionRuleForFinding = _rules.FirstOrDefault(r => r is ReflectionRule);
+                            if (methodSignals != null && reflectionRuleForFinding != null &&
+                                !(reflectionRuleForFinding.RequiresCompanionFinding && finding.Severity == Severity.Low))
                             {
-                                var reflectionRule = _rules.FirstOrDefault(r => r is ReflectionRule);
-                                if (reflectionRule != null)
-                                {
-                                    _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRule.RuleId);
-                                }
+                                _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRuleForFinding.RuleId);
                             }
                         }
                     }

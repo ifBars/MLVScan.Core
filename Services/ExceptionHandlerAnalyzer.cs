@@ -105,10 +105,13 @@ namespace MLVScan.Services
 
                                 findings.Add(finding);
 
-                                // Mark signals
                                 if (methodSignals != null)
                                 {
-                                    _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                                    if (!(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                                    {
+                                        _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                                    }
+
                                     _signalTracker.MarkSuspiciousExceptionHandling(methodSignals, method.DeclaringType);
                                 }
                             }

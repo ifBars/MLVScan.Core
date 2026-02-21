@@ -30,6 +30,7 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
     <None Remove="QUARANTINE\**" />
+    <None Remove="FALSE_POSITIVES\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,6 +43,8 @@
     <Compile Remove="MLVScan.WASM\**" />
     <EmbeddedResource Remove="MLVScan.WASM\**" />
     <None Remove="MLVScan.WASM\**" />
+    <Compile Remove="FALSE_POSITIVES\**" />
+    <EmbeddedResource Remove="FALSE_POSITIVES\**" />
   </ItemGroup>
 
   <ItemGroup>
