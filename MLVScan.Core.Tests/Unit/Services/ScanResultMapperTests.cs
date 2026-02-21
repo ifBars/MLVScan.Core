@@ -94,7 +94,7 @@ public class ScanResultMapperTests
     {
         var callChain = new CallChain("test-chain", "TestRule", Severity.High, "Test chain");
         callChain.AppendNode(new CallChainNode("Location1", "Desc1", CallChainNodeType.EntryPoint, "snippet1"));
-        
+
         var finding = new ScanFinding("Test.Method", "Test", Severity.High, "code");
         finding.CallChain = callChain;
 
@@ -278,10 +278,10 @@ public class ScanResultMapperTests
     {
         var dataFlow = new DataFlowChain("df-1", DataFlowPattern.DynamicCodeLoading, Severity.High, 0.9, "Flow", "method");
         dataFlow.AppendNode(new DataFlowNode("Location1", "Load", DataFlowNodeType.Source, "Data", 0)); // Add a node so HasDataFlow returns true
-        
+
         var finding1 = new ScanFinding("Test.M1", "F1", Severity.High, "c1");
         finding1.DataFlowChain = dataFlow;
-        
+
         var finding2 = new ScanFinding("Test.M2", "F2", Severity.High, "c2");
         finding2.DataFlowChain = dataFlow; // Same instance
 
@@ -302,7 +302,7 @@ public class ScanResultMapperTests
 
         var finding1 = new ScanFinding("Test.M1", "F1", Severity.High, "c1");
         finding1.DeveloperGuidance = guidance1;
-        
+
         var finding2 = new ScanFinding("Test.M2", "F2", Severity.High, "c2");
         finding2.DeveloperGuidance = guidance2;
 

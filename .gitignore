@@ -39,6 +39,7 @@ packages/
 ## Project-specific
 nuget-upload.txt
 AGENTS.md
+CODING_STANDARDS.md
 .opencode/
 
 ## Testing Mods

@@ -34,6 +34,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Unit\Services\CrossAssembly\CrossAssemblyGraphBuilderTests.cs" />
+    <Compile Remove="Unit\Models\Rules\Helpers\InstructionValueResolverTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="TestAssemblies\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

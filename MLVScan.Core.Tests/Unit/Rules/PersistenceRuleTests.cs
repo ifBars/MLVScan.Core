@@ -65,7 +65,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("WriteAllText", module.TypeSystem.Void, fileType);
             writeMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
@@ -102,7 +102,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -134,7 +134,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("WriteAllBytes", module.TypeSystem.Void, fileType);
 
@@ -167,7 +167,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Copy", module.TypeSystem.Void, fileType);
 
@@ -200,7 +200,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Write to Startup but no .exe/.bat/.ps1
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("WriteAllText", module.TypeSystem.Void, fileType);
 
@@ -232,7 +232,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Write .exe but not to Startup/AppData/ProgramData
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -264,7 +264,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Non-file method call
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var consoleType = new TypeReference("System", "Console", module, module.TypeSystem.CoreLibrary);
             var writeLineMethod = new MethodReference("WriteLine", module.TypeSystem.Void, consoleType);
 
@@ -296,7 +296,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: File operation but no string literals in window
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -383,7 +383,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Test System.IO.File specifically
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("WriteAllText", module.TypeSystem.Void, fileType);
 
@@ -415,7 +415,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Test System.IO.Directory
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var dirType = new TypeReference("System.IO", "Directory", module, module.TypeSystem.CoreLibrary);
             var moveMethod = new MethodReference("Move", module.TypeSystem.Void, dirType);
 
@@ -448,7 +448,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: String literal 10 instructions before call
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -489,7 +489,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: String literal 11 instructions before call (outside window)
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -525,7 +525,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("WriteAllText", module.TypeSystem.Void, fileType);
 
@@ -562,7 +562,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Test case insensitivity for "startup", "appdata", "programdata"
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 
@@ -594,7 +594,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             // Arrange: Empty string literals should be ignored
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
-            
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
             var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
 

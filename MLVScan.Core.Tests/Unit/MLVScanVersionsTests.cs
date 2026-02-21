@@ -1,6 +1,6 @@
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using MLVScan;
-using System.Text.RegularExpressions;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit;
@@ -17,7 +17,7 @@ public class MLVScanVersionsTests
     public void SchemaVersion_IsValidSemver()
     {
         var parts = MLVScanVersions.SchemaVersion.Split('.');
-        
+
         parts.Should().HaveCount(3, "schema version should follow semver format (major.minor.patch)");
         foreach (var part in parts)
         {
@@ -35,7 +35,7 @@ public class MLVScanVersionsTests
     public void CoreVersion_IsValidSemverOrFallback()
     {
         var version = MLVScanVersions.CoreVersion;
-        
+
         // Should either be a valid semver or the fallback "0.0.0"
         var parts = version.Split('.');
         parts.Length.Should().BeGreaterThanOrEqualTo(3, "version should have at least major.minor.patch");

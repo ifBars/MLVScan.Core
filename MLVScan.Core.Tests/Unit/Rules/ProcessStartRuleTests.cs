@@ -397,7 +397,7 @@ public class ProcessStartRuleTests
         processor.Emit(OpCodes.Ldstr, "PATH");
         processor.Emit(OpCodes.Ldstr, "C:\\Malicious;C:\\Windows");
         processor.Emit(OpCodes.Call, new MethodReference("SetEnvironmentVariable", new TypeReference("", "Void", null, null), new TypeReference("System", "Environment", null, null)));
-        
+
         // Now call explorer.exe (which would resolve to malicious version)
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
         processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
@@ -461,7 +461,7 @@ public class ProcessStartRuleTests
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
         processor.Emit(OpCodes.Ldloc_0); // byte array from embedded resource
         processor.Emit(OpCodes.Call, new MethodReference("WriteAllBytes", new TypeReference("", "Void", null, null), new TypeReference("System.IO", "File", null, null)));
-        
+
         // Now call explorer.exe (which would be the just-dropped malicious version)
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
         processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));

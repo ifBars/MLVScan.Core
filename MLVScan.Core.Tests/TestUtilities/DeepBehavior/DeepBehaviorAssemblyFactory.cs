@@ -1,6 +1,6 @@
+using MLVScan.Core.Tests.TestUtilities;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using MLVScan.Core.Tests.TestUtilities;
 
 namespace MLVScan.Core.Tests.TestUtilities.DeepBehavior;
 

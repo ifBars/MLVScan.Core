@@ -256,21 +256,21 @@ public class AssemblyDynamicLoadRuleTests
     {
         var methodRef = CreateAssemblyLoadMethod("System.String");
         methodRef.Name = "LoadFrom";
-        
+
         var assembly = AssemblyDefinition.CreateAssembly(
             new AssemblyNameDefinition("Test", new Version(1, 0)),
             "Test",
             ModuleKind.Dll);
         var module = assembly.MainModule;
-        
+
         // Create method with network download before LoadFrom
         var type = new TypeDefinition("Test", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
         module.Types.Add(type);
-        
+
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void);
         method.Body = new MethodBody(method);
         type.Methods.Add(method);
-        
+
         var il = method.Body.GetILProcessor();
         il.Append(il.Create(OpCodes.Call, CreateMethod(module, "System.Net", "WebClient", "DownloadData")));
         il.Append(il.Create(OpCodes.Call, methodRef));
@@ -288,7 +288,7 @@ public class AssemblyDynamicLoadRuleTests
         methodRef.Name = "Load";
         // Add second parameter for PDB
         methodRef.Parameters.Add(new ParameterDefinition(new ArrayType(methodRef.Module.TypeSystem.Byte)));
-        
+
         var instructions = new Mono.Collections.Generic.Collection<Instruction>
         {
             Instruction.Create(OpCodes.Nop),
@@ -307,7 +307,7 @@ public class AssemblyDynamicLoadRuleTests
     {
         var methodRef = CreateAssemblyLoadMethod("System.String");
         methodRef.Name = "Load";
-        
+
         // Simple load with no suspicious context - should not produce finding
         var instructions = new Mono.Collections.Generic.Collection<Instruction>
         {
@@ -475,11 +475,11 @@ public class AssemblyDynamicLoadRuleTests
             "Test",
             ModuleKind.Dll);
         var module = assembly.MainModule;
-        
+
         var lastDot = typeName.LastIndexOf('.');
         var ns = lastDot > 0 ? typeName[..lastDot] : "";
         var name = lastDot > 0 ? typeName[(lastDot + 1)..] : typeName;
-        
+
         var typeRef = new TypeReference(ns, name, module, module.TypeSystem.CoreLibrary);
         return new MethodReference(methodName, module.TypeSystem.Void, typeRef);
     }

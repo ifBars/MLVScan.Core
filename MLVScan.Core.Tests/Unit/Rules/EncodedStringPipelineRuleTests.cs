@@ -607,7 +607,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
             var snippet = findings[0].CodeSnippet;
             snippet.Should().NotBeNull();
             var lines = snippet!.Split('\n');
-            
+
             // Check that key instructions are highlighted with ">>>"
             lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("Parse"));
             lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("conv.u2"));

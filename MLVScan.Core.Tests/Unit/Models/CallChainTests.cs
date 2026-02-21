@@ -200,11 +200,11 @@ namespace MLVScan.Core.Tests.Unit.Models
                 chain.AppendNode(new CallChainNode("L1", "D1", CallChainNodeType.EntryPoint, "code1"));
                 chain.AppendNode(new CallChainNode("L2", "D2", CallChainNodeType.SuspiciousDeclaration, "code2"));
 
-        var result = chain.ToCombinedCodeSnippet();
+                var result = chain.ToCombinedCodeSnippet();
 
-        result.Should().Contain("code1");
-        result.Should().Contain("code2");
-        result.Should().Contain("\n\n");
+                result.Should().Contain("code1");
+                result.Should().Contain("code2");
+                result.Should().Contain("\n\n");
             }
         }
     }

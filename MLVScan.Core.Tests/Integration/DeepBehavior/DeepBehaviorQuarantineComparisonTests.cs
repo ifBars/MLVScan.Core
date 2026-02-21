@@ -114,7 +114,7 @@ public class DeepBehaviorQuarantineComparisonTests
         _output.WriteLine($"Severity: {finding.Severity}");
         _output.WriteLine($"Location: {finding.Location}");
         _output.WriteLine($"Description: {finding.Description}");
-        
+
         if (finding.RiskScore.HasValue)
         {
             _output.WriteLine($"Risk Score: {finding.RiskScore}");
