@@ -46,11 +46,14 @@ public sealed class CrossAssemblyRiskPropagator
         var correlated = new List<ScanFinding>();
         foreach (var suspiciousPath in suspiciousTargets)
         {
-            var callers = graph.Edges
+            var matchingEdges = graph.Edges
                 .Where(edge => string.Equals(NormalizePath(edge.TargetPath), suspiciousPath, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var callers = matchingEdges
                 .Select(edge => edge.SourcePath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            var canonicalTargetPath = matchingEdges.Count > 0 ? matchingEdges[0].TargetPath : suspiciousPath;
 
             foreach (var caller in callers)
             {
@@ -67,7 +70,7 @@ public sealed class CrossAssemblyRiskPropagator
             if (policy == QuarantinePolicy.CallerAndCallee || policy == QuarantinePolicy.DependencyCluster)
             {
                 correlated.Add(new ScanFinding(
-                    location: suspiciousPath,
+                    location: canonicalTargetPath,
                     description: "Cross-assembly correlation: high-risk dependency is actively referenced by local assemblies.",
                     severity: Severity.High,
                     codeSnippet: null)
@@ -105,18 +108,21 @@ public sealed class CrossAssemblyRiskPropagator
                          string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(normalizePath(edge.TargetPath), current, StringComparison.OrdinalIgnoreCase)))
             {
-                var neighbor = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
+                var neighborNormalized = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
                     ? normalizePath(edge.TargetPath)
                     : normalizePath(edge.SourcePath);
+                var neighborOriginal = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
+                    ? edge.TargetPath
+                    : edge.SourcePath;
 
-                if (!visited.Add(neighbor))
+                if (!visited.Add(neighborNormalized))
                 {
                     continue;
                 }
 
-                queue.Enqueue(neighbor);
+                queue.Enqueue(neighborNormalized);
                 findings.Add(new ScanFinding(
-                    location: neighbor,
+                    location: neighborOriginal,
                     description: "Cross-assembly correlation: assembly belongs to a suspicious dependency cluster.",
                     severity: Severity.Medium,
                     codeSnippet: null)
