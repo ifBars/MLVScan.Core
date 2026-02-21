@@ -32,11 +32,22 @@ public sealed class CrossAssemblyRiskPropagator
             return Enumerable.Empty<ScanFinding>();
         }
 
+        var pathCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string NormalizePath(string path)
+        {
+            if (!pathCache.TryGetValue(path, out var normalized))
+            {
+                normalized = Path.GetFullPath(path);
+                pathCache[path] = normalized;
+            }
+            return normalized;
+        }
+
         var correlated = new List<ScanFinding>();
         foreach (var suspiciousPath in suspiciousTargets)
         {
             var callers = graph.Edges
-                .Where(edge => string.Equals(edge.TargetPath, suspiciousPath, StringComparison.OrdinalIgnoreCase))
+                .Where(edge => string.Equals(NormalizePath(edge.TargetPath), suspiciousPath, StringComparison.OrdinalIgnoreCase))
                 .Select(edge => edge.SourcePath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -67,7 +78,7 @@ public sealed class CrossAssemblyRiskPropagator
 
             if (policy == QuarantinePolicy.DependencyCluster)
             {
-                correlated.AddRange(BuildClusterFindings(graph, suspiciousPath));
+                correlated.AddRange(BuildClusterFindings(graph, suspiciousPath, NormalizePath));
             }
         }
 
@@ -77,23 +88,26 @@ public sealed class CrossAssemblyRiskPropagator
             .ToList();
     }
 
-    private static IEnumerable<ScanFinding> BuildClusterFindings(AssemblyDependencyGraph graph, string seedPath)
+    private static IEnumerable<ScanFinding> BuildClusterFindings(
+        AssemblyDependencyGraph graph,
+        string seedPath,
+        Func<string, string> normalizePath)
     {
         var findings = new List<ScanFinding>();
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { seedPath };
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { normalizePath(seedPath) };
         var queue = new Queue<string>();
-        queue.Enqueue(seedPath);
+        queue.Enqueue(normalizePath(seedPath));
 
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
             foreach (var edge in graph.Edges.Where(edge =>
-                         string.Equals(edge.SourcePath, current, StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(edge.TargetPath, current, StringComparison.OrdinalIgnoreCase)))
+                         string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(normalizePath(edge.TargetPath), current, StringComparison.OrdinalIgnoreCase)))
             {
-                var neighbor = string.Equals(edge.SourcePath, current, StringComparison.OrdinalIgnoreCase)
-                    ? edge.TargetPath
-                    : edge.SourcePath;
+                var neighbor = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
+                    ? normalizePath(edge.TargetPath)
+                    : normalizePath(edge.SourcePath);
 
                 if (!visited.Add(neighbor))
                 {
