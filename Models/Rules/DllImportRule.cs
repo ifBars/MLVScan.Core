@@ -96,6 +96,9 @@ namespace MLVScan.Models.Rules
             var dllName = methodDef.PInvokeInfo.Module.Name;
             var entryPoint = methodDef.PInvokeInfo.EntryPoint ?? method.Name;
 
+            if (IsKnownIl2CppInteropBridge(methodDef, dllName, entryPoint))
+                return false;
+
             var lowerDllName = dllName.ToLower();
             var entryPointLower = entryPoint.ToLower();
 
@@ -135,6 +138,23 @@ namespace MLVScan.Models.Rules
             _severity = Severity.Medium;
             _description = $"Detected DllImport of {dllName}";
             return true;
+        }
+
+        private static bool IsKnownIl2CppInteropBridge(MethodDefinition methodDef, string dllName, string entryPoint)
+        {
+            if (methodDef.DeclaringType == null)
+                return false;
+
+            if (!methodDef.DeclaringType.FullName.Equals("Il2CppInterop.Runtime.IL2CPP", StringComparison.Ordinal))
+                return false;
+
+            if (!dllName.Equals("GameAssembly", StringComparison.OrdinalIgnoreCase) &&
+                !dllName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return entryPoint.StartsWith("il2cpp_", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

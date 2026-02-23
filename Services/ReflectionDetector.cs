@@ -85,13 +85,8 @@ namespace MLVScan.Services
                 string? invokedMethodName = ExtractInvokedMethodName(instructions, index);
 
                 // Check for other malicious patterns in the method
-                bool hasOtherMaliciousPatterns = methodSignals != null &&
-                    (methodSignals.HasEncodedStrings ||
-                     methodSignals.UsesSensitiveFolder ||
-                     methodSignals.HasProcessLikeCall ||
-                     methodSignals.HasNetworkCall ||
-                     methodSignals.HasFileWrite ||
-                     methodSignals.HasBase64) ||
+                bool hasOtherMaliciousPatterns =
+                    (methodSignals != null && HasStrongCompanionSignals(methodSignals)) ||
                     _stringPatternDetector.HasAssemblyLoadingInMethod(methodDef, instructions) ||
                     _stringPatternDetector.HasSuspiciousStringPatterns(methodDef, instructions, index);
 
@@ -102,12 +97,7 @@ namespace MLVScan.Services
                     var typeSignal = _signalTracker.GetTypeSignals(methodDef.DeclaringType.FullName);
                     if (typeSignal != null)
                     {
-                        hasTypeLevelSignals = typeSignal.HasEncodedStrings ||
-                                              typeSignal.UsesSensitiveFolder ||
-                                              typeSignal.HasProcessLikeCall ||
-                                              typeSignal.HasNetworkCall ||
-                                              typeSignal.HasFileWrite ||
-                                              typeSignal.HasBase64;
+                        hasTypeLevelSignals = HasStrongCompanionSignals(typeSignal);
                     }
                 }
 
@@ -349,6 +339,20 @@ namespace MLVScan.Services
 
             // Default - use a more conservative approach for other rules
             return false;
+        }
+
+        private static bool HasStrongCompanionSignals(MethodSignals signals)
+        {
+            if (signals.HasEncodedStrings || signals.HasBase64)
+                return true;
+
+            if (signals.HasProcessLikeCall || signals.UsesSensitiveFolder)
+                return true;
+
+            if (signals.HasEnvironmentVariableModification || signals.HasPathManipulation)
+                return true;
+
+            return signals.HasNetworkCall && signals.HasFileWrite;
         }
     }
 }

@@ -44,6 +44,12 @@ namespace MLVScan.Models
         // Developer mode: Show remediation guidance for mod developers
         public bool DeveloperMode { get; set; } = false;
 
+        // Automated report upload: whether user has consented to send reports to the API
+        public bool EnableReportUpload { get; set; } = false;
+
+        // Whether we have shown the first-run consent prompt (so we don't prompt again)
+        public bool ReportUploadConsentAsked { get; set; } = false;
+
         // Enable cross-method data flow analysis (traces data across method boundaries)
         public bool EnableCrossMethodAnalysis { get; set; } = true;
 

@@ -8,6 +8,25 @@ namespace MLVScan.Services
 {
     public class InstructionAnalyzer
     {
+        private static readonly HashSet<string> ReflectionCompanionRuleIds = new(StringComparer.Ordinal)
+        {
+            "ProcessStartRule",
+            "Shell32Rule",
+            "COMReflectionAttackRule",
+            "AssemblyDynamicLoadRule",
+            "PersistenceRule",
+            "RegistryRule",
+            "EnvironmentPathRule",
+            "DataExfiltrationRule",
+            "DataInfiltrationRule",
+            "Base64Rule",
+            "HexStringRule",
+            "EncodedStringLiteralRule",
+            "EncodedStringPipelineRule",
+            "EncodedBlobSplittingRule",
+            "ByteArrayManipulationRule"
+        };
+
         private readonly IEnumerable<IScanRule> _rules;
         private readonly SignalTracker _signalTracker;
         private readonly ReflectionDetector _reflectionDetector;
@@ -147,9 +166,8 @@ namespace MLVScan.Services
                             if (reflectionRule == null)
                                 continue;
 
-                            // Check if other rules have been triggered (not just ReflectionRule)
-                            bool hasOtherTriggeredRules = methodSignals != null &&
-                                methodSignals.HasTriggeredRuleOtherThan(reflectionRule.RuleId);
+                            // Check if strong companion rules have been triggered (not just any rule).
+                            bool hasOtherTriggeredRules = HasStrongReflectionCompanion(methodSignals, reflectionRule.RuleId);
 
                             // Also check type-level triggered rules
                             bool hasTypeLevelTriggeredRules = false;
@@ -158,7 +176,7 @@ namespace MLVScan.Services
                                 var typeSignal = _signalTracker.GetTypeSignals(typeFullName);
                                 if (typeSignal != null)
                                 {
-                                    hasTypeLevelTriggeredRules = typeSignal.HasTriggeredRuleOtherThan(reflectionRule.RuleId);
+                                    hasTypeLevelTriggeredRules = HasStrongReflectionCompanion(typeSignal, reflectionRule.RuleId);
                                 }
                             }
 
@@ -193,6 +211,7 @@ namespace MLVScan.Services
                         // but we also need to skip if the method is tracked (for methods matched by rules)
                         if (!exceptionHandlerOffsets.Contains(instruction.Offset) &&
                             !isCallToTrackedSuspiciousMethod &&
+                            !isReflectionInvoke &&
                             _rules.Any(r => r.IsSuspicious(calledMethod)))
                         {
                             var rule = _rules.First(r => r.IsSuspicious(calledMethod));
@@ -278,6 +297,23 @@ namespace MLVScan.Services
             }
 
             return offsets;
+        }
+
+        private static bool HasStrongReflectionCompanion(MethodSignals? signals, string reflectionRuleId)
+        {
+            if (signals == null)
+                return false;
+
+            foreach (var triggeredRuleId in signals.GetTriggeredRuleIds())
+            {
+                if (triggeredRuleId.Equals(reflectionRuleId, StringComparison.Ordinal))
+                    continue;
+
+                if (ReflectionCompanionRuleIds.Contains(triggeredRuleId))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

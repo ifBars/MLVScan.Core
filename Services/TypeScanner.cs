@@ -7,6 +7,25 @@ namespace MLVScan.Services
 {
     public class TypeScanner
     {
+        private static readonly HashSet<string> ReflectionCompanionRuleIds = new(StringComparer.Ordinal)
+        {
+            "ProcessStartRule",
+            "Shell32Rule",
+            "COMReflectionAttackRule",
+            "AssemblyDynamicLoadRule",
+            "PersistenceRule",
+            "RegistryRule",
+            "EnvironmentPathRule",
+            "DataExfiltrationRule",
+            "DataInfiltrationRule",
+            "Base64Rule",
+            "HexStringRule",
+            "EncodedStringLiteralRule",
+            "EncodedStringPipelineRule",
+            "EncodedBlobSplittingRule",
+            "ByteArrayManipulationRule"
+        };
+
         private readonly MethodScanner _methodScanner;
         private readonly SignalTracker _signalTracker;
         private readonly ReflectionDetector _reflectionDetector;
@@ -98,7 +117,7 @@ namespace MLVScan.Services
             if (reflectionRule == null)
                 return;
 
-            bool hasTypeLevelTriggeredRules = typeSignal.HasTriggeredRuleOtherThan(reflectionRule.RuleId);
+            bool hasTypeLevelTriggeredRules = HasStrongReflectionCompanion(typeSignal, reflectionRule.RuleId);
 
             if (!hasTypeLevelTriggeredRules)
                 return;
@@ -124,6 +143,20 @@ namespace MLVScan.Services
                     _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRule.RuleId);
                 }
             }
+        }
+
+        private static bool HasStrongReflectionCompanion(MethodSignals typeSignal, string reflectionRuleId)
+        {
+            foreach (var triggeredRuleId in typeSignal.GetTriggeredRuleIds())
+            {
+                if (triggeredRuleId.Equals(reflectionRuleId, StringComparison.Ordinal))
+                    continue;
+
+                if (ReflectionCompanionRuleIds.Contains(triggeredRuleId))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

@@ -85,7 +85,7 @@ public class ReflectionDetectorTests
             Instruction.Create(OpCodes.Nop),
             Instruction.Create(OpCodes.Call, calledMethod)
         };
-        var signals = new MethodSignals { HasNetworkCall = true };
+        var signals = new MethodSignals { HasEncodedStrings = true };
 
         var findings = detector.ScanForReflectionInvocation(methodDef, instructions[1], calledMethod, 1, instructions, signals).ToList();
 
@@ -147,7 +147,7 @@ public class ReflectionDetectorTests
         var typeSignals = signalTracker.GetOrCreateTypeSignals("Test.ReflectionType");
         if (typeSignals != null)
         {
-            typeSignals.HasNetworkCall = true;
+            typeSignals.HasEncodedStrings = true;
         }
 
         var methodDef = CreateMethodDefinition("Test.ReflectionType", "TestMethod");
