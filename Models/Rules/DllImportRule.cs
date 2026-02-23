@@ -20,20 +20,27 @@ namespace MLVScan.Models.Rules
             false
         );
 
-        // List of DLLs that are often misused for malicious purposes
-        private static readonly string[] HighRiskDlls =
+        // DLLs that are commonly abused for execution, persistence, and networking.
+        // Imports from these remain high risk unless function-level logic overrides.
+        private static readonly string[] ElevatedRiskDlls =
         [
-            "kernel32.dll",
-            "user32.dll",
             "advapi32.dll",
-            "ntdll.dll",
             "wininet.dll",
             "urlmon.dll",
             "winsock.dll",
             "ws2_32.dll",
-            "psapi.dll",
-            "dbghelp.dll",
             "shell32.dll"
+        ];
+
+        // Native runtime/diagnostic DLLs are common in legitimate mods and tooling.
+        // They are still tracked, but should not be treated as high risk by default.
+        private static readonly string[] CommonNativeRuntimeDlls =
+        [
+            "kernel32.dll",
+            "user32.dll",
+            "ntdll.dll",
+            "psapi.dll",
+            "dbghelp.dll"
         ];
 
         // List of DLLs that are less commonly used for malicious purposes but worth noting
@@ -48,33 +55,50 @@ namespace MLVScan.Models.Rules
             "winmm.dll"
         ];
 
-        // List of function names that might indicate malicious behavior
-        private static readonly string[] HighRiskFunctions =
+        // Strong indicators of execution, injection, or covert network activity.
+        private static readonly string[] CriticalFunctions =
         [
             "createprocess",
-            "virtualalloc",
             "virtualallocex",
-            "virtualprotect",
             "writeprocessmemory",
             "readprocessmemory",
             "createremotethread",
-            "openprocess",
             "internetopen",
             "internetconnect",
             "internetreadfile",
             "httpopen",
             "urldownload",
+            "inject",
+            "shellexecute"
+        ];
+
+        // Elevated process/thread/memory manipulation APIs that are suspicious on their own,
+        // but less definitive than the critical indicators above.
+        private static readonly string[] HighRiskFunctions =
+        [
+            "virtualalloc",
+            "virtualprotect",
+            "openprocess",
             "createthread",
-            "loadlibrary",
-            "getprocaddress",
-            "createmutex",
             "openthread",
             "suspendthread",
-            "resumethread",
-            "inject",
-            "memcpy",
-            "strcpy",
-            "shellexecute"
+            "resumethread"
+        ];
+
+        // Common native interop APIs that appear in diagnostics/crash tooling.
+        private static readonly string[] DiagnosticFunctions =
+        [
+            "getmodulehandle",
+            "getcurrentprocess",
+            "getcurrentprocessid",
+            "getcurrentthreadid",
+            "closehandle",
+            "createtoolhelp32snapshot",
+            "process32first",
+            "process32next",
+            "rtlgetversion",
+            "ntqueryinformationprocess",
+            "minidumpwritedump"
         ];
 
         public bool IsSuspicious(MethodReference method)
@@ -102,27 +126,39 @@ namespace MLVScan.Models.Rules
             var lowerDllName = dllName.ToLower();
             var entryPointLower = entryPoint.ToLower();
 
-            // Check for high-risk DLLs
-            if (HighRiskDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
+            if (MatchesKnownApi(entryPointLower, DiagnosticFunctions))
             {
-                // If it's also using a high-risk function, mark as Critical
-                if (HighRiskFunctions.Any(func => entryPointLower.Contains(func)))
-                {
-                    _severity = Severity.Critical;
-                    _description = $"Detected high-risk DllImport of {dllName} with suspicious function {entryPoint}";
-                    return true;
-                }
-                // Otherwise, mark as High risk
+                _severity = Severity.Low;
+                _description = $"Detected diagnostic DllImport of {dllName} ({entryPoint})";
+                return true;
+            }
+
+            if (CriticalFunctions.Any(func => entryPointLower.Contains(func)))
+            {
+                _severity = Severity.Critical;
+                _description = $"Detected high-risk function {entryPoint} in DllImport from {dllName}";
+                return true;
+            }
+
+            if (HighRiskFunctions.Any(func => entryPointLower.Contains(func)))
+            {
+                _severity = Severity.High;
+                _description = $"Detected elevated-risk function {entryPoint} in DllImport from {dllName}";
+                return true;
+            }
+
+            // Check for elevated-risk DLLs
+            if (ElevatedRiskDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
+            {
                 _severity = Severity.High;
                 _description = $"Detected high-risk DllImport of {dllName}";
                 return true;
             }
 
-            // Check EntryPoint for high-risk functions (even if DLL isn't high-risk)
-            if (HighRiskFunctions.Any(func => entryPointLower.Contains(func)))
+            if (CommonNativeRuntimeDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
             {
-                _severity = Severity.Critical;
-                _description = $"Detected high-risk function {entryPoint} in DllImport from {dllName}";
+                _severity = Severity.Medium;
+                _description = $"Detected native runtime DllImport of {dllName} ({entryPoint})";
                 return true;
             }
 
@@ -138,6 +174,21 @@ namespace MLVScan.Models.Rules
             _severity = Severity.Medium;
             _description = $"Detected DllImport of {dllName}";
             return true;
+        }
+
+        private static bool MatchesKnownApi(string entryPointLower, IEnumerable<string> knownApis)
+        {
+            foreach (var api in knownApis)
+            {
+                if (entryPointLower.Equals(api, StringComparison.OrdinalIgnoreCase) ||
+                    entryPointLower.Equals($"{api}a", StringComparison.OrdinalIgnoreCase) ||
+                    entryPointLower.Equals($"{api}w", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsKnownIl2CppInteropBridge(MethodDefinition methodDef, string dllName, string entryPoint)

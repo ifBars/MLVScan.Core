@@ -45,7 +45,10 @@ namespace MLVScan.Services
             MethodDefinition method,
             IScanRule triggeringRule,
             string codeSnippet,
-            string description)
+            string description,
+            Severity? capturedSeverity = null,
+            string? capturedRuleDescription = null,
+            IDeveloperGuidance? capturedDeveloperGuidance = null)
         {
             var key = GetMethodKey(method);
             if (_suspiciousDeclarations.ContainsKey(key))
@@ -55,7 +58,10 @@ namespace MLVScan.Services
             {
                 Method = method,
                 MethodKey = key,
-                Rule = triggeringRule,
+                RuleId = triggeringRule.RuleId,
+                RuleSeverity = capturedSeverity ?? triggeringRule.Severity,
+                RuleDescription = capturedRuleDescription ?? triggeringRule.Description,
+                DeveloperGuidance = capturedDeveloperGuidance ?? triggeringRule.DeveloperGuidance,
                 CodeSnippet = codeSnippet,
                 Description = description,
                 Location = $"{method.DeclaringType?.FullName}.{method.Name}"
@@ -160,9 +166,9 @@ namespace MLVScan.Services
         private CallChain BuildCallChain(SuspiciousDeclaration declaration, List<CallSite> callSites)
         {
             var callChain = new CallChain(
-                chainId: $"{declaration.Rule.RuleId}:{declaration.MethodKey}",
-                ruleId: declaration.Rule.RuleId,
-                severity: declaration.Rule.Severity,
+                chainId: $"{declaration.RuleId}:{declaration.MethodKey}",
+                ruleId: declaration.RuleId,
+                severity: declaration.RuleSeverity,
                 summary: BuildChainSummary(declaration, callSites)
             );
 
@@ -208,7 +214,7 @@ namespace MLVScan.Services
             if (callSites.Count > 3)
                 callersStr += $" (+{callSites.Count - 3} more)";
 
-            return $"{declaration.Rule.Description} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
+            return $"{declaration.RuleDescription} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
         }
 
         private ScanFinding CreateCallChainFinding(CallChain callChain, SuspiciousDeclaration declaration)
@@ -226,8 +232,8 @@ namespace MLVScan.Services
                 callChain.ToCombinedCodeSnippet()
             );
 
-            finding.RuleId = declaration.Rule.RuleId;
-            finding.DeveloperGuidance = declaration.Rule.DeveloperGuidance;
+            finding.RuleId = declaration.RuleId;
+            finding.DeveloperGuidance = declaration.DeveloperGuidance;
             finding.CallChain = callChain;
 
             return finding;
@@ -237,13 +243,13 @@ namespace MLVScan.Services
         {
             var finding = new ScanFinding(
                 declaration.Location,
-                $"{declaration.Rule.Description} - {declaration.Description} (no callers detected - may be dead code or called via reflection)",
-                declaration.Rule.Severity,
+                $"{declaration.RuleDescription} - {declaration.Description} (no callers detected - may be dead code or called via reflection)",
+                declaration.RuleSeverity,
                 declaration.CodeSnippet
             );
 
-            finding.RuleId = declaration.Rule.RuleId;
-            finding.DeveloperGuidance = declaration.Rule.DeveloperGuidance;
+            finding.RuleId = declaration.RuleId;
+            finding.DeveloperGuidance = declaration.DeveloperGuidance;
 
             return finding;
         }
@@ -300,7 +306,10 @@ namespace MLVScan.Services
         {
             public MethodDefinition Method { get; set; } = null!;
             public string MethodKey { get; set; } = null!;
-            public IScanRule Rule { get; set; } = null!;
+            public string RuleId { get; set; } = null!;
+            public Severity RuleSeverity { get; set; }
+            public string RuleDescription { get; set; } = null!;
+            public IDeveloperGuidance? DeveloperGuidance { get; set; }
             public string CodeSnippet { get; set; } = null!;
             public string Description { get; set; } = null!;
             public string Location { get; set; } = null!;

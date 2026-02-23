@@ -21,6 +21,17 @@ public class CallGraphBuilderTests
         public bool IsSuspicious(MethodReference method) => false;
     }
 
+    private class MutableRule : IScanRule
+    {
+        public string RuleId => "MutableRule";
+        public string Description { get; set; } = "Initial rule description";
+        public Severity Severity { get; set; } = Severity.High;
+        public bool RequiresCompanionFinding => false;
+        public IDeveloperGuidance? DeveloperGuidance => null;
+
+        public bool IsSuspicious(MethodReference method) => false;
+    }
+
     private MethodDefinition CreateTestMethod(string typeName, string methodName)
     {
         var assemblyBuilder = TestAssemblyBuilder.Create();
@@ -255,6 +266,40 @@ public class CallGraphBuilderTests
 
         findings.Should().HaveCount(1);
         findings[0].RuleId.Should().Be("TestRule");
+    }
+
+    [Fact]
+    public void BuildCallChainFindings_UsesCapturedRuleMetadata_WhenRuleMutatesAfterRegistration()
+    {
+        var mutableRule = new MutableRule
+        {
+            Description = "Initial dangerous description",
+            Severity = Severity.Critical
+        };
+
+        var rules = new List<IScanRule> { mutableRule };
+        var snippetBuilder = new CodeSnippetBuilder();
+        var builder = new CallGraphBuilder(rules, snippetBuilder);
+
+        var suspiciousMethod = CreateTestMethod("MaliciousType", "DangerousMethod");
+        var callerMethod = CreateTestMethod("CallerType", "CallerMethod");
+
+        builder.RegisterSuspiciousDeclaration(suspiciousMethod, mutableRule, "code", "declaration");
+
+        // Simulate stateful rule mutation after registration.
+        mutableRule.Description = "Mutated benign description";
+        mutableRule.Severity = Severity.Low;
+
+        builder.RegisterCallSite(callerMethod, suspiciousMethod, 12, "call site snippet");
+        var findings = builder.BuildCallChainFindings().ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Initial dangerous description");
+        findings[0].Description.Should().NotContain("Mutated benign description");
+        findings[0].CallChain.Should().NotBeNull();
+        findings[0].CallChain!.Severity.Should().Be(Severity.Critical);
+        findings[0].CallChain!.Summary.Should().Contain("Initial dangerous description");
     }
 
     [Fact]

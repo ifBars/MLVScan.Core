@@ -40,9 +40,13 @@ namespace MLVScan.Services
                             if (method.PInvokeInfo == null)
                                 continue;
 
-                            if (_rules.Any(rule => rule.IsSuspicious(method)))
+                            var matchedRule = _rules.FirstOrDefault(rule => rule.IsSuspicious(method));
+                            if (matchedRule != null)
                             {
-                                var rule = _rules.First(r => r.IsSuspicious(method));
+                                var severity = matchedRule.Severity;
+                                var ruleDescription = matchedRule.Description;
+                                var developerGuidance = matchedRule.DeveloperGuidance;
+
                                 var dllName = method.PInvokeInfo.Module.Name;
                                 var entryPoint = method.PInvokeInfo.EntryPoint ?? method.Name;
                                 var snippet = $"[DllImport(\"{dllName}\", EntryPoint = \"{entryPoint}\")]\n{method.ReturnType.Name} {method.Name}({string.Join(", ", method.Parameters.Select(p => $"{p.ParameterType.Name} {p.Name}"))});";
@@ -53,19 +57,25 @@ namespace MLVScan.Services
                                     // Register with call graph builder for consolidation
                                     _callGraphBuilder.RegisterSuspiciousDeclaration(
                                         method,
-                                        rule,
+                                        matchedRule,
                                         snippet,
-                                        description
+                                        description,
+                                        severity,
+                                        ruleDescription,
+                                        developerGuidance
                                     );
                                 }
                                 else
                                 {
                                     // Legacy behavior: create direct finding
-                                    findings.Add(new ScanFinding(
+                                    var finding = new ScanFinding(
                                         $"{method.DeclaringType.FullName}.{method.Name}",
-                                        rule.Description,
-                                        rule.Severity,
-                                        snippet).WithRuleMetadata(rule));
+                                        ruleDescription,
+                                        severity,
+                                        snippet).WithRuleMetadata(matchedRule);
+
+                                    finding.DeveloperGuidance = developerGuidance;
+                                    findings.Add(finding);
                                 }
                             }
                         }

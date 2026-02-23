@@ -101,6 +101,92 @@ public class DllImportScannerTests
     }
 
     [Fact]
+    public void ScanForDllImports_WithDiagnosticKernel32PInvoke_ReturnsLowSeverity()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("GetCurrentProcess",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.IntPtr);
+
+        var moduleRef = new ModuleReference("kernel32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetCurrentProcess", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].Description.Should().Contain("diagnostic DllImport");
+    }
+
+    [Fact]
+    public void ScanForDllImports_WithGetProcAddressPInvoke_ReturnsMediumSeverity()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("GetProcAddress",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.IntPtr);
+        method.Parameters.Add(new ParameterDefinition("hModule", ParameterAttributes.None, assembly.MainModule.TypeSystem.IntPtr));
+        method.Parameters.Add(new ParameterDefinition("procName", ParameterAttributes.None, assembly.MainModule.TypeSystem.String));
+
+        var moduleRef = new ModuleReference("kernel32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetProcAddress", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].Description.Should().Contain("native runtime DllImport");
+    }
+
+    [Fact]
+    public void ScanForDllImports_WithNtdllVersionPInvoke_ReturnsLowSeverity()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("RtlGetVersion",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Int32);
+
+        var moduleRef = new ModuleReference("ntdll.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "RtlGetVersion", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].Description.Should().Contain("diagnostic DllImport");
+    }
+
+    [Fact]
     public void ScanForDllImports_WithCallGraphBuilder_RegistersButReturnsEmpty()
     {
         var rules = new List<IScanRule> { new DllImportRule() };
