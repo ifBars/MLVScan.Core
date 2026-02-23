@@ -11,13 +11,6 @@ public class ScanConfigTests
     {
         var config = new ScanConfig();
 
-        config.EnableAutoScan.Should().BeTrue();
-        config.EnableAutoDisable.Should().BeTrue();
-        config.MinSeverityForDisable.Should().Be(Severity.Medium);
-        config.ScanDirectories.Should().BeEquivalentTo(new[] { "Mods", "Plugins" });
-        config.SuspiciousThreshold.Should().Be(1);
-        config.WhitelistedHashes.Should().BeEmpty();
-        config.DumpFullIlReports.Should().BeFalse();
         config.MinimumEncodedStringLength.Should().Be(10);
         config.DetectAssemblyMetadata.Should().BeTrue();
         config.EnableMultiSignalDetection.Should().BeTrue();
@@ -32,13 +25,6 @@ public class ScanConfigTests
     {
         var config = new ScanConfig
         {
-            EnableAutoScan = false,
-            EnableAutoDisable = false,
-            MinSeverityForDisable = Severity.Critical,
-            ScanDirectories = new[] { "CustomMods" },
-            SuspiciousThreshold = 5,
-            WhitelistedHashes = new[] { "abc123" },
-            DumpFullIlReports = true,
             MinimumEncodedStringLength = 20,
             DetectAssemblyMetadata = false,
             EnableMultiSignalDetection = false,
@@ -48,13 +34,6 @@ public class ScanConfigTests
             DeveloperMode = true
         };
 
-        config.EnableAutoScan.Should().BeFalse();
-        config.EnableAutoDisable.Should().BeFalse();
-        config.MinSeverityForDisable.Should().Be(Severity.Critical);
-        config.ScanDirectories.Should().BeEquivalentTo(new[] { "CustomMods" });
-        config.SuspiciousThreshold.Should().Be(5);
-        config.WhitelistedHashes.Should().BeEquivalentTo(new[] { "abc123" });
-        config.DumpFullIlReports.Should().BeTrue();
         config.MinimumEncodedStringLength.Should().Be(20);
         config.DetectAssemblyMetadata.Should().BeFalse();
         config.EnableMultiSignalDetection.Should().BeFalse();

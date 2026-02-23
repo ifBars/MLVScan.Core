@@ -1,34 +1,11 @@
 namespace MLVScan.Models
 {
+    /// <summary>
+    /// Core scanning configuration for MLVScan.Core library.
+    /// Contains platform-agnostic settings for the static analysis engine.
+    /// </summary>
     public class ScanConfig
     {
-        // Enable/disable automatic scanning at startup
-        public bool EnableAutoScan { get; set; } = true;
-
-        // Enable/disable automatic disabling of suspicious mods
-        public bool EnableAutoDisable { get; set; } = true;
-
-        // Minimum severity level to trigger disabling
-        public Severity MinSeverityForDisable { get; set; } = Severity.Medium;
-
-        // Where to scan for mods
-        public string[] ScanDirectories { get; set; } = ["Mods", "Plugins"];
-
-        // How many suspicious findings before disabling a mod
-        public int SuspiciousThreshold { get; set; } = 1;
-
-        // Mods to whitelist (will be skipped during scanning)
-        public string[] WhitelistedHashes { get; set; } = [];
-
-        // Save a full IL dump of each scanned mod to the reports directory
-        public bool DumpFullIlReports { get; set; } = false;
-
-        // Minimum number of numeric segments to consider as encoded string
-        public int MinimumEncodedStringLength { get; set; } = 10;
-
-        // Enable scanning of assembly metadata attributes for hidden payloads
-        public bool DetectAssemblyMetadata { get; set; } = true;
-
         // Enable multi-signal heuristics (combination pattern detection)
         public bool EnableMultiSignalDetection { get; set; } = true;
 
@@ -41,14 +18,8 @@ namespace MLVScan.Models
         // Enable analysis of property/event accessors
         public bool AnalyzePropertyAccessors { get; set; } = true;
 
-        // Developer mode: Show remediation guidance for mod developers
-        public bool DeveloperMode { get; set; } = false;
-
-        // Automated report upload: whether user has consented to send reports to the API
-        public bool EnableReportUpload { get; set; } = false;
-
-        // Whether we have shown the first-run consent prompt (so we don't prompt again)
-        public bool ReportUploadConsentAsked { get; set; } = false;
+        // Enable scanning of assembly metadata attributes for hidden payloads
+        public bool DetectAssemblyMetadata { get; set; } = true;
 
         // Enable cross-method data flow analysis (traces data across method boundaries)
         public bool EnableCrossMethodAnalysis { get; set; } = true;
@@ -64,6 +35,12 @@ namespace MLVScan.Models
 
         // Maximum size (in MB) of embedded resources to attempt recursive scanning on
         public int MaxRecursiveResourceSizeMB { get; set; } = 10;
+
+        // Minimum number of numeric segments to consider as encoded string
+        public int MinimumEncodedStringLength { get; set; } = 10;
+
+        // Developer mode: Show remediation guidance for mod developers
+        public bool DeveloperMode { get; set; } = false;
 
         // Deep behavior analysis configuration for practical Unity-mod threat detection
         public DeepBehaviorAnalysisConfig DeepAnalysis { get; set; } = new DeepBehaviorAnalysisConfig();
