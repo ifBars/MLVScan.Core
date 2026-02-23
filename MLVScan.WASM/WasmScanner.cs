@@ -22,10 +22,7 @@ public class WasmScanner
         _config = config ?? new ScanConfig
         {
             // WASM-friendly defaults
-            EnableAutoScan = false,
-            EnableAutoDisable = false,
-            DeveloperMode = false,
-            DumpFullIlReports = false
+            DeveloperMode = false
         };
     }
 
