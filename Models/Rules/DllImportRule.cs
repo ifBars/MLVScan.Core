@@ -85,6 +85,14 @@ namespace MLVScan.Models.Rules
             "resumethread"
         ];
 
+        // Native execution entry points that can directly launch payloads.
+        private static readonly string[] NativeExecutionFunctions =
+        [
+            "shellexecute",
+            "createprocess",
+            "winexec"
+        ];
+
         // Common native interop APIs that appear in diagnostics/crash tooling.
         private static readonly string[] DiagnosticFunctions =
         [
@@ -130,6 +138,13 @@ namespace MLVScan.Models.Rules
             {
                 _severity = Severity.Low;
                 _description = $"Detected diagnostic DllImport of {dllName} ({entryPoint})";
+                return true;
+            }
+
+            if (IsNativeExecutionEntryPoint(entryPointLower))
+            {
+                _severity = Severity.Critical;
+                _description = $"Detected high-risk native execution function {entryPoint} in DllImport from {dllName}";
                 return true;
             }
 
@@ -206,6 +221,15 @@ namespace MLVScan.Models.Rules
             }
 
             return entryPoint.StartsWith("il2cpp_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsNativeExecutionEntryPoint(string entryPointLower)
+        {
+            if (string.IsNullOrWhiteSpace(entryPointLower))
+                return false;
+
+            return NativeExecutionFunctions.Any(func =>
+                entryPointLower.Contains(func, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

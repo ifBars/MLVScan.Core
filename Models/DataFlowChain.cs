@@ -307,6 +307,12 @@ namespace MLVScan.Models
         ObfuscatedPersistence,
 
         /// <summary>
+        /// Loads payload from embedded resources, writes it to disk, and executes it via native shell APIs.
+        /// Common dropper pattern used to hide payloads inside otherwise benign assemblies.
+        /// </summary>
+        EmbeddedResourceDropAndExecute,
+
+        /// <summary>
         /// Suspicious data flow detected but doesn't match known patterns.
         /// </summary>
         Unknown

@@ -157,6 +157,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [InlineData(DataFlowPattern.CredentialTheft)]
             [InlineData(DataFlowPattern.RemoteConfigLoad)]
             [InlineData(DataFlowPattern.ObfuscatedPersistence)]
+            [InlineData(DataFlowPattern.EmbeddedResourceDropAndExecute)]
             public void IsSuspicious_SuspiciousPatterns_ReturnsTrue(DataFlowPattern pattern)
             {
                 var chain = new DataFlowChain(

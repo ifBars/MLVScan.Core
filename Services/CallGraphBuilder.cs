@@ -75,7 +75,8 @@ namespace MLVScan.Services
             MethodDefinition callerMethod,
             MethodReference calledMethod,
             int instructionOffset,
-            string codeSnippet)
+            string codeSnippet,
+            string? contextDescription = null)
         {
             var calleeKey = GetMethodKey(calledMethod);
 
@@ -87,8 +88,17 @@ namespace MLVScan.Services
 
             // Avoid duplicates
             var callerKey = GetMethodKey(callerMethod);
-            if (sites.Any(s => s.CallerMethodKey == callerKey && s.InstructionOffset == instructionOffset))
+            var existingSite = sites.FirstOrDefault(s => s.CallerMethodKey == callerKey && s.InstructionOffset == instructionOffset);
+            if (existingSite != null)
+            {
+                if (string.IsNullOrWhiteSpace(existingSite.ContextDescription) &&
+                    !string.IsNullOrWhiteSpace(contextDescription))
+                {
+                    existingSite.ContextDescription = contextDescription;
+                }
+
                 return;
+            }
 
             sites.Add(new CallSite
             {
@@ -97,7 +107,8 @@ namespace MLVScan.Services
                 CalledMethodKey = calleeKey,
                 InstructionOffset = instructionOffset,
                 CodeSnippet = codeSnippet,
-                Location = $"{callerMethod.DeclaringType?.FullName}.{callerMethod.Name}:{instructionOffset}"
+                Location = $"{callerMethod.DeclaringType?.FullName}.{callerMethod.Name}:{instructionOffset}",
+                ContextDescription = contextDescription
             });
         }
 
@@ -184,6 +195,11 @@ namespace MLVScan.Services
                     ? $"Entry point calls {declaration.Method.Name}"
                     : $"Calls {declaration.Method.Name}";
 
+                if (!string.IsNullOrWhiteSpace(callSite.ContextDescription))
+                {
+                    callerDescription += $" ({callSite.ContextDescription})";
+                }
+
                 callChain.AppendNode(new CallChainNode(
                     callSite.Location,
                     callerDescription,
@@ -214,7 +230,25 @@ namespace MLVScan.Services
             if (callSites.Count > 3)
                 callersStr += $" (+{callSites.Count - 3} more)";
 
-            return $"{declaration.RuleDescription} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
+            var summary = $"{declaration.RuleDescription} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
+
+            var contextDescriptions = callSites
+                .Select(cs => cs.ContextDescription)
+                .Where(context => !string.IsNullOrWhiteSpace(context))
+                .Distinct(StringComparer.Ordinal)
+                .Take(2)
+                .ToList();
+
+            if (contextDescriptions.Count == 1)
+            {
+                summary += $". {contextDescriptions[0]}";
+            }
+            else if (contextDescriptions.Count > 1)
+            {
+                summary += $". Invocation contexts: {string.Join(" | ", contextDescriptions)}";
+            }
+
+            return summary;
         }
 
         private ScanFinding CreateCallChainFinding(CallChain callChain, SuspiciousDeclaration declaration)
@@ -326,6 +360,7 @@ namespace MLVScan.Services
             public int InstructionOffset { get; set; }
             public string CodeSnippet { get; set; } = null!;
             public string Location { get; set; } = null!;
+            public string? ContextDescription { get; set; }
         }
     }
 }

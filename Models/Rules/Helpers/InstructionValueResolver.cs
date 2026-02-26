@@ -9,6 +9,8 @@ namespace MLVScan.Models.Rules.Helpers
         private const int MaxDepth = 16;
         private static readonly Regex ExecutableNameRegex =
             new Regex(@"([A-Za-z0-9._-]+\.(?:exe|bat|cmd|com|ps1|msi))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex FormatItemRegex =
+            new Regex(@"\{(\d+)(?:[^}]*)\}", RegexOptions.CultureInvariant);
 
         public static bool TryResolveProcessTarget(
             MethodDefinition? containingMethod,
@@ -45,6 +47,24 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             arguments = "<unknown/no-arguments>";
+            return false;
+        }
+
+        public static bool TryResolveStackValueDisplay(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int beforeIndex,
+            out string valueDisplay)
+        {
+            var context = new ResolverContext(containingMethod?.Module);
+
+            if (TryResolveTopStackValue(context, containingMethod, instructions, beforeIndex, null, 0, out var resolved, out _))
+            {
+                valueDisplay = resolved.Display;
+                return true;
+            }
+
+            valueDisplay = "<unknown/non-literal>";
             return false;
         }
 
@@ -225,6 +245,21 @@ namespace MLVScan.Models.Rules.Helpers
             if (instruction.OpCode == OpCodes.Ldnull)
             {
                 value = new ResolvedValue("<null>", null, false);
+                return true;
+            }
+
+            if (TryResolveInt32Literal(instruction, out int intValue))
+            {
+                value = new ResolvedValue(intValue.ToString(), null, true);
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Box)
+            {
+                if (TryResolveTopStackValue(context, containingMethod, instructions, producerIndex - 1, argumentMap, depth + 1, out value, out _))
+                    return true;
+
+                value = new ResolvedValue("<boxed-value>", null, false);
                 return true;
             }
 
@@ -434,19 +469,25 @@ namespace MLVScan.Models.Rules.Helpers
             {
                 if (method.Name == "Combine" || method.Name == "Join" || method.Name == "GetFullPath" || method.Name == "GetFileName")
                 {
-                    string? exe = callArgs.Select(a => a.ExecutableName).FirstOrDefault(e => !string.IsNullOrEmpty(e));
-                    if (!string.IsNullOrEmpty(exe))
-                    {
-                        value = new ResolvedValue(exe!, exe, true);
-                        return true;
-                    }
-
                     string composed = callArgs.Count > 0
-                        ? string.Join("/", callArgs.Select(a => a.Display))
+                        ? CombinePathLikeArguments(callArgs)
                         : $"<dynamic via Path.{method.Name}>";
-                    value = new ResolvedValue(composed, ExtractExecutableName(composed), false);
+                    bool isConcrete = callArgs.Count > 0 && callArgs.All(a => a.IsConcrete);
+                    value = new ResolvedValue(composed, ExtractExecutableName(composed), isConcrete);
                     return true;
                 }
+
+                if (method.Name == "GetTempPath")
+                {
+                    value = new ResolvedValue("%TEMP%", null, true);
+                    return true;
+                }
+            }
+
+            if (declaringType == "System.Guid" && method.Name == "NewGuid")
+            {
+                value = new ResolvedValue("<guid>", null, true);
+                return true;
             }
 
             if (declaringType == "System.String")
@@ -460,6 +501,13 @@ namespace MLVScan.Models.Rules.Helpers
 
                 if (method.Name == "Format")
                 {
+                    if (TryApplySimpleStringFormat(callArgs, out string formatted))
+                    {
+                        bool isConcrete = callArgs.Skip(1).All(a => a.IsConcrete);
+                        value = new ResolvedValue(formatted, ExtractExecutableName(formatted), isConcrete);
+                        return true;
+                    }
+
                     string composed = string.Concat(callArgs.Select(a => a.Display));
                     value = new ResolvedValue(composed, ExtractExecutableName(composed), false);
                     return true;
@@ -549,6 +597,64 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool IsBetterCandidate(ResolvedValue candidate, ResolvedValue currentBest)
         {
             return ScoreCandidate(candidate) > ScoreCandidate(currentBest);
+        }
+
+        private static bool TryApplySimpleStringFormat(
+            IReadOnlyList<ResolvedValue> callArgs,
+            out string formatted)
+        {
+            formatted = string.Empty;
+
+            if (callArgs.Count == 0)
+                return false;
+
+            string template = callArgs[0].Display;
+            if (string.IsNullOrWhiteSpace(template) || template.StartsWith("<", StringComparison.Ordinal))
+                return false;
+
+            var formatArgs = callArgs.Skip(1).Select(a => a.Display).ToList();
+            bool replacedAny = false;
+
+            formatted = FormatItemRegex.Replace(template, match =>
+            {
+                if (!int.TryParse(match.Groups[1].Value, out int argIndex))
+                    return match.Value;
+
+                if (argIndex < 0 || argIndex >= formatArgs.Count)
+                    return match.Value;
+
+                replacedAny = true;
+                return formatArgs[argIndex];
+            });
+
+            if (replacedAny)
+            {
+                formatted = formatted.Replace("{{", "{").Replace("}}", "}");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string CombinePathLikeArguments(IReadOnlyList<ResolvedValue> callArgs)
+        {
+            var parts = callArgs
+                .Select(arg => arg.Display)
+                .Where(display => !string.IsNullOrWhiteSpace(display))
+                .ToList();
+
+            if (parts.Count == 0)
+                return "<dynamic via Path.Combine>";
+
+            string combined = parts[0];
+            for (int i = 1; i < parts.Count; i++)
+            {
+                var left = combined.TrimEnd('/', '\\');
+                var right = parts[i].TrimStart('/', '\\');
+                combined = string.IsNullOrEmpty(left) ? right : $"{left}/{right}";
+            }
+
+            return combined;
         }
 
         private static int ScoreCandidate(ResolvedValue value)
@@ -641,6 +747,42 @@ namespace MLVScan.Models.Rules.Helpers
                 StackBehaviour.Push1_push1 => 2,
                 _ => 0
             };
+        }
+
+        private static bool TryResolveInt32Literal(Instruction instruction, out int value)
+        {
+            value = instruction.OpCode.Code switch
+            {
+                Code.Ldc_I4_M1 => -1,
+                Code.Ldc_I4_0 => 0,
+                Code.Ldc_I4_1 => 1,
+                Code.Ldc_I4_2 => 2,
+                Code.Ldc_I4_3 => 3,
+                Code.Ldc_I4_4 => 4,
+                Code.Ldc_I4_5 => 5,
+                Code.Ldc_I4_6 => 6,
+                Code.Ldc_I4_7 => 7,
+                Code.Ldc_I4_8 => 8,
+                _ => int.MinValue
+            };
+
+            if (value != int.MinValue)
+                return true;
+
+            if (instruction.OpCode == OpCodes.Ldc_I4 && instruction.Operand is int intOperand)
+            {
+                value = intOperand;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_S && instruction.Operand is sbyte shortOperand)
+            {
+                value = shortOperand;
+                return true;
+            }
+
+            value = 0;
+            return false;
         }
 
         private static int GetPopCount(Instruction instruction)

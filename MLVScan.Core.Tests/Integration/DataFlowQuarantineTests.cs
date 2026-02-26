@@ -221,6 +221,32 @@ public class DataFlowQuarantineTests
         }
     }
 
+    [SkippableFact]
+    public void Scan_RealRadio_ShouldProduceEmbeddedResourceDropperDataFlow()
+    {
+        var path = GetSamplePath("RealRadio.dll.di");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dataFlowFindings = findings
+            .Where(f => f.RuleId == "DataFlowAnalysis" && f.HasDataFlow)
+            .ToList();
+
+        dataFlowFindings.Should().NotBeEmpty("RealRadio extracts a resource to disk and executes it through ShellExecuteEx");
+        dataFlowFindings.Should().Contain(f =>
+            f.DataFlowChain!.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute);
+
+        var chain = dataFlowFindings
+            .Select(f => f.DataFlowChain!)
+            .First(c => c.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute);
+
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("GetManifestResourceStream", StringComparison.OrdinalIgnoreCase));
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase));
+    }
+
     [SkippableTheory]
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]

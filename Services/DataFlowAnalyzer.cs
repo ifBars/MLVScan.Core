@@ -1,6 +1,7 @@
 using System.Text;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -280,10 +281,16 @@ namespace MLVScan.Services
             if (IsAssemblyLoad(declType, methodName))
                 return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}", "Assembly (dynamic code loaded)");
 
+            if (IsNativeExecutionSink(method))
+                return (DataFlowNodeType.Sink, GetNativeExecutionOperationName(method), "Executes native shell/process");
+
             if (IsProcessStart(declType, methodName))
                 return (DataFlowNodeType.Sink, "Process.Start", "Executes process");
 
             if (IsFileSink(declType, methodName))
+                return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}", "Writes to file");
+
+            if (IsFileStreamSink(declType, methodName))
                 return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}", "Writes to file");
 
             if (IsNetworkSink(declType, methodName))
@@ -413,6 +420,17 @@ namespace MLVScan.Services
             var nodeTypes = operations.Select(op => op.NodeType).ToList();
             var opNames = operations.Select(op => op.Operation.ToLowerInvariant()).ToList();
 
+            _ = nodeTypes;
+            _ = opNames;
+
+            // Embedded resource dropper: Resource stream -> file write -> native execution sink.
+            if (HasResourceSource(operations) &&
+                HasProcessStart(operations) &&
+                (HasFileWrite(operations) || HasTransform(operations)))
+            {
+                return DataFlowPattern.EmbeddedResourceDropAndExecute;
+            }
+
             // Download and Execute: Network → [Transform] → File Write → Process.Start
             if (HasNetworkSource(operations) &&
                 HasFileWrite(operations) &&
@@ -460,6 +478,7 @@ namespace MLVScan.Services
         {
             return pattern switch
             {
+                DataFlowPattern.EmbeddedResourceDropAndExecute => Severity.Critical,
                 DataFlowPattern.DownloadAndExecute => Severity.Critical,
                 DataFlowPattern.DataExfiltration => Severity.Critical,
                 DataFlowPattern.DynamicCodeLoading => Severity.Critical,
@@ -500,6 +519,8 @@ namespace MLVScan.Services
         {
             var summary = pattern switch
             {
+                DataFlowPattern.EmbeddedResourceDropAndExecute =>
+                    "Suspicious data flow: Extracts embedded resource to disk and executes it via native shell API",
                 DataFlowPattern.DownloadAndExecute =>
                     "Suspicious data flow: Downloads data from network, processes it, and executes as a program",
                 DataFlowPattern.DataExfiltration =>
@@ -528,6 +549,7 @@ namespace MLVScan.Services
             );
 
             finding.RuleId = "DataFlowAnalysis";
+            finding.DataFlowChain = chain;
 
             return finding;
         }
@@ -543,16 +565,25 @@ namespace MLVScan.Services
         private bool HasRegistrySource(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Source && op.Operation.Contains("Registry"));
 
+        private bool HasResourceSource(List<InterestingOperation> ops) =>
+            ops.Any(op => op.NodeType == DataFlowNodeType.Source &&
+                         (op.Operation.Contains("GetManifestResourceStream", StringComparison.OrdinalIgnoreCase) ||
+                          op.DataDescription.Contains("embedded resource", StringComparison.OrdinalIgnoreCase)));
+
         private bool HasTransform(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Transform);
 
         private bool HasFileWrite(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
-                         (op.Operation.Contains("Write") || op.Operation.Contains("Create")) &&
-                         op.Operation.Contains("File"));
+                         ((op.Operation.Contains("Write") || op.Operation.Contains("Create")) && op.Operation.Contains("File") ||
+                          op.Operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasProcessStart(List<InterestingOperation> ops) =>
-            ops.Any(op => op.NodeType == DataFlowNodeType.Sink && op.Operation.Contains("Process.Start"));
+            ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
+                         (op.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase) ||
+                          op.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
+                          op.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
+                          op.Operation.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasNetworkSink(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
@@ -626,9 +657,33 @@ namespace MLVScan.Services
         private bool IsProcessStart(string declType, string methodName) =>
             declType.Contains("System.Diagnostics.Process") && methodName == "Start";
 
+        private bool IsNativeExecutionSink(MethodReference method)
+        {
+            return DllImportInvocationContextExtractor.IsNativeExecutionPInvoke(method);
+        }
+
+        private string GetNativeExecutionOperationName(MethodReference method)
+        {
+            try
+            {
+                if (method.Resolve() is not { } methodDef || methodDef.PInvokeInfo == null)
+                    return $"PInvoke.{method.Name}";
+
+                var entryPoint = methodDef.PInvokeInfo.EntryPoint ?? method.Name;
+                return $"PInvoke.{entryPoint}";
+            }
+            catch
+            {
+                return $"PInvoke.{method.Name}";
+            }
+        }
+
         private bool IsFileSink(string declType, string methodName) =>
             declType.StartsWith("System.IO.File") &&
             (methodName.Contains("Write") || methodName.Contains("Create"));
+
+        private bool IsFileStreamSink(string declType, string methodName) =>
+            declType == "System.IO.FileStream" && methodName == ".ctor";
 
         private bool IsNetworkSink(string declType, string methodName) =>
             (declType.StartsWith("System.Net") || declType.Contains("HttpClient") ||
@@ -979,6 +1034,7 @@ namespace MLVScan.Services
         {
             var patternDesc = pattern switch
             {
+                DataFlowPattern.EmbeddedResourceDropAndExecute => "Embedded resource drop-and-execute pattern",
                 DataFlowPattern.DownloadAndExecute => "Download and execute pattern",
                 DataFlowPattern.DataExfiltration => "Data exfiltration pattern",
                 DataFlowPattern.DynamicCodeLoading => "Dynamic code loading pattern",
@@ -1171,6 +1227,7 @@ namespace MLVScan.Services
         {
             var patternDesc = pattern switch
             {
+                DataFlowPattern.EmbeddedResourceDropAndExecute => "Return-value embedded resource execution",
                 DataFlowPattern.DownloadAndExecute => "Return-value download and execute",
                 DataFlowPattern.DataExfiltration => "Return-value exfiltration",
                 DataFlowPattern.DynamicCodeLoading => "Return-value code loading",
@@ -1603,6 +1660,7 @@ namespace MLVScan.Services
         {
             var patternDesc = pattern switch
             {
+                DataFlowPattern.EmbeddedResourceDropAndExecute => "Multi-method embedded resource drop-and-execute pattern",
                 DataFlowPattern.DownloadAndExecute => "Multi-method download and execute pattern",
                 DataFlowPattern.DataExfiltration => "Multi-method data exfiltration pattern",
                 DataFlowPattern.DynamicCodeLoading => "Multi-method dynamic code loading pattern",

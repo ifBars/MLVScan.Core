@@ -162,6 +162,27 @@ public class FalsePositiveScanTests
     }
 
     /// <summary>
+    /// eMployee is a known benign sample that currently includes some obfuscation-like utility patterns.
+    /// It should not produce blocking (High/Critical) findings by default.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_eMployee_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("eMployee.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "eMployee.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "eMployee.dll is a known false-positive sample and should not be blocked by default rule set");
+
+        findings.Should().NotContain(f => f.RuleId == "ObfuscatedReflectiveExecutionRule",
+            "behavioral obfuscated-execution correlation should not trigger on known benign sample eMployee.dll");
+    }
+
+    /// <summary>
     /// DeliveryCartPlus uses Il2CppInterop reflection and runtime interop glue code.
     /// These patterns should not produce blocking findings on their own.
     /// </summary>
@@ -233,6 +254,7 @@ public class FalsePositiveScanTests
             "BankApp.dll",
             "CustomTV.dll",
             "DeliveryCartPlus_v.1.0.dll",
+            "eMployee.dll",
             "LethalLizard.ModManager.dll",
             "NoMoreTrashMono.dll",
             "RecipeRandomizer.dll",

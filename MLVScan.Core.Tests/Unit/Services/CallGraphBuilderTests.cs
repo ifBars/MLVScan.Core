@@ -231,6 +231,28 @@ public class CallGraphBuilderTests
     }
 
     [Fact]
+    public void BuildCallChainFindings_WithInvocationContext_IncludesContextInSummaryAndNode()
+    {
+        var rules = new List<IScanRule> { new TestRule() };
+        var snippetBuilder = new CodeSnippetBuilder();
+        var builder = new CallGraphBuilder(rules, snippetBuilder);
+
+        var suspiciousMethod = CreateTestMethod("MaliciousType", "DangerousMethod");
+        var callerMethod = CreateTestMethod("CallerType", "OnInitializeMelon");
+        var context = "Invocation context: lpVerb=\"open\", lpFile=\"<dynamic via Path.Combine>\"";
+
+        builder.RegisterSuspiciousDeclaration(suspiciousMethod, rules[0], "dangerous code", "P/Invoke declaration");
+        builder.RegisterCallSite(callerMethod, suspiciousMethod, 42, "call snippet", context);
+
+        var findings = builder.BuildCallChainFindings().ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Description.Should().Contain(context);
+        findings[0].CallChain.Should().NotBeNull();
+        findings[0].CallChain!.Nodes[0].Description.Should().Contain(context);
+    }
+
+    [Fact]
     public void BuildCallChainFindings_MultipleCalls_IncludesAllCallSites()
     {
         var rules = new List<IScanRule> { new TestRule() };

@@ -16,7 +16,6 @@ namespace MLVScan.Services
             "AssemblyDynamicLoadRule",
             "PersistenceRule",
             "RegistryRule",
-            "EnvironmentPathRule",
             "DataExfiltrationRule",
             "DataInfiltrationRule",
             "Base64Rule",
@@ -96,8 +95,9 @@ namespace MLVScan.Services
                         if (isCallToTrackedSuspiciousMethod)
                         {
                             // Register this call site with the call graph builder instead of creating a finding
-                            var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
-                            _callGraphBuilder!.RegisterCallSite(method, calledMethod, instruction.Offset, snippet);
+                            var snippet = _snippetBuilder.BuildSnippet(instructions, i, 8);
+                            var invocationContext = DllImportInvocationContextExtractor.TryBuildContext(method, calledMethod, instructions, i);
+                            _callGraphBuilder!.RegisterCallSite(method, calledMethod, instruction.Offset, snippet, invocationContext);
 
                             // Mark rule as triggered for signal tracking
                             if (methodSignals != null)

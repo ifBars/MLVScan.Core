@@ -34,7 +34,8 @@ namespace MLVScan
                 new DataInfiltrationRule(),
                 new PersistenceRule(),
                 new HexStringRule(),
-                new SuspiciousLocalVariableRule()
+                new SuspiciousLocalVariableRule(),
+                new ObfuscatedReflectiveExecutionRule()
             }.AsReadOnly();
         }
     }

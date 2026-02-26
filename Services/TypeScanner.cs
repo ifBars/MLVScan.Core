@@ -15,7 +15,6 @@ namespace MLVScan.Services
             "AssemblyDynamicLoadRule",
             "PersistenceRule",
             "RegistryRule",
-            "EnvironmentPathRule",
             "DataExfiltrationRule",
             "DataInfiltrationRule",
             "Base64Rule",

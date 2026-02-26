@@ -20,8 +20,8 @@ public class RuleFactoryTests
     {
         var rules = RuleFactory.CreateDefaultRules();
 
-        // Based on RuleFactory.cs, there are 18 rules
-        rules.Should().HaveCount(18);
+        // Based on RuleFactory.cs, there are 19 rules
+        rules.Should().HaveCount(19);
     }
 
     [Fact]
@@ -47,6 +47,7 @@ public class RuleFactoryTests
         rules.Should().ContainSingle(r => r is PersistenceRule);
         rules.Should().ContainSingle(r => r is HexStringRule);
         rules.Should().ContainSingle(r => r is SuspiciousLocalVariableRule);
+        rules.Should().ContainSingle(r => r is ObfuscatedReflectiveExecutionRule);
     }
 
     [Fact]

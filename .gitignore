@@ -49,3 +49,6 @@ QUARANTINE/
 ## WASM / NPM
 MLVScan.WASM/npm/dist/
 MLVScan.WASM/npm/node_modules/
+
+project-document.txt
+quarantine-tests-full-output.log
