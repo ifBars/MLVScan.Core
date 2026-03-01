@@ -80,10 +80,7 @@ jobs:
 
     - name: Publish to npm
       working-directory: MLVScan.WASM/npm
-      run: npm publish --access public
-      env:
-        # Optional: needed for first-ever publish (creates the package). Omit after Trusted Publishing is set up.
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: npm publish --access public --provenance
 
     - name: Summary
       run: |
