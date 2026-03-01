@@ -10,7 +10,7 @@ namespace MLVScan.Services
     /// Core assembly scanner that analyzes .NET assemblies for malicious patterns.
     /// Supports both file-based and stream-based scanning.
     /// </summary>
-    public class AssemblyScanner
+    public class AssemblyScanner : Abstractions.IAssemblyScanner
     {
         private static readonly HashSet<string> DeepCorrelationRuleIds = new(StringComparer.Ordinal)
         {
