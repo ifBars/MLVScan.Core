@@ -1,9 +1,6 @@
 # Publishes @mlvscan/wasm-core.
-# First publish (package doesn't exist yet): Add NPM_TOKEN secret in repo Settings → Secrets.
+# Requires NPM_TOKEN secret in repo Settings → Secrets.
 #   Create token at npmjs.com → Access Tokens → "Automation" or "Publish", then add as NPM_TOKEN.
-# After first publish: npmjs.com → Package @mlvscan/wasm-core → Settings → Trusted publishing
-#   → Add GitHub Actions publisher with workflow filename: publish-npm.yml.
-#   Then you can remove NPM_TOKEN; future publishes use OIDC (Trusted Publishing).
 name: Publish to npm
 
 on:
@@ -19,9 +16,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
-    permissions:
-      id-token: write   # Required for npm Trusted Publishing (OIDC)
-      contents: read
 
     steps:
     - name: Checkout code
@@ -61,6 +55,8 @@ jobs:
         registry-url: 'https://registry.npmjs.org'
         cache: 'npm'
         cache-dependency-path: MLVScan.WASM/npm/package-lock.json
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     - name: Install npm dependencies
       working-directory: MLVScan.WASM/npm
@@ -80,7 +76,9 @@ jobs:
 
     - name: Publish to npm
       working-directory: MLVScan.WASM/npm
-      run: npm publish --access public --provenance
+      run: npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     - name: Summary
       run: |
