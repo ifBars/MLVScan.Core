@@ -10,6 +10,10 @@
     "build": "tsc",
     "copy:framework": "node scripts/copy-framework.cjs"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ifBars/MLVScan.Core.git"
+  },
   "author": "Bars",
   "license": "GPL-3.0-or-later",
   "devDependencies": {
