@@ -145,15 +145,24 @@ namespace MLVScan.Models.Rules.Helpers
                     return (sbyte)instruction.Operand;
                 }
 
-                if (instruction.OpCode == OpCodes.Ldc_I4_0) return 0;
-                if (instruction.OpCode == OpCodes.Ldc_I4_1) return 1;
-                if (instruction.OpCode == OpCodes.Ldc_I4_2) return 2;
-                if (instruction.OpCode == OpCodes.Ldc_I4_3) return 3;
-                if (instruction.OpCode == OpCodes.Ldc_I4_4) return 4;
-                if (instruction.OpCode == OpCodes.Ldc_I4_5) return 5;
-                if (instruction.OpCode == OpCodes.Ldc_I4_6) return 6;
-                if (instruction.OpCode == OpCodes.Ldc_I4_7) return 7;
-                if (instruction.OpCode == OpCodes.Ldc_I4_8) return 8;
+                if (instruction.OpCode == OpCodes.Ldc_I4_0)
+                    return 0;
+                if (instruction.OpCode == OpCodes.Ldc_I4_1)
+                    return 1;
+                if (instruction.OpCode == OpCodes.Ldc_I4_2)
+                    return 2;
+                if (instruction.OpCode == OpCodes.Ldc_I4_3)
+                    return 3;
+                if (instruction.OpCode == OpCodes.Ldc_I4_4)
+                    return 4;
+                if (instruction.OpCode == OpCodes.Ldc_I4_5)
+                    return 5;
+                if (instruction.OpCode == OpCodes.Ldc_I4_6)
+                    return 6;
+                if (instruction.OpCode == OpCodes.Ldc_I4_7)
+                    return 7;
+                if (instruction.OpCode == OpCodes.Ldc_I4_8)
+                    return 8;
             }
 
             return null;

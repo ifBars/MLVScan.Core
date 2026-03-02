@@ -275,13 +275,13 @@ namespace MLVScan.Services.Helpers
             if (lpFileStoreIndex < 2)
                 return false;
 
-            if (!TryGetLoadedLocalIndex(instructions[lpFileStoreIndex - 1], out var lpFileLocalIndex))
+            if (!instructions[lpFileStoreIndex - 1].TryGetLocalIndex(out var lpFileLocalIndex))
                 return false;
 
             var searchStart = Math.Max(0, lpFileStoreIndex - SearchWindow);
             for (var i = lpFileStoreIndex - 2; i >= searchStart; i--)
             {
-                if (!TryGetStoredLocalIndex(instructions[i], out var storedLocalIndex) ||
+                if (!instructions[i].TryGetStoredLocalIndex(out var storedLocalIndex) ||
                     storedLocalIndex != lpFileLocalIndex)
                 {
                     continue;
@@ -384,92 +384,6 @@ namespace MLVScan.Services.Helpers
             if (literal.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
             {
                 extension = ".ps1";
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryGetLoadedLocalIndex(Instruction instruction, out int localIndex)
-        {
-            localIndex = -1;
-
-            if (instruction.OpCode == OpCodes.Ldloc_0)
-            {
-                localIndex = 0;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldloc_1)
-            {
-                localIndex = 1;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldloc_2)
-            {
-                localIndex = 2;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldloc_3)
-            {
-                localIndex = 3;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldloc_S && instruction.Operand is VariableDefinition varS)
-            {
-                localIndex = varS.Index;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldloc && instruction.Operand is VariableDefinition var)
-            {
-                localIndex = var.Index;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
-        {
-            localIndex = -1;
-
-            if (instruction.OpCode == OpCodes.Stloc_0)
-            {
-                localIndex = 0;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Stloc_1)
-            {
-                localIndex = 1;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Stloc_2)
-            {
-                localIndex = 2;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Stloc_3)
-            {
-                localIndex = 3;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Stloc_S && instruction.Operand is VariableDefinition varS)
-            {
-                localIndex = varS.Index;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Stloc && instruction.Operand is VariableDefinition var)
-            {
-                localIndex = var.Index;
                 return true;
             }
 

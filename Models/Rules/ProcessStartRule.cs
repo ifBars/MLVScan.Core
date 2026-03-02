@@ -203,10 +203,14 @@ namespace MLVScan.Models.Rules
 
             // Add evasion indicators to description
             var evasionIndicators = new List<string>();
-            if (useShellExecute) evasionIndicators.Add("UseShellExecute=true");
-            if (createNoWindow) evasionIndicators.Add("CreateNoWindow=true");
-            if (windowStyleHidden) evasionIndicators.Add("WindowStyle=Hidden");
-            if (workingDirectoryIsTemp) evasionIndicators.Add("WorkingDirectory=Temp");
+            if (useShellExecute)
+                evasionIndicators.Add("UseShellExecute=true");
+            if (createNoWindow)
+                evasionIndicators.Add("CreateNoWindow=true");
+            if (windowStyleHidden)
+                evasionIndicators.Add("WindowStyle=Hidden");
+            if (workingDirectoryIsTemp)
+                evasionIndicators.Add("WorkingDirectory=Temp");
 
             if (evasionIndicators.Count > 0)
             {
@@ -271,10 +275,14 @@ namespace MLVScan.Models.Rules
             if (hasEvasionIndicators && isLolBin)
             {
                 var reasons = new List<string>();
-                if (useShellExecute) reasons.Add("UseShellExecute");
-                if (createNoWindow) reasons.Add("CreateNoWindow");
-                if (windowStyleHidden) reasons.Add("WindowStyle.Hidden");
-                if (workingDirectoryIsTemp) reasons.Add("WorkingDirectory=Temp");
+                if (useShellExecute)
+                    reasons.Add("UseShellExecute");
+                if (createNoWindow)
+                    reasons.Add("CreateNoWindow");
+                if (windowStyleHidden)
+                    reasons.Add("WindowStyle.Hidden");
+                if (workingDirectoryIsTemp)
+                    reasons.Add("WorkingDirectory=Temp");
                 return (Severity.Critical, $"LOLBin with hidden execution ({string.Join(", ", reasons)})");
             }
 
@@ -296,10 +304,14 @@ namespace MLVScan.Models.Rules
             if (hasEvasionIndicators)
             {
                 var reasons = new List<string>();
-                if (useShellExecute) reasons.Add("UseShellExecute");
-                if (createNoWindow) reasons.Add("CreateNoWindow");
-                if (windowStyleHidden) reasons.Add("WindowStyle.Hidden");
-                if (workingDirectoryIsTemp) reasons.Add("WorkingDirectory=Temp");
+                if (useShellExecute)
+                    reasons.Add("UseShellExecute");
+                if (createNoWindow)
+                    reasons.Add("CreateNoWindow");
+                if (windowStyleHidden)
+                    reasons.Add("WindowStyle.Hidden");
+                if (workingDirectoryIsTemp)
+                    reasons.Add("WorkingDirectory=Temp");
                 return (Severity.High, $"Hidden process execution ({string.Join(", ", reasons)})");
             }
 
@@ -391,10 +403,14 @@ namespace MLVScan.Models.Rules
 
             // Add evasion indicators to description
             var evasionIndicators = new List<string>();
-            if (useShellExecute) evasionIndicators.Add("UseShellExecute=true");
-            if (createNoWindow) evasionIndicators.Add("CreateNoWindow=true");
-            if (windowStyleHidden) evasionIndicators.Add("WindowStyle=Hidden");
-            if (workingDirectoryIsTemp) evasionIndicators.Add("WorkingDirectory=Temp");
+            if (useShellExecute)
+                evasionIndicators.Add("UseShellExecute=true");
+            if (createNoWindow)
+                evasionIndicators.Add("CreateNoWindow=true");
+            if (windowStyleHidden)
+                evasionIndicators.Add("WindowStyle=Hidden");
+            if (workingDirectoryIsTemp)
+                evasionIndicators.Add("WorkingDirectory=Temp");
 
             if (evasionIndicators.Count > 0)
             {

@@ -12,32 +12,10 @@ namespace MLVScan.Services.Helpers
             {
                 var instr = instructions[i];
 
-                if (instr.OpCode == OpCodes.Ldc_I4)
+                if (instr.TryResolveInt32Literal(out int value))
                 {
-                    return (int)instr.Operand;
+                    return value;
                 }
-                else if (instr.OpCode == OpCodes.Ldc_I4_S)
-                {
-                    return (sbyte)instr.Operand;
-                }
-                else if (instr.OpCode == OpCodes.Ldc_I4_0)
-                    return 0;
-                else if (instr.OpCode == OpCodes.Ldc_I4_1)
-                    return 1;
-                else if (instr.OpCode == OpCodes.Ldc_I4_2)
-                    return 2;
-                else if (instr.OpCode == OpCodes.Ldc_I4_3)
-                    return 3;
-                else if (instr.OpCode == OpCodes.Ldc_I4_4)
-                    return 4;
-                else if (instr.OpCode == OpCodes.Ldc_I4_5)
-                    return 5;
-                else if (instr.OpCode == OpCodes.Ldc_I4_6)
-                    return 6;
-                else if (instr.OpCode == OpCodes.Ldc_I4_7)
-                    return 7;
-                else if (instr.OpCode == OpCodes.Ldc_I4_8)
-                    return 8;
             }
 
             return null;

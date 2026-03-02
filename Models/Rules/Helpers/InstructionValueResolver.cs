@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -222,7 +223,7 @@ namespace MLVScan.Models.Rules.Helpers
                 }
 
                 // Try to resolve as int32 literal
-                if (TryResolveInt32Literal(instruction, out int intVal))
+                if (instruction.TryResolveInt32Literal(out int intVal))
                 {
                     windowStyle = intVal;
                     return true;
@@ -433,11 +434,11 @@ namespace MLVScan.Models.Rules.Helpers
             for (int i = beforeIndex; i >= 0; i--)
             {
                 var instruction = instructions[i];
-                needed -= GetPushCount(instruction);
+                needed -= instruction.GetPushCount();
                 if (needed <= 0)
                     return i;
 
-                needed += GetPopCount(instruction);
+                needed += instruction.GetPopCount();
             }
 
             return -1;
@@ -471,7 +472,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
-            if (TryResolveInt32Literal(instruction, out int intValue))
+            if (instruction.TryResolveInt32Literal(out int intValue))
             {
                 value = new ResolvedValue(intValue.ToString(), null, true);
                 return true;
@@ -487,7 +488,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
-            if (TryGetLocalIndex(instruction, out int localIndex))
+            if (instruction.TryGetLocalIndex(out int localIndex))
             {
                 if (TryResolveLocalValue(context, containingMethod, instructions, producerIndex - 1, localIndex,
                         argumentMap, depth + 1, out value))
@@ -497,7 +498,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
-            if (TryGetArgumentIndex(instruction, out int argumentIndex))
+            if (instruction.TryGetArgumentIndex(out int argumentIndex))
             {
                 if (argumentMap != null && argumentMap.TryGetValue(argumentIndex, out var mapped))
                 {
@@ -566,7 +567,7 @@ namespace MLVScan.Models.Rules.Helpers
             for (int i = beforeIndex; i >= 0; i--)
             {
                 var instruction = instructions[i];
-                if (!TryGetStoredLocalIndex(instruction, out int storedIndex) || storedIndex != localIndex)
+                if (!instruction.TryGetStoredLocalIndex(out int storedIndex) || storedIndex != localIndex)
                     continue;
 
                 return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, argumentMap, depth + 1,
@@ -964,184 +965,6 @@ namespace MLVScan.Models.Rules.Helpers
                    normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
                    normalized.Contains("\\") ||
                    normalized.Contains("/");
-        }
-
-        private static int GetPushCount(Instruction instruction)
-        {
-            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
-                instruction.Operand is MethodReference method)
-                return method.ReturnType?.FullName == "System.Void" ? 0 : 1;
-
-            if (instruction.OpCode == OpCodes.Newobj)
-                return 1;
-
-            return instruction.OpCode.StackBehaviourPush switch
-            {
-                StackBehaviour.Push0 => 0,
-                StackBehaviour.Push1 => 1,
-                StackBehaviour.Pushi => 1,
-                StackBehaviour.Pushi8 => 1,
-                StackBehaviour.Pushr4 => 1,
-                StackBehaviour.Pushr8 => 1,
-                StackBehaviour.Pushref => 1,
-                StackBehaviour.Push1_push1 => 2,
-                _ => 0
-            };
-        }
-
-        private static bool TryResolveInt32Literal(Instruction instruction, out int value)
-        {
-            value = instruction.OpCode.Code switch
-            {
-                Code.Ldc_I4_M1 => -1,
-                Code.Ldc_I4_0 => 0,
-                Code.Ldc_I4_1 => 1,
-                Code.Ldc_I4_2 => 2,
-                Code.Ldc_I4_3 => 3,
-                Code.Ldc_I4_4 => 4,
-                Code.Ldc_I4_5 => 5,
-                Code.Ldc_I4_6 => 6,
-                Code.Ldc_I4_7 => 7,
-                Code.Ldc_I4_8 => 8,
-                _ => int.MinValue
-            };
-
-            if (value != int.MinValue)
-                return true;
-
-            if (instruction.OpCode == OpCodes.Ldc_I4 && instruction.Operand is int intOperand)
-            {
-                value = intOperand;
-                return true;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldc_I4_S && instruction.Operand is sbyte shortOperand)
-            {
-                value = shortOperand;
-                return true;
-            }
-
-            value = 0;
-            return false;
-        }
-
-        private static int GetPopCount(Instruction instruction)
-        {
-            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
-                instruction.Operand is MethodReference method)
-            {
-                int count = method.Parameters.Count;
-                if (method.HasThis)
-                    count++;
-
-                return count;
-            }
-
-            if (instruction.OpCode == OpCodes.Newobj && instruction.Operand is MethodReference ctor)
-                return ctor.Parameters.Count;
-
-            return instruction.OpCode.StackBehaviourPop switch
-            {
-                StackBehaviour.Pop0 => 0,
-                StackBehaviour.Pop1 => 1,
-                StackBehaviour.Popi => 1,
-                StackBehaviour.Popref => 1,
-                StackBehaviour.Pop1_pop1 => 2,
-                StackBehaviour.Popi_pop1 => 2,
-                StackBehaviour.Popi_popi => 2,
-                StackBehaviour.Popi_popi8 => 2,
-                StackBehaviour.Popi_popr4 => 2,
-                StackBehaviour.Popi_popr8 => 2,
-                StackBehaviour.Popi_popi_popi => 3,
-                _ => 0
-            };
-        }
-
-        private static bool TryGetLocalIndex(Instruction instruction, out int index)
-        {
-            index = instruction.OpCode.Code switch
-            {
-                Code.Ldloc_0 => 0,
-                Code.Ldloc_1 => 1,
-                Code.Ldloc_2 => 2,
-                Code.Ldloc_3 => 3,
-                _ => -1
-            };
-
-            if (index >= 0)
-                return true;
-
-            if (instruction.OpCode.Code == Code.Ldloc_S && instruction.Operand is VariableDefinition localS)
-            {
-                index = localS.Index;
-                return true;
-            }
-
-            if (instruction.OpCode.Code == Code.Ldloc && instruction.Operand is VariableDefinition local)
-            {
-                index = local.Index;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryGetStoredLocalIndex(Instruction instruction, out int index)
-        {
-            index = instruction.OpCode.Code switch
-            {
-                Code.Stloc_0 => 0,
-                Code.Stloc_1 => 1,
-                Code.Stloc_2 => 2,
-                Code.Stloc_3 => 3,
-                _ => -1
-            };
-
-            if (index >= 0)
-                return true;
-
-            if (instruction.OpCode.Code == Code.Stloc_S && instruction.Operand is VariableDefinition localS)
-            {
-                index = localS.Index;
-                return true;
-            }
-
-            if (instruction.OpCode.Code == Code.Stloc && instruction.Operand is VariableDefinition local)
-            {
-                index = local.Index;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryGetArgumentIndex(Instruction instruction, out int index)
-        {
-            index = instruction.OpCode.Code switch
-            {
-                Code.Ldarg_0 => 0,
-                Code.Ldarg_1 => 1,
-                Code.Ldarg_2 => 2,
-                Code.Ldarg_3 => 3,
-                _ => -1
-            };
-
-            if (index >= 0)
-                return true;
-
-            if (instruction.OpCode.Code == Code.Ldarg_S && instruction.Operand is ParameterDefinition parameterS)
-            {
-                index = parameterS.Index;
-                return true;
-            }
-
-            if (instruction.OpCode.Code == Code.Ldarg && instruction.Operand is ParameterDefinition parameter)
-            {
-                index = parameter.Index;
-                return true;
-            }
-
-            return false;
         }
 
         private sealed class ResolverContext

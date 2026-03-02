@@ -7,6 +7,17 @@
 
 **MLVScan.Core** is a cross-platform malware detection engine for .NET assemblies, powered by IL analysis (Mono.Cecil). It serves as the scanning backbone for [MLVScan](https://github.com/ifBars/MLVScan) (MelonLoader, BepInEx 5.x, and BepInEx 6.x Mono/Il2Cpp) and [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) (Blazor).
 
+## 🛡️ Why MLVScan?
+
+Most modders download mods from trusted sites like **Thunderstore** or **NexusMods**, where files are typically already scanned by **VirusTotal**. This catches most plain viruses—but sophisticated threats often slip through.
+
+**MLVScan acts as your second line of defense.** It specifically targets:
+- **Virus Loaders**: Malicious DLLs designed to download additional payloads
+- **Obfuscation Techniques**: Code that hides its true purpose from standard AV
+- **Stealthy Payloads**: Threats that don't match known signatures
+
+Think of it as the checkpoint after VirusTotal—catching what traditional scanners miss.
+
 ## 📦 Installation
 
 ```bash
