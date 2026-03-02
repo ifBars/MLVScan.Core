@@ -34,7 +34,8 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public string Description => "Detected byte array manipulation. Often legitimate (e.g., WAV/PCM audio processing), but can also be used to hide or load malicious payloads.";
+        public string Description =>
+            "Detected byte array manipulation. Often legitimate (e.g., WAV/PCM audio processing), but can also be used to hide or load malicious payloads.";
 
         public Severity Severity => Severity.Low;
         public string RuleId => "ByteArrayManipulationRule";

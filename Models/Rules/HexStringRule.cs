@@ -36,10 +36,12 @@ namespace MLVScan.Models.Rules
             {
                 return true;
             }
+
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeStringLiteral(string literal, MethodDefinition method, int instructionIndex)
+        public IEnumerable<ScanFinding> AnalyzeStringLiteral(string literal, MethodDefinition method,
+            int instructionIndex)
         {
             if (string.IsNullOrWhiteSpace(literal))
                 yield break;
@@ -62,7 +64,9 @@ namespace MLVScan.Models.Rules
             }
         }
 
-        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference calledMethod, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int index, MethodSignals signals)
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int index,
+            MethodSignals signals)
         {
             // No specific contextual pattern analysis for now, relying on string literal analysis
             yield break;
@@ -77,6 +81,7 @@ namespace MLVScan.Models.Rules
                 {
                     bytes[i / 2] = byte.Parse(hex.Substring(i, 2), NumberStyles.HexNumber);
                 }
+
                 // Try UTF8 first, fallback to ASCII if needed, but for now let's stick to a safe encoding that won't throw easily
                 // Using ASCII or UTF8 is fine.
                 return Encoding.UTF8.GetString(bytes);

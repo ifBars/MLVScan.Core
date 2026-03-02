@@ -7,7 +7,9 @@ namespace MLVScan.Models.Rules
 {
     public class DataInfiltrationRule : IScanRule
     {
-        public string Description => "Detected data download from suspicious endpoint (potential payload infiltration).";
+        public string Description =>
+            "Detected data download from suspicious endpoint (potential payload infiltration).";
+
         public Severity Severity => Severity.High;
         public string RuleId => "DataInfiltrationRule";
         public bool RequiresCompanionFinding => true;
@@ -25,7 +27,9 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method, Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals)
         {
             if (method?.DeclaringType == null)
                 yield break;
@@ -35,7 +39,8 @@ namespace MLVScan.Models.Rules
 
             bool isNetworkCall =
                 declaringTypeFullName.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase) ||
-                declaringTypeFullName.Contains("UnityEngine.Networking.UnityWebRequest", StringComparison.OrdinalIgnoreCase) ||
+                declaringTypeFullName.Contains("UnityEngine.Networking.UnityWebRequest",
+                    StringComparison.OrdinalIgnoreCase) ||
                 declaringTypeFullName.Contains("HttpClient", StringComparison.OrdinalIgnoreCase) ||
                 declaringTypeFullName.Contains("WebClient", StringComparison.OrdinalIgnoreCase) ||
                 declaringTypeFullName.Contains("WebRequest", StringComparison.OrdinalIgnoreCase) ||
@@ -47,14 +52,15 @@ namespace MLVScan.Models.Rules
                 yield break;
 
             // Only analyze download/read operations (GET, DownloadString, etc.)
-            bool isReadOnlyOperation = calledMethodName.Contains("GetStringAsync", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase) ||
-                                       calledMethodName.Equals("Get", StringComparison.OrdinalIgnoreCase);
+            bool isReadOnlyOperation =
+                calledMethodName.Contains("GetStringAsync", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Equals("Get", StringComparison.OrdinalIgnoreCase);
 
             // Skip if this is not a download operation
             if (!isReadOnlyOperation)
@@ -66,7 +72,8 @@ namespace MLVScan.Models.Rules
             var literals = new List<string>();
             for (int k = windowStart; k < windowEnd; k++)
             {
-                if (instructions[k].OpCode == OpCodes.Ldstr && instructions[k].Operand is string s && !string.IsNullOrEmpty(s))
+                if (instructions[k].OpCode == OpCodes.Ldstr && instructions[k].Operand is string s &&
+                    !string.IsNullOrEmpty(s))
                 {
                     literals.Add(s);
                 }
@@ -79,13 +86,18 @@ namespace MLVScan.Models.Rules
             bool hasRawPaste = literals.Any(s =>
                 s.Contains("pastebin.com/raw", StringComparison.OrdinalIgnoreCase) ||
                 s.Contains("hastebin.com/raw", StringComparison.OrdinalIgnoreCase));
-            bool hasBareIpUrl = literals.Any(s => Regex.IsMatch(s, @"https?://\d{1,3}(?:\.\d{1,3}){3}", RegexOptions.IgnoreCase));
-            bool mentionsNgrokOrTelegram = literals.Any(s => s.Contains("ngrok", StringComparison.OrdinalIgnoreCase) || s.Contains("telegram", StringComparison.OrdinalIgnoreCase));
+            bool hasBareIpUrl = literals.Any(s =>
+                Regex.IsMatch(s, @"https?://\d{1,3}(?:\.\d{1,3}){3}", RegexOptions.IgnoreCase));
+            bool mentionsNgrokOrTelegram = literals.Any(s =>
+                s.Contains("ngrok", StringComparison.OrdinalIgnoreCase) ||
+                s.Contains("telegram", StringComparison.OrdinalIgnoreCase));
 
             // Check for legitimate sources (GitHub releases, mod hosting sites, common CDNs)
             bool isLegitimateSource = literals.Any(s =>
-                ((s.Contains("github.com", StringComparison.OrdinalIgnoreCase) && s.Contains("/releases", StringComparison.OrdinalIgnoreCase)) ||
-                 (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) && s.Contains("/release", StringComparison.OrdinalIgnoreCase)) ||
+                ((s.Contains("github.com", StringComparison.OrdinalIgnoreCase) &&
+                  s.Contains("/releases", StringComparison.OrdinalIgnoreCase)) ||
+                 (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) &&
+                  s.Contains("/release", StringComparison.OrdinalIgnoreCase)) ||
                  s.Contains("api.github.com/repos", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
                  s.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
@@ -141,6 +153,7 @@ namespace MLVScan.Models.Rules
                     }
                 }
             }
+
             urls = urls.Distinct().ToList();
 
             string urlList = urls.Count > 0
@@ -150,7 +163,9 @@ namespace MLVScan.Models.Rules
             // Build code snippet
             var snippetBuilder = new System.Text.StringBuilder();
             int contextLines = 2;
-            for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
+            for (int j = Math.Max(0, instructionIndex - contextLines);
+                 j < Math.Min(instructions.Count, instructionIndex + contextLines + 1);
+                 j++)
             {
                 if (j == instructionIndex)
                     snippetBuilder.Append(">>> ");
@@ -163,8 +178,8 @@ namespace MLVScan.Models.Rules
             if (isLegitimateSource)
             {
                 string sourceType = isGitHubSource ? "GitHub" :
-                                    isModHostingSource ? "mod hosting site" :
-                                    isCDNSource ? "CDN" : "unknown source";
+                    isModHostingSource ? "mod hosting site" :
+                    isCDNSource ? "CDN" : "unknown source";
 
                 yield return new ScanFinding(
                     $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
@@ -184,4 +199,3 @@ namespace MLVScan.Models.Rules
         }
     }
 }
-

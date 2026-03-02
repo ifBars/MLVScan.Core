@@ -23,7 +23,8 @@ namespace MLVScan.Models
         /// Analyzes IL instructions in a method for suspicious patterns.
         /// Returns empty enumerable by default for backward compatibility.
         /// </summary>
-        IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             return Enumerable.Empty<ScanFinding>();
         }
@@ -50,7 +51,9 @@ namespace MLVScan.Models
         /// Analyzes contextual patterns around method calls (nearby instructions, signals, etc.).
         /// Returns empty enumerable by default for backward compatibility.
         /// </summary>
-        IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method, Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex, MethodSignals methodSignals)
+        IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals)
         {
             return Enumerable.Empty<ScanFinding>();
         }
@@ -60,7 +63,9 @@ namespace MLVScan.Models
         /// Called when IsSuspicious returns true, before creating a finding.
         /// Return true to suppress the finding entirely.
         /// </summary>
-        bool ShouldSuppressFinding(MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex, MethodSignals methodSignals, MethodSignals? typeSignals = null)
+        bool ShouldSuppressFinding(MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals, MethodSignals? typeSignals = null)
         {
             return false;
         }
@@ -69,7 +74,8 @@ namespace MLVScan.Models
         /// Builds the finding description for a suspicious method call.
         /// Rules can override this to include contextual details (for example, target executable names).
         /// </summary>
-        string GetFindingDescription(MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
+        string GetFindingDescription(MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
         {
             return Description;
         }
@@ -78,7 +84,8 @@ namespace MLVScan.Models
         /// Builds the finding description for a suspicious method call with access to the containing method.
         /// Rules can override this to perform deeper contextual extraction using the surrounding method body/module.
         /// </summary>
-        string GetFindingDescription(MethodDefinition containingMethod, MethodReference method, Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
+        string GetFindingDescription(MethodDefinition containingMethod, MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions, int instructionIndex)
         {
             return GetFindingDescription(method, instructions, instructionIndex);
         }

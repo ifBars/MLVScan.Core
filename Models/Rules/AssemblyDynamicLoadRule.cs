@@ -25,9 +25,9 @@ namespace MLVScan.Models.Rules
             "assemblies in the appropriate framework directory (e.g., Mods/ folder for MelonLoader, " +
             "plugin folder for BepInEx). Reference assemblies at compile time instead of loading dynamically.",
             null,
-            new[] {
-                "MelonUtils.IsGameIl2Cpp() (MelonLoader)",
-                "MelonMod.MelonAssembly (MelonLoader)",
+            new[]
+            {
+                "MelonUtils.IsGameIl2Cpp() (MelonLoader)", "MelonMod.MelonAssembly (MelonLoader)",
                 "IL2CPPUtils.IsGameIl2Cpp() (BepInEx 6.x)"
             },
             true
@@ -40,12 +40,31 @@ namespace MLVScan.Models.Rules
 
         private static readonly HashSet<string> SafeAssemblyPrefixes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "Il2Cpp", "Il2CppInterop", "0Harmony", "Harmony", "HarmonyLib",
-            "Newtonsoft.Json", "UnityEngine", "Assembly-CSharp",
-            "MelonLoader", "BepInEx", "MonoMod", "Mono.Cecil",
-            "System", "Microsoft", "mscorlib", "netstandard",
-            "NuGet", "Ionic.Zip", "DotNetZip", "LitJson", "YamlDotNet",
-            "Steamworks", "Facepunch", "Sirenix", "UniTask"
+            "Il2Cpp",
+            "Il2CppInterop",
+            "0Harmony",
+            "Harmony",
+            "HarmonyLib",
+            "Newtonsoft.Json",
+            "UnityEngine",
+            "Assembly-CSharp",
+            "MelonLoader",
+            "BepInEx",
+            "MonoMod",
+            "Mono.Cecil",
+            "System",
+            "Microsoft",
+            "mscorlib",
+            "netstandard",
+            "NuGet",
+            "Ionic.Zip",
+            "DotNetZip",
+            "LitJson",
+            "YamlDotNet",
+            "Steamworks",
+            "Facepunch",
+            "Sirenix",
+            "UniTask"
         };
 
         private static readonly Regex SimpleAssemblyNamePattern =
@@ -112,7 +131,8 @@ namespace MLVScan.Models.Rules
             // Type-level correlation from MethodSignals
             int correlationScore = ComputeCorrelationScore(methodSignals);
 
-            int totalScore = baseScore + provenanceScore + postLoadScore + evasionScore + resolveScore + correlationScore;
+            int totalScore = baseScore + provenanceScore + postLoadScore + evasionScore + resolveScore +
+                             correlationScore;
 
             // Map score to severity
             var severity = MapScoreToSeverity(totalScore);
@@ -199,8 +219,8 @@ namespace MLVScan.Models.Rules
 
                     // Determine severity based on handler analysis
                     var severity = handlerScore >= 50 ? Severity.High :
-                                   handlerScore >= 25 ? Severity.Medium :
-                                   Severity.Low;
+                        handlerScore >= 25 ? Severity.Medium :
+                        Severity.Low;
 
                     var snippetBuilder = new StringBuilder();
                     for (int j = Math.Max(0, i - 2); j < Math.Min(instructions.Count, i + 3); j++)
@@ -219,8 +239,7 @@ namespace MLVScan.Models.Rules
                         severity,
                         snippetBuilder.ToString().TrimEnd())
                     {
-                        RiskScore = handlerScore,
-                        BypassCompanionCheck = handlerScore >= 50
+                        RiskScore = handlerScore, BypassCompanionCheck = handlerScore >= 50
                     });
                 }
             }
@@ -248,8 +267,8 @@ namespace MLVScan.Models.Rules
                 {
                     // Compute boost from inner findings
                     int innerBoost = innerFindings.Any(f => f.Severity >= Severity.Critical) ? 50 :
-                                     innerFindings.Any(f => f.Severity >= Severity.High) ? 30 :
-                                     innerFindings.Any(f => f.Severity >= Severity.Medium) ? 15 : 5;
+                        innerFindings.Any(f => f.Severity >= Severity.High) ? 30 :
+                        innerFindings.Any(f => f.Severity >= Severity.Medium) ? 15 : 5;
 
                     int newScore = pending.TotalScore + innerBoost;
                     var newSeverity = MapScoreToSeverity(newScore) ?? Severity.High;
@@ -282,15 +301,15 @@ namespace MLVScan.Models.Rules
 
         private enum LoadOverload
         {
-            LoadBytes,          // Assembly.Load(byte[])
-            LoadBytesWithPdb,   // Assembly.Load(byte[], byte[])
-            LoadString,         // Assembly.Load(string)
-            LoadAssemblyName,   // Assembly.Load(AssemblyName)
-            LoadFrom,           // Assembly.LoadFrom(string)
-            LoadFile,           // Assembly.LoadFile(string)
-            ALCLoadFromStream,  // AssemblyLoadContext.LoadFromStream(Stream)
+            LoadBytes, // Assembly.Load(byte[])
+            LoadBytesWithPdb, // Assembly.Load(byte[], byte[])
+            LoadString, // Assembly.Load(string)
+            LoadAssemblyName, // Assembly.Load(AssemblyName)
+            LoadFrom, // Assembly.LoadFrom(string)
+            LoadFile, // Assembly.LoadFile(string)
+            ALCLoadFromStream, // AssemblyLoadContext.LoadFromStream(Stream)
             ALCLoadFromStreamPdb, // AssemblyLoadContext.LoadFromStream(Stream, Stream)
-            ALCLoadFromPath,    // AssemblyLoadContext.LoadFromAssemblyPath(string)
+            ALCLoadFromPath, // AssemblyLoadContext.LoadFromAssemblyPath(string)
             Unknown
         }
 
@@ -315,6 +334,7 @@ namespace MLVScan.Models.Rules
                     if (firstParam == "System.Reflection.AssemblyName")
                         return LoadOverload.LoadAssemblyName;
                 }
+
                 if (name == "LoadFrom")
                     return LoadOverload.LoadFrom;
                 if (name == "LoadFile")
@@ -454,6 +474,7 @@ namespace MLVScan.Models.Rules
                         result.HasCrypto = true;
                         result.Score += 25;
                     }
+
                     if ((declType.Contains("RijndaelManaged") || declType.Contains("DESCryptoServiceProvider") ||
                          declType.Contains("TripleDES") || declType.Contains("RC2")) && mName == ".ctor")
                     {
@@ -654,6 +675,7 @@ namespace MLVScan.Models.Rules
                     }
                 }
             }
+
             return null;
         }
 
@@ -719,6 +741,7 @@ namespace MLVScan.Models.Rules
                 {
                     isCosturaLike = true;
                 }
+
                 // Also check for resource names starting with "costura."
                 foreach (var instr in instructions)
                 {
@@ -788,6 +811,7 @@ namespace MLVScan.Models.Rules
                             {
                                 targetMethodName = str;
                             }
+
                             break;
                         }
                     }
@@ -806,6 +830,7 @@ namespace MLVScan.Models.Rules
                             hasAssemblyContext = true;
                             break;
                         }
+
                         if (instructions[j].OpCode == OpCodes.Ldtoken &&
                             instructions[j].Operand is TypeReference typeRef &&
                             (typeRef.FullName == "System.Reflection.Assembly" ||
@@ -834,8 +859,7 @@ namespace MLVScan.Models.Rules
                         evasionScore >= 50 ? Severity.High : Severity.Medium,
                         snippetBuilder.ToString().TrimEnd())
                     {
-                        RiskScore = evasionScore,
-                        BypassCompanionCheck = evasionScore >= 50
+                        RiskScore = evasionScore, BypassCompanionCheck = evasionScore >= 50
                     });
                 }
             }
@@ -912,12 +936,7 @@ namespace MLVScan.Models.Rules
                 try
                 {
                     using var resourceStream = new System.IO.MemoryStream(resourceData);
-                    var readerParams = new ReaderParameters
-                    {
-                        ReadWrite = false,
-                        InMemory = true,
-                        ReadSymbols = false
-                    };
+                    var readerParams = new ReaderParameters { ReadWrite = false, InMemory = true, ReadSymbols = false };
                     var innerAssembly = AssemblyDefinition.ReadAssembly(resourceStream, readerParams);
 
                     // Run a limited scan on the inner assembly using default rules
@@ -977,6 +996,7 @@ namespace MLVScan.Models.Rules
                 if (instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt)
                     return null;
             }
+
             return null;
         }
 
@@ -1017,7 +1037,8 @@ namespace MLVScan.Models.Rules
             if (provenanceSummary == "unknown")
                 return $"Dynamic assembly load detected ({overloadName}, score {totalScore})";
 
-            return $"Dynamic assembly load detected ({overloadName}, score {totalScore}): provenance: {provenanceSummary}";
+            return
+                $"Dynamic assembly load detected ({overloadName}, score {totalScore}): provenance: {provenanceSummary}";
         }
 
         #endregion

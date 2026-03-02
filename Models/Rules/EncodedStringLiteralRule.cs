@@ -12,18 +12,21 @@ namespace MLVScan.Models.Rules
         public string RuleId => "EncodedStringLiteralRule";
         public bool RequiresCompanionFinding => false;
 
-        private static readonly Regex DashSeparatedPattern = new Regex(@"^\d{2,3}(-\d{2,3}){10,}$", RegexOptions.Compiled);
-        private static readonly Regex DotSeparatedPattern = new Regex(@"^\d{2,3}(\.\d{2,3}){10,}$", RegexOptions.Compiled);
-        private static readonly Regex BacktickSeparatedPattern = new Regex(@"^\d{2,3}(`\d{2,3}){10,}$", RegexOptions.Compiled);
+        private static readonly Regex DashSeparatedPattern =
+            new Regex(@"^\d{2,3}(-\d{2,3}){10,}$", RegexOptions.Compiled);
+
+        private static readonly Regex DotSeparatedPattern =
+            new Regex(@"^\d{2,3}(\.\d{2,3}){10,}$", RegexOptions.Compiled);
+
+        private static readonly Regex BacktickSeparatedPattern =
+            new Regex(@"^\d{2,3}(`\d{2,3}){10,}$", RegexOptions.Compiled);
 
         private static readonly string[] SuspiciousKeywords =
         {
-            "Process", "ProcessStartInfo", "powershell", "cmd.exe", "Start",
-            "Execute", "Shell", ".ps1", ".bat", ".exe", "WindowStyle",
-            "Hidden", "ExecutionPolicy", "Invoke-WebRequest", "DownloadFile",
-            "FromBase64String", "Assembly.Load", "Reflection", "GetMethod",
-            "CreateInstance", "Activator", "AppData", "Startup", "Registry",
-            "RunOnce", "CurrentVersion\\Run"
+            "Process", "ProcessStartInfo", "powershell", "cmd.exe", "Start", "Execute", "Shell", ".ps1", ".bat",
+            ".exe", "WindowStyle", "Hidden", "ExecutionPolicy", "Invoke-WebRequest", "DownloadFile",
+            "FromBase64String", "Assembly.Load", "Reflection", "GetMethod", "CreateInstance", "Activator",
+            "AppData", "Startup", "Registry", "RunOnce", "CurrentVersion\\Run"
         };
 
         public bool IsSuspicious(MethodReference method)
@@ -33,7 +36,8 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeStringLiteral(string literal, MethodDefinition method, int instructionIndex)
+        public IEnumerable<ScanFinding> AnalyzeStringLiteral(string literal, MethodDefinition method,
+            int instructionIndex)
         {
             if (string.IsNullOrWhiteSpace(literal))
                 yield break;
@@ -163,4 +167,3 @@ namespace MLVScan.Models.Rules
         }
     }
 }
-

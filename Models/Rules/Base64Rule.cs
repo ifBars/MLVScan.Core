@@ -15,9 +15,9 @@ namespace MLVScan.Models.Rules
             "For MelonLoader: use MelonPreferences. For BepInEx: use Config.Bind<T>(). " +
             "If decoding assets, embed them directly in your mod or load from standard resources.",
             null,
-            new[] {
-                "MelonPreferences.CreateEntry<T> (MelonLoader)",
-                "MelonPreferences.GetEntry<T> (MelonLoader)",
+            new[]
+            {
+                "MelonPreferences.CreateEntry<T> (MelonLoader)", "MelonPreferences.GetEntry<T> (MelonLoader)",
                 "Config.Bind<T> (BepInEx)"
             },
             true

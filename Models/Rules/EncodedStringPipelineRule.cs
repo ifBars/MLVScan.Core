@@ -6,7 +6,9 @@ namespace MLVScan.Models.Rules
 {
     public class EncodedStringPipelineRule : IScanRule
     {
-        public string Description => "Detected encoded string to char decoding pipeline (ASCII number parsing pattern).";
+        public string Description =>
+            "Detected encoded string to char decoding pipeline (ASCII number parsing pattern).";
+
         public Severity Severity => Severity.High;
         public string RuleId => "EncodedStringPipelineRule";
         public bool RequiresCompanionFinding => false;
@@ -18,7 +20,8 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             var findings = new List<ScanFinding>();
 
@@ -110,7 +113,8 @@ namespace MLVScan.Models.Rules
                         bool hasParseConvPattern = hasInt32Parse && hasConvU2 && parseIndex < convU2Index;
 
                         var snippetBuilder = new System.Text.StringBuilder();
-                        int startIdx = Math.Max(0, Math.Min(hasParseConvPattern ? parseIndex : selectIndex, selectIndex) - 2);
+                        int startIdx = Math.Max(0,
+                            Math.Min(hasParseConvPattern ? parseIndex : selectIndex, selectIndex) - 2);
                         int endIdx = Math.Min(instructions.Count, concatIndex + 3);
 
                         for (int j = startIdx; j < endIdx; j++)
@@ -140,4 +144,3 @@ namespace MLVScan.Models.Rules
         }
     }
 }
-

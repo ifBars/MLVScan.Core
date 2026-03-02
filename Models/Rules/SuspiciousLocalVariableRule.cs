@@ -21,7 +21,8 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             var findings = new List<ScanFinding>();
 
