@@ -20,11 +20,16 @@ namespace MLVScan.Models.Rules
         public bool RequiresCompanionFinding => true;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Use MelonUtils.IsGameIl2Cpp() for runtime detection. Ship dependencies as separate " +
-            "DLLs in Mods/ or Plugins/. Reference assemblies at compile time instead of loading dynamically. " +
-            "For BepInEx, place dependency DLLs alongside your plugin.",
-            "https://melonwiki.xyz/#/modders/quickstart",
-            new[] { "MelonUtils.IsGameIl2Cpp()", "MelonMod.MelonAssembly" },
+            "Avoid runtime assembly loading when possible. If necessary, detect the runtime " +
+            "(IL2CPP vs Mono) using your framework's utilities. Ship dependencies as separate " +
+            "assemblies in the appropriate framework directory (e.g., Mods/ folder for MelonLoader, " +
+            "plugin folder for BepInEx). Reference assemblies at compile time instead of loading dynamically.",
+            null,
+            new[] {
+                "MelonUtils.IsGameIl2Cpp() (MelonLoader)",
+                "MelonMod.MelonAssembly (MelonLoader)",
+                "IL2CPPUtils.IsGameIl2Cpp() (BepInEx 6.x)"
+            },
             true
         );
 

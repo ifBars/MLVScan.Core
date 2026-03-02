@@ -38,6 +38,6 @@ namespace MLVScan.Models.Rules
 
         public Severity Severity => Severity.Low;
         public string RuleId => "ByteArrayManipulationRule";
-        public bool RequiresCompanionFinding => false;
+        public bool RequiresCompanionFinding => true;
     }
 }

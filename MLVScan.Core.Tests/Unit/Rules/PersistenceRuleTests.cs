@@ -26,29 +26,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
         [Fact]
         public void Description_ReturnsExpectedValue()
         {
-            _rule.Description.Should().Be("Detected executable write near persistence-prone directory (Startup/AppData/ProgramData).");
-        }
-
-        [Fact]
-        public void Severity_ReturnsHigh()
-        {
-            _rule.Severity.Should().Be(Severity.High);
-        }
-
-        [Fact]
-        public void RequiresCompanionFinding_ReturnsFalse()
-        {
-            _rule.RequiresCompanionFinding.Should().BeFalse();
-        }
-
-        [Fact]
-        public void DeveloperGuidance_IsProvided()
-        {
-            _rule.DeveloperGuidance.Should().NotBeNull();
-            _rule.DeveloperGuidance!.Remediation.Should().Contain("MelonPreferences");
-            _rule.DeveloperGuidance.DocumentationUrl.Should().Contain("melonwiki.xyz");
-            _rule.DeveloperGuidance.AlternativeApis.Should().Contain("MelonPreferences.CreateEntry<T>");
-            _rule.DeveloperGuidance.IsRemediable.Should().BeTrue();
+            _rule.Description.Should().Be("Detected file write to %TEMP% folder (companion finding).");
         }
 
         [Fact]
@@ -60,16 +38,16 @@ namespace MLVScan.Core.Tests.Unit.Rules
         }
 
         [Fact]
-        public void AnalyzeContextualPattern_DetectsExeWriteToStartup()
+        public void AnalyzeContextualPattern_DetectsWriteToTempFolder()
         {
-            // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
 
+            var pathType = new TypeReference("System.IO", "Path", module, module.TypeSystem.CoreLibrary);
+            var getTempPathMethod = new MethodReference("GetTempPath", module.TypeSystem.String, pathType);
+
             var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
-            var writeMethod = new MethodReference("WriteAllText", module.TypeSystem.Void, fileType);
-            writeMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-            writeMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+            var writeMethod = new MethodReference("WriteAllBytes", module.TypeSystem.Void, fileType);
 
             var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
             module.Types.Add(testType);
@@ -79,59 +57,24 @@ namespace MLVScan.Core.Tests.Unit.Rules
             method.Body = new MethodBody(method);
 
             var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "C:\\Users\\Test\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"));
-            processor.Append(processor.Create(OpCodes.Ldstr, "malware.exe"));
+            processor.Append(processor.Create(OpCodes.Call, getTempPathMethod));
+            processor.Append(processor.Create(OpCodes.Ldstr, "payload.exe"));
             processor.Append(processor.Create(OpCodes.Call, writeMethod));
             processor.Append(processor.Create(OpCodes.Ret));
 
             var signals = new MethodSignals();
-            int callIndex = 2; // Index of the Call instruction
+            int callIndex = 2;
 
-            // Act
             var findings = _rule.AnalyzeContextualPattern(writeMethod, method.Body.Instructions, callIndex, signals).ToList();
 
-            // Assert
             findings.Should().HaveCount(1);
-            findings[0].Severity.Should().Be(Severity.High);
-            findings[0].Description.Should().Contain("Executable write near persistence-prone directory");
+            findings[0].Severity.Should().Be(Severity.Medium);
+            findings[0].Description.Should().Contain("TEMP folder");
         }
 
         [Fact]
-        public void AnalyzeContextualPattern_DetectsExeWriteToAppData()
+        public void AnalyzeContextualPattern_DoesNotDetect_WhenNoTempPath()
         {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-
-            var fileType = new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary);
-            var writeMethod = new MethodReference("Create", module.TypeSystem.Void, fileType);
-
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "C:\\Users\\Test\\AppData\\Local\\runner.exe"));
-            processor.Append(processor.Create(OpCodes.Call, writeMethod));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-            int callIndex = 1;
-
-            // Act
-            var findings = _rule.AnalyzeContextualPattern(writeMethod, method.Body.Instructions, callIndex, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-        }
-
-        [Fact]
-        public void AnalyzeContextualPattern_DetectsBatWriteToProgramData()
-        {
-            // Arrange
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
             var module = assembly.MainModule;
 
@@ -146,19 +89,45 @@ namespace MLVScan.Core.Tests.Unit.Rules
             method.Body = new MethodBody(method);
 
             var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "C:\\ProgramData\\script.bat"));
-            processor.Append(processor.Create(OpCodes.Nop));
+            processor.Append(processor.Create(OpCodes.Ldstr, "C:\\Users\\Test\\AppData\\Local\\file.exe"));
+            processor.Append(processor.Create(OpCodes.Ldstr, "content"));
             processor.Append(processor.Create(OpCodes.Call, writeMethod));
             processor.Append(processor.Create(OpCodes.Ret));
 
             var signals = new MethodSignals();
             int callIndex = 2;
 
-            // Act
             var findings = _rule.AnalyzeContextualPattern(writeMethod, method.Body.Instructions, callIndex, signals).ToList();
 
-            // Assert
-            findings.Should().HaveCount(1);
+            findings.Should().BeEmpty();
+        }
+
+        [Fact]
+        public void AnalyzeContextualPattern_DoesNotDetect_WhenNotFileOperation()
+        {
+            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
+            var module = assembly.MainModule;
+
+            var consoleType = new TypeReference("System", "Console", module, module.TypeSystem.CoreLibrary);
+            var writeLineMethod = new MethodReference("WriteLine", module.TypeSystem.Void, consoleType);
+
+            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+            module.Types.Add(testType);
+
+            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
+            testType.Methods.Add(method);
+            method.Body = new MethodBody(method);
+
+            var processor = method.Body.GetILProcessor();
+            processor.Append(processor.Create(OpCodes.Ldstr, "test"));
+            processor.Append(processor.Create(OpCodes.Call, writeLineMethod));
+            processor.Append(processor.Create(OpCodes.Ret));
+
+            var signals = new MethodSignals();
+
+            var findings = _rule.AnalyzeContextualPattern(writeLineMethod, method.Body.Instructions, 1, signals).ToList();
+
+            findings.Should().BeEmpty();
         }
 
         [Fact]
@@ -253,38 +222,6 @@ namespace MLVScan.Core.Tests.Unit.Rules
 
             // Act
             var findings = _rule.AnalyzeContextualPattern(writeMethod, method.Body.Instructions, callIndex, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeContextualPattern_DoesNotDetect_WhenNotFileOperation()
-        {
-            // Arrange: Non-file method call
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-
-            var consoleType = new TypeReference("System", "Console", module, module.TypeSystem.CoreLibrary);
-            var writeLineMethod = new MethodReference("WriteLine", module.TypeSystem.Void, consoleType);
-
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "C:\\AppData\\malware.exe"));
-            processor.Append(processor.Create(OpCodes.Call, writeLineMethod));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-            int callIndex = 1;
-
-            // Act
-            var findings = _rule.AnalyzeContextualPattern(writeLineMethod, method.Body.Instructions, callIndex, signals).ToList();
 
             // Assert
             findings.Should().BeEmpty();

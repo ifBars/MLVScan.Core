@@ -76,7 +76,12 @@ public class FalsePositiveScanTests
 
     [SkippableTheory]
     [InlineData("AudioImportLib.dll")]
+    [InlineData("Bannerlord.ButterLib.dll")]
     [InlineData("DeliveryCartPlus_v.1.0.dll")]
+    [InlineData("SimpleSingleplayerRespawn.dll")]
+    [InlineData("UnityExplorer.ML.IL2CPP.CoreCLR.dll")]
+    [InlineData("UnityExplorer.ML.Mono.dll")]
+    [InlineData("UniverseLib.ML.IL2CPP.Interop.dll")]
     [InlineData("NoMoreTrashMono.dll")]
     [InlineData("RecipeRandomizer.dll")]
     public void Scan_FalsePositiveSample_ShouldNotProduceFindings(string filename)
@@ -238,6 +243,91 @@ public class FalsePositiveScanTests
             "DeliveryCartPlus deep analysis should not emit standalone findings for Il2Cpp interop glue code");
     }
 
+    /// <summary>
+    /// Bannerlord.ButterLib is a legitimate Bannerlord modding library with various utility features.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_BannerlordButterLib_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("Bannerlord.ButterLib.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "Bannerlord.ButterLib.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "Bannerlord.ButterLib.dll is a known false positive and should not be blocked by default rule set");
+    }
+
+    /// <summary>
+    /// SimpleSingleplayerRespawn is a simple single-player respawn mod.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_SimpleSingleplayerRespawn_ShouldNotProduceFindings()
+    {
+        var path = GetSamplePath("SimpleSingleplayerRespawn.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "SimpleSingleplayerRespawn.dll");
+
+        findings.Should().BeEmpty(
+            "SimpleSingleplayerRespawn.dll is a known false positive and should not trigger findings");
+    }
+
+    /// <summary>
+    /// UnityExplorer.ML.Mono is a legitimate MelonLoader debugging tool.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_UnityExplorerMLMono_ShouldNotProduceFindings()
+    {
+        var path = GetSamplePath("UnityExplorer.ML.Mono.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "UnityExplorer.ML.Mono.dll");
+
+        findings.Should().BeEmpty(
+            "UnityExplorer.ML.Mono.dll is a known false positive and should not trigger findings");
+    }
+
+    /// <summary>
+    /// UnityExplorer.ML.IL2CPP.CoreCLR is a legitimate MelonLoader debugging tool.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_UnityExplorerMLIL2CPPCoreCLR_ShouldNotProduceFindings()
+    {
+        var path = GetSamplePath("UnityExplorer.ML.IL2CPP.CoreCLR.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "UnityExplorer.ML.IL2CPP.CoreCLR.dll");
+
+        findings.Should().BeEmpty(
+            "UnityExplorer.ML.IL2CPP.CoreCLR.dll is a known false positive and should not trigger findings");
+    }
+
+    /// <summary>
+    /// UniverseLib.ML.IL2CPP.Interop is a legitimate MelonLoader utility library.
+    /// </summary>
+    [SkippableFact]
+    public void Scan_UniverseLibMLIL2CPPInterop_ShouldNotProduceFindings()
+    {
+        var path = GetSamplePath("UniverseLib.ML.IL2CPP.Interop.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "UniverseLib.ML.IL2CPP.Interop.dll");
+
+        findings.Should().BeEmpty(
+            "UniverseLib.ML.IL2CPP.Interop.dll is a known false positive and should not trigger findings");
+    }
+
     #endregion
 
     #region Summary Report
@@ -251,6 +341,7 @@ public class FalsePositiveScanTests
         var samples = new[]
         {
             "AudioImportLib.dll",
+            "Bannerlord.ButterLib.dll",
             "BankApp.dll",
             "CustomTV.dll",
             "DeliveryCartPlus_v.1.0.dll",
@@ -258,7 +349,11 @@ public class FalsePositiveScanTests
             "LethalLizard.ModManager.dll",
             "NoMoreTrashMono.dll",
             "RecipeRandomizer.dll",
-            "S1APILoader.MelonLoader.dll"
+            "S1APILoader.MelonLoader.dll",
+            "SimpleSingleplayerRespawn.dll",
+            "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
+            "UnityExplorer.ML.Mono.dll",
+            "UniverseLib.ML.IL2CPP.Interop.dll"
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
@@ -315,8 +410,13 @@ public class FalsePositiveScanTests
 
         var allowedHighSeveritySamples = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            "Bannerlord.ButterLib.dll",
             "BankApp.dll",
-            "CustomTV.dll"
+            "CustomTV.dll",
+            "SimpleSingleplayerRespawn.dll",
+            "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
+            "UnityExplorer.ML.Mono.dll",
+            "UniverseLib.ML.IL2CPP.Interop.dll"
         };
 
         // Samples not currently in allow-list should have no High severity (or higher) findings

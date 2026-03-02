@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using Mono.Cecil;
 
@@ -9,12 +10,14 @@ public sealed class DeepBehaviorOrchestrator
     private readonly DeepBehaviorAnalysisConfig _config;
     private readonly List<DeepBehaviorAnalyzer> _analyzers;
     private readonly HashSet<string> _seenMethods = new(StringComparer.Ordinal);
+    private readonly IEntryPointProvider _entryPointProvider;
 
     private int _deepMethodCount;
 
-    public DeepBehaviorOrchestrator(DeepBehaviorAnalysisConfig config, CodeSnippetBuilder snippetBuilder)
+    public DeepBehaviorOrchestrator(DeepBehaviorAnalysisConfig config, CodeSnippetBuilder snippetBuilder, IEntryPointProvider? entryPointProvider = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _entryPointProvider = entryPointProvider ?? new GenericEntryPointProvider();
 
         _analyzers =
         [
@@ -68,7 +71,7 @@ public sealed class DeepBehaviorOrchestrator
             return true;
         }
 
-        return IsLikelyEntrypoint(method) && methodFindings.Count > 0;
+        return _entryPointProvider.IsEntryPoint(method) && methodFindings.Count > 0;
     }
 
     public IEnumerable<ScanFinding> AnalyzeMethod(
@@ -121,17 +124,5 @@ public sealed class DeepBehaviorOrchestrator
     private static string BuildMethodKey(MethodDefinition method)
     {
         return $"{method.DeclaringType?.FullName}:{method.Name}:{method.MetadataToken.ToInt32()}";
-    }
-
-    private static bool IsLikelyEntrypoint(MethodDefinition method)
-    {
-        var name = method.Name ?? string.Empty;
-        return name.StartsWith("OnInitializeMelon", StringComparison.Ordinal) ||
-               name.StartsWith("OnApplicationStart", StringComparison.Ordinal) ||
-               name.StartsWith("Awake", StringComparison.Ordinal) ||
-               name.StartsWith("Start", StringComparison.Ordinal) ||
-               name.StartsWith("Initialize", StringComparison.Ordinal) ||
-               name.Contains("Patch", StringComparison.Ordinal) ||
-               name.StartsWith("OnEnable", StringComparison.Ordinal);
     }
 }

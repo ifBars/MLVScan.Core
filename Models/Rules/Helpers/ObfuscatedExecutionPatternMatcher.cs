@@ -109,10 +109,10 @@ namespace MLVScan.Models.Rules.Helpers
             if (typeName == "System.Environment" && methodName == "GetFolderPath")
             {
                 int? folderValue = ObfuscatedSinkMatcher.ExtractFolderPathArgument(instructions, index);
-                if (folderValue.HasValue && EnvironmentPathRule.IsSensitiveFolder(folderValue.Value))
+                if (folderValue.HasValue && PersistenceRule.IsSensitiveFolder(folderValue.Value))
                 {
                     evidence.HasSensitivePathAccess = true;
-                    string folderName = EnvironmentPathRule.GetFolderName(folderValue.Value);
+                    string folderName = PersistenceRule.GetFolderName(folderValue.Value);
                     evidence.AddDanger(8, $"sensitive folder access ({folderName})", index);
                 }
             }

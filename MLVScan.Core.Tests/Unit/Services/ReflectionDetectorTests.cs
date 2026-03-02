@@ -138,7 +138,7 @@ public class ReflectionDetectorTests
     {
         var signalTracker = new SignalTracker(new ScanConfig { EnableMultiSignalDetection = true });
         var detector = new ReflectionDetector(
-            new IScanRule[] { new ProcessStartRule(), new Shell32Rule() },
+            new IScanRule[] { new ProcessStartRule() },
             signalTracker,
             new StringPatternDetector(),
             new CodeSnippetBuilder());
@@ -285,7 +285,7 @@ public class ReflectionDetectorTests
 
     private static ReflectionDetector CreateDetector()
     {
-        var rules = new IScanRule[] { new ProcessStartRule(), new Shell32Rule() };
+        var rules = new IScanRule[] { new ProcessStartRule() };
         var signalTracker = new SignalTracker(new ScanConfig { EnableMultiSignalDetection = true });
         return new ReflectionDetector(rules, signalTracker, new StringPatternDetector(), new CodeSnippetBuilder());
     }

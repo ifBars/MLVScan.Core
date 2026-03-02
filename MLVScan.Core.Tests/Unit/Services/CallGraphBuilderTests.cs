@@ -238,7 +238,7 @@ public class CallGraphBuilderTests
         var builder = new CallGraphBuilder(rules, snippetBuilder);
 
         var suspiciousMethod = CreateTestMethod("MaliciousType", "DangerousMethod");
-        var callerMethod = CreateTestMethod("CallerType", "OnInitializeMelon");
+        var callerMethod = CreateTestMethod("CallerType", "Initialize");
         var context = "Invocation context: lpVerb=\"open\", lpFile=\"<dynamic via Path.Combine>\"";
 
         builder.RegisterSuspiciousDeclaration(suspiciousMethod, rules[0], "dangerous code", "P/Invoke declaration");
@@ -325,14 +325,15 @@ public class CallGraphBuilderTests
     }
 
     [Fact]
-    public void IsLikelyEntryPoint_MelonLoaderMethod_ReturnsTrue()
+    public void IsLikelyEntryPoint_GenericEntryPoint_ReturnsTrue()
     {
         var assemblyBuilder = TestAssemblyBuilder.Create();
         var assembly = assemblyBuilder.Build();
         var type = new TypeDefinition("Test", "TestMod", TypeAttributes.Public | TypeAttributes.Class);
         assembly.MainModule.Types.Add(type);
 
-        var method = new MethodDefinition("OnMelonAwake", MethodAttributes.Public, assembly.MainModule.TypeSystem.Void);
+        // Use generic entry point name instead of MelonLoader-specific
+        var method = new MethodDefinition("Awake", MethodAttributes.Public, assembly.MainModule.TypeSystem.Void);
         type.Methods.Add(method);
 
         var rules = new List<IScanRule> { new TestRule() };

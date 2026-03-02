@@ -8,12 +8,18 @@ namespace MLVScan.Models.Rules
         public string Description => "Detected FromBase64String call which decodes base64 encrypted strings.";
         public Severity Severity => Severity.Low;
         public string RuleId => "Base64Rule";
-        public bool RequiresCompanionFinding => false;
+        public bool RequiresCompanionFinding => true;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "If decoding configuration data, store it in plain text or use MelonPreferences. If decoding assets, embed them directly in your mod.",
-            "https://melonwiki.xyz/#/modders/preferences",
-            new[] { "MelonPreferences.CreateEntry<T>", "MelonPreferences.GetEntry<T>" },
+            "If decoding configuration data, store it in plain text or use your mod framework's configuration system. " +
+            "For MelonLoader: use MelonPreferences. For BepInEx: use Config.Bind<T>(). " +
+            "If decoding assets, embed them directly in your mod or load from standard resources.",
+            null,
+            new[] {
+                "MelonPreferences.CreateEntry<T> (MelonLoader)",
+                "MelonPreferences.GetEntry<T> (MelonLoader)",
+                "Config.Bind<T> (BepInEx)"
+            },
             true
         );
 

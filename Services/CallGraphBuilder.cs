@@ -1,3 +1,4 @@
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
 using Mono.Cecil;
@@ -12,6 +13,7 @@ namespace MLVScan.Services
     {
         private readonly IEnumerable<IScanRule> _rules;
         private readonly CodeSnippetBuilder _snippetBuilder;
+        private readonly IEntryPointProvider _entryPointProvider;
 
         /// <summary>
         /// Suspicious method declarations (e.g., P/Invoke methods) indexed by their full name.
@@ -23,10 +25,11 @@ namespace MLVScan.Services
         /// </summary>
         private readonly Dictionary<string, List<CallSite>> _callSites = new();
 
-        public CallGraphBuilder(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder)
+        public CallGraphBuilder(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder, IEntryPointProvider? entryPointProvider = null)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
+            _entryPointProvider = entryPointProvider ?? new GenericEntryPointProvider();
         }
 
         /// <summary>
@@ -186,8 +189,8 @@ namespace MLVScan.Services
             // Add callers as entry points (we show all call sites for this malicious method)
             foreach (var callSite in callSites)
             {
-                // Try to determine if this is a well-known entry point (like MelonLoader hooks)
-                var nodeType = IsLikelyEntryPoint(callSite.CallerMethod)
+                // Try to determine if this is a well-known entry point using the configured provider
+                var nodeType = _entryPointProvider.IsEntryPoint(callSite.CallerMethod)
                     ? CallChainNodeType.EntryPoint
                     : CallChainNodeType.IntermediateCall;
 
@@ -286,41 +289,6 @@ namespace MLVScan.Services
             finding.DeveloperGuidance = declaration.DeveloperGuidance;
 
             return finding;
-        }
-
-        private bool IsLikelyEntryPoint(MethodDefinition method)
-        {
-            var name = method.Name;
-
-            // MelonLoader entry points
-            if (name.StartsWith("OnMelon") ||
-                name.StartsWith("OnApplication") ||
-                name.StartsWith("OnScene") ||
-                name == "OnInitializeMelon" ||
-                name == "OnLateInitializeMelon" ||
-                name == "OnPreInitialization" ||
-                name == "OnPreModsLoaded" ||
-                name == "OnUpdate" ||
-                name == "OnLateUpdate" ||
-                name == "OnFixedUpdate" ||
-                name == "OnGUI")
-                return true;
-
-            // Unity MonoBehaviour entry points
-            if (name == "Awake" ||
-                name == "Start" ||
-                name == "Update" ||
-                name == "LateUpdate" ||
-                name == "FixedUpdate" ||
-                name == "OnEnable" ||
-                name == "OnDisable")
-                return true;
-
-            // Static constructors
-            if (name == ".cctor")
-                return true;
-
-            return false;
         }
 
         private static string GetMethodKey(MethodReference method)

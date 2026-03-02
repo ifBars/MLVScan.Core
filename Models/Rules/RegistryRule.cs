@@ -5,15 +5,20 @@ namespace MLVScan.Models.Rules
 {
     public class RegistryRule : IScanRule
     {
-        public string Description => "Detected registry manipulation, which is suspicious for a MelonLoader mod. This could be used to persist malware or modify system settings.";
+        public string Description => "Detected Windows Registry manipulation, which is suspicious for a game mod. Registry access could be used to persist malware or modify system settings.";
         public Severity Severity => Severity.Critical;
         public string RuleId => "RegistryRule";
         public bool RequiresCompanionFinding => false;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "MelonLoader mods should not modify the Windows Registry. For persistent settings, use MelonPreferences instead.",
-            "https://melonwiki.xyz/#/modders/preferences",
-            new[] { "MelonPreferences.CreateEntry<T>" },
+            "Game mods should not modify the Windows Registry. For persistent settings, use your mod framework's configuration system: " +
+            "MelonPreferences for MelonLoader, Config.Bind<T>() for BepInEx, or Unity's PlayerPrefs for simple settings.",
+            null,
+            new[] {
+                "MelonPreferences.CreateEntry<T> (MelonLoader)",
+                "Config.Bind<T> (BepInEx)",
+                "UnityEngine.PlayerPrefs (Unity)"
+            },
             false  // Registry access is inherently suspicious
         );
 

@@ -280,18 +280,7 @@ namespace MLVScan.Services
             // Don't do generic matching - instead check rule-specific patterns
             // This prevents false positives like "GetTypeFromProgID" being matched by Base64Rule
 
-            if (rule is Shell32Rule)
-            {
-                // For Shell32Rule, check specific shell execution patterns
-                string[] shellMethods = {
-                    "ShellExecute", "Shell", "Execute", "CreateProcess", "Spawn",
-                    "Command", "cmd.exe", "powershell.exe", "wscript.exe"
-                };
-
-                return shellMethods.Any(name =>
-                    methodName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                    methodName.Contains(name, StringComparison.OrdinalIgnoreCase));
-            }
+            // Shell32Rule was removed - shell execution detection is now handled by ProcessStartRule and DllImportRule
 
             // For process execution, check specific process methods
             if (rule.Description.Contains("process") || rule.Description.Contains("Process"))

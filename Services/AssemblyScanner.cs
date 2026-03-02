@@ -49,10 +49,12 @@ namespace MLVScan.Services
         /// <param name="rules">The scan rules to apply during analysis.</param>
         /// <param name="config">Optional configuration. Uses defaults if not specified.</param>
         /// <param name="resolverProvider">Optional assembly resolver provider for resolving referenced assemblies.</param>
+        /// <param name="entryPointProvider">Optional entry point provider for environment-specific entry point detection. Uses generic provider if not specified.</param>
         public AssemblyScanner(
             IEnumerable<IScanRule> rules,
             ScanConfig? config = null,
-            IAssemblyResolverProvider? resolverProvider = null)
+            IAssemblyResolverProvider? resolverProvider = null,
+            IEntryPointProvider? entryPointProvider = null)
         {
             _config = config ?? new ScanConfig();
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
@@ -64,13 +66,13 @@ namespace MLVScan.Services
             var stringPatternDetector = new StringPatternDetector();
 
             // Create call graph builder for finding consolidation
-            _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder);
+            _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder, entryPointProvider);
 
             // Create data flow analyzer for tracking data movement through operations
             _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder);
 
             // Create deep behavior orchestrator for practical Unity-mod threat correlation
-            _deepBehaviorOrchestrator = new DeepBehaviorOrchestrator(_config.DeepAnalysis, snippetBuilder);
+            _deepBehaviorOrchestrator = new DeepBehaviorOrchestrator(_config.DeepAnalysis, snippetBuilder, entryPointProvider);
 
             var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
             var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);

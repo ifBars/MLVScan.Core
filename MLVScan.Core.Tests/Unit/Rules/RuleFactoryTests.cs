@@ -20,8 +20,8 @@ public class RuleFactoryTests
     {
         var rules = RuleFactory.CreateDefaultRules();
 
-        // Based on RuleFactory.cs, there are 19 rules
-        rules.Should().HaveCount(19);
+        // Based on RuleFactory.cs, there are 17 rules (after removing Shell32Rule and EnvironmentPathRule)
+        rules.Should().HaveCount(17);
     }
 
     [Fact]
@@ -31,14 +31,12 @@ public class RuleFactoryTests
 
         rules.Should().ContainSingle(r => r is Base64Rule);
         rules.Should().ContainSingle(r => r is ProcessStartRule);
-        rules.Should().ContainSingle(r => r is Shell32Rule);
         rules.Should().ContainSingle(r => r is AssemblyDynamicLoadRule);
         rules.Should().ContainSingle(r => r is ByteArrayManipulationRule);
         rules.Should().ContainSingle(r => r is DllImportRule);
         rules.Should().ContainSingle(r => r is RegistryRule);
         rules.Should().ContainSingle(r => r is EncodedStringLiteralRule);
         rules.Should().ContainSingle(r => r is ReflectionRule);
-        rules.Should().ContainSingle(r => r is EnvironmentPathRule);
         rules.Should().ContainSingle(r => r is EncodedStringPipelineRule);
         rules.Should().ContainSingle(r => r is EncodedBlobSplittingRule);
         rules.Should().ContainSingle(r => r is COMReflectionAttackRule);

@@ -40,6 +40,8 @@ packages/
 nuget-upload.txt
 AGENTS.md
 CODING_STANDARDS.md
+ENVIRONMENT_API_REFERENCE.md
+ENVIRONMENT_GUIDANCE.md
 .opencode/
 
 ## Testing Mods

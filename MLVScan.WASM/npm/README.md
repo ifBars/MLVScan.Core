@@ -186,5 +186,9 @@ For the full type definitions, see [`types.ts`](https://github.com/ifBars/MLVSca
 *   [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) — React web app built on this package
 *   [MLVScan](https://github.com/ifBars/MLVScan) — MelonLoader/BepInEx plugin
 
+## Architecture Notes
+
+MLVScan.Core is designed to be **environment-agnostic**. It powers multiple integration points (MelonLoader, BepInEx, WASM, CLI) without containing any mod loader-specific code. See the [ENVIRONMENT_GUIDANCE.md](https://github.com/ifBars/MLVScan.Core/blob/main/ENVIRONMENT_GUIDANCE.md) for details on maintaining this separation of concerns.
+
 ---
 *Licensed under GPL-3.0*

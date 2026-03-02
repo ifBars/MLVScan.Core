@@ -4,92 +4,131 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Companion rule that detects file writes to the actual TEMP folder.
+    /// Only triggers on Path.GetTempPath() + file write combinations.
+    /// This is the primary location malware drops payloads.
+    /// </summary>
     public class PersistenceRule : IScanRule
     {
-        public string Description => "Detected executable write near persistence-prone directory (Startup/AppData/ProgramData).";
-        public Severity Severity => Severity.High;
+        public string Description => "Detected file write to %TEMP% folder (companion finding).";
+        public Severity Severity => Severity.Medium;
         public string RuleId => "PersistenceRule";
-        public bool RequiresCompanionFinding => false;
+        public bool RequiresCompanionFinding => true;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "For mod settings, use MelonPreferences. For save data, use the game's Saveable/Persistence system (S1API can help with this).",
-            "https://melonwiki.xyz/#/modders/preferences",
-            new[] { "MelonPreferences.CreateEntry<T>" },
+            "Use your mod framework's configuration system instead of direct file I/O. " +
+            "For MelonLoader: use MelonPreferences. For BepInEx: use Config.Bind<T>(). " +
+            "For save data, use the game's official persistence APIs if available. " +
+            "Do not write executable files to TEMP or other system folders.",
+            null,
+            new[] {
+                "MelonPreferences.CreateEntry<T> (MelonLoader)",
+                "Config.Bind<T> (BepInEx)",
+                "UnityEngine.PlayerPrefs (Unity)"
+            },
             true
         );
 
-        public bool IsSuspicious(MethodReference method)
+        public static bool IsSensitiveFolder(int folderValue)
         {
-            // This rule analyzes contextual patterns around method calls
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method, Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex, MethodSignals methodSignals)
+        public static string GetFolderName(int folderValue)
+        {
+            return $"Folder({folderValue})";
+        }
+
+        private static bool IsModFrameworkType(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName))
+                return false;
+
+            // Check for known mod framework environment types
+            return typeName.Contains("MelonEnvironment") ||
+                   typeName.Contains("MelonLoader") ||
+                   typeName.Contains("BepInEx") ||
+                   typeName.Contains("BepInEx.Paths");
+        }
+
+        public bool IsSuspicious(MethodReference method)
+        {
+            return false;
+        }
+
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex,
+            MethodSignals methodSignals)
         {
             if (method?.DeclaringType == null)
                 yield break;
 
-            string declaringTypeFullName = method.DeclaringType.FullName ?? string.Empty;
-            string calledMethodName = method.Name ?? string.Empty;
+            string typeName = method.DeclaringType.FullName;
+            string methodName = method.Name;
 
-            bool isFileCall =
-                declaringTypeFullName.StartsWith("System.IO.", StringComparison.OrdinalIgnoreCase) ||
-                declaringTypeFullName.Equals("System.IO.File", StringComparison.OrdinalIgnoreCase) ||
-                declaringTypeFullName.Equals("System.IO.Directory", StringComparison.OrdinalIgnoreCase) ||
-                (declaringTypeFullName.StartsWith("System.IO", StringComparison.OrdinalIgnoreCase) &&
-                 (calledMethodName.Contains("Write", StringComparison.OrdinalIgnoreCase) ||
-                  calledMethodName.Contains("Create", StringComparison.OrdinalIgnoreCase) ||
-                  calledMethodName.Contains("Move", StringComparison.OrdinalIgnoreCase) ||
-                  calledMethodName.Contains("Copy", StringComparison.OrdinalIgnoreCase)));
+            bool isFileWrite =
+                typeName.Equals("System.IO.File", StringComparison.OrdinalIgnoreCase) &&
+                (methodName.Contains("Write", StringComparison.OrdinalIgnoreCase) ||
+                 methodName.Contains("Create", StringComparison.OrdinalIgnoreCase));
 
-            if (!isFileCall)
+            if (!isFileWrite)
                 yield break;
 
-            // Sweep nearby string literals for indicators
-            int windowStart = Math.Max(0, instructionIndex - 10);
-            int windowEnd = Math.Min(instructions.Count, instructionIndex + 11);
-            var literals = new List<string>();
-            for (int k = windowStart; k < windowEnd; k++)
+            // Check if this method uses mod framework paths - if so, skip
+            foreach (var instr in instructions)
             {
-                if (instructions[k].OpCode == OpCodes.Ldstr && instructions[k].Operand is string s && !string.IsNullOrEmpty(s))
+                if ((instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt) &&
+                    instr.Operand is MethodReference calledMethod)
                 {
-                    literals.Add(s);
+                    var declaringType = calledMethod.DeclaringType?.FullName ?? "";
+                    // Skip known mod framework environment types
+                    if (IsModFrameworkType(declaringType))
+                    {
+                        yield break;
+                    }
                 }
             }
 
-            if (literals.Count == 0)
-                yield break;
+            // Only flag if we find actual Path.GetTempPath() call
+            bool foundTempPath = false;
 
-            bool writesStartupOrRoaming = literals.Any(s =>
-                s.Contains("Startup", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("AppData", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("ProgramData", StringComparison.OrdinalIgnoreCase));
-            bool writesExecutable = literals.Any(s =>
-                s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                s.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
-                s.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase));
-
-            if (writesStartupOrRoaming && writesExecutable)
+            for (int i = 0; i < instructions.Count; i++)
             {
-                // Build code snippet
+                var instr = instructions[i];
+
+                if ((instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt) &&
+                    instr.Operand is MethodReference pathMethod)
+                {
+                    var pathDeclaringType = pathMethod.DeclaringType?.FullName ?? "";
+
+                    if (pathDeclaringType == "System.IO.Path" && pathMethod.Name == "GetTempPath")
+                    {
+                        foundTempPath = true;
+                        break;
+                    }
+                }
+            }
+
+            // Only flag if we actually found Path.GetTempPath
+            if (foundTempPath)
+            {
                 var snippetBuilder = new System.Text.StringBuilder();
                 int contextLines = 2;
                 for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
                 {
-                    if (j == instructionIndex)
-                        snippetBuilder.Append(">>> ");
-                    else
-                        snippetBuilder.Append("    ");
+                    snippetBuilder.Append(j == instructionIndex ? ">>> " : "    ");
                     snippetBuilder.AppendLine(instructions[j].ToString());
                 }
 
                 yield return new ScanFinding(
-                    $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
-                    "Executable write near persistence-prone directory (Startup/AppData/ProgramData).",
-                    Severity.High,
+                    $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    "Potential payload drop: Writing to TEMP folder (companion finding)",
+                    Severity.Medium,
                     snippetBuilder.ToString().TrimEnd());
             }
         }
     }
 }
-

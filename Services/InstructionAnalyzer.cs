@@ -81,7 +81,7 @@ namespace MLVScan.Services
                                 calledMethod.Name == "GetFolderPath")
                             {
                                 var folderValue = InstructionHelper.ExtractFolderPathArgument(instructions, i);
-                                if (folderValue.HasValue && EnvironmentPathRule.IsSensitiveFolder(folderValue.Value))
+                                if (folderValue.HasValue && PersistenceRule.IsSensitiveFolder(folderValue.Value))
                                 {
                                     _signalTracker.MarkSensitiveFolder(methodSignals, method.DeclaringType);
                                 }

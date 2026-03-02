@@ -27,7 +27,7 @@ public class ReflectionBypassDetectionTests
 
         var assembly = builder
             .AddType("BypassPayload.ReflectiveShellMod")
-                .AddMethod("OnInitializeMelon")
+                .AddMethod("Initialize")
                     // Type shellType = Type.GetTypeFromProgID("Shell.Application");
                     .EmitString("Shell.Application")
                     .EmitCall("System.Type", "GetTypeFromProgID", GetTypeRef(module, "System.Type"))
