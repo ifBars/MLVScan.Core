@@ -13,7 +13,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndReflectionAndExecutionSink_ReturnsCriticalFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -40,7 +40,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndReflectionOnly_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -66,7 +66,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndBase64_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -92,7 +92,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndHexString_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -118,7 +118,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndEncodedStringLiteral_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -144,7 +144,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndProcessStart_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -170,7 +170,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithDynamicLoadAndShell32_ReturnsHighFinding()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -196,7 +196,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithoutFollowupSink_ReturnsEmpty()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -219,7 +219,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WhenDynamicLoadDisabled_ReturnsEmpty()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = false };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -243,7 +243,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_WithoutDynamicLoadRule_ReturnsEmpty()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -266,7 +266,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_UsesDynamicLoadOffset()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 
@@ -291,7 +291,7 @@ public class DynamicLoadCorrelationAnalyzerTests
     public void Analyze_TypeFindings_CanTriggerCorrelation()
     {
         var (_, method) = DeepBehaviorAssemblyFactory.CreateLoopAssembly();
-        
+
         var config = new DeepBehaviorAnalysisConfig { EnableDynamicLoadCorrelation = true };
         var analyzer = new DynamicLoadCorrelationAnalyzer(config, new CodeSnippetBuilder());
 

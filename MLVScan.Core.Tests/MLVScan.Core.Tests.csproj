@@ -30,13 +30,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MLVScan.Core.csproj" />
+    <Compile Remove="Unit\Models\Rules\Helpers\InstructionValueResolverTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="Unit\Services\CrossAssembly\CrossAssemblyGraphBuilderTests.cs" />
-    <Compile Remove="Unit\Models\Rules\Helpers\InstructionValueResolverTests.cs" />
+    <ProjectReference Include="..\MLVScan.Core.csproj" />
   </ItemGroup>
+
+
 
   <ItemGroup>
     <None Update="TestAssemblies\**\*">

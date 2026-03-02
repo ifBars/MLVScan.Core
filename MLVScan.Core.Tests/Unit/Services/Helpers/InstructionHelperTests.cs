@@ -235,7 +235,7 @@ public class InstructionHelperTests
 
         var result = InstructionHelper.ExtractFolderPathArgument(instructions, 2);
 
-        // Should find the first match (10 at index 0)
-        result.Should().Be(10);
+        // Should find the most recent match (20 at index 1, which is closest to currentIndex 2)
+        result.Should().Be(20);
     }
 }

@@ -1,10 +1,10 @@
+using System.IO;
 using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.CrossAssembly;
 using MLVScan.Services.CrossAssembly;
 using Mono.Cecil;
-using System.IO;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Services.CrossAssembly;
@@ -73,7 +73,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var targetAssembly = TestAssemblyBuilder.Create("TargetAssembly").Build();
         var referencingAssembly = TestAssemblyBuilder.Create("ReferencingAssembly").Build();
-        
+
         referencingAssembly.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("TargetAssembly", new Version(1, 0, 0, 0)));
 
@@ -98,7 +98,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var assemblyA = TestAssemblyBuilder.Create("AssemblyA").Build();
         var assemblyB = TestAssemblyBuilder.Create("AssemblyB").Build();
-        
+
         assemblyA.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("AssemblyB", new Version(1, 0, 0, 0)));
         assemblyB.MainModule.AssemblyReferences.Add(
@@ -162,7 +162,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var targetAssembly = TestAssemblyBuilder.Create("Target").Build();
         var sourceAssembly = TestAssemblyBuilder.Create("Source").Build();
-        
+
         // Add same reference twice (can happen in complex scenarios)
         sourceAssembly.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("Target", new Version(1, 0, 0, 0)));
@@ -186,7 +186,7 @@ public class CrossAssemblyGraphBuilderTests
         var target = TestAssemblyBuilder.Create("CommonTarget").Build();
         var source1 = TestAssemblyBuilder.Create("Source1").Build();
         var source2 = TestAssemblyBuilder.Create("Source2").Build();
-        
+
         source1.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("CommonTarget", new Version(1, 0, 0, 0)));
         source2.MainModule.AssemblyReferences.Add(
@@ -202,7 +202,9 @@ public class CrossAssemblyGraphBuilderTests
         var graph = _builder.Build(targets);
 
         graph.Edges.Should().HaveCount(2);
-        graph.IncomingByTarget["CommonTarget.dll".ToLowerInvariant()].Should().HaveCount(2);
+        // The key is the normalized full path, not just the filename
+        var targetKey = graph.IncomingByTarget.Keys.First(k => k.EndsWith("CommonTarget.dll", StringComparison.OrdinalIgnoreCase));
+        graph.IncomingByTarget[targetKey].Should().HaveCount(2);
     }
 
     #endregion
@@ -260,7 +262,12 @@ public class CrossAssemblyGraphBuilderTests
     [Fact]
     public void Build_WithNullAssemblyName_UsesFileName()
     {
-        var assembly = TestAssemblyBuilder.Create("").Build();
+        var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
+
+        // Simulate null assembly name by setting it to null using reflection
+        var nameProperty = typeof(AssemblyDefinition).GetProperty("Name");
+        nameProperty!.SetValue(assembly, null);
+
         var targets = new List<(string, AssemblyDefinition, AssemblyArtifactRole)>
         {
             (@"C:\mods\FallbackName.dll", assembly, AssemblyArtifactRole.Mod)
@@ -276,7 +283,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var target = TestAssemblyBuilder.Create("MyTarget").Build();
         var source = TestAssemblyBuilder.Create("Source").Build();
-        
+
         // Reference uses different case
         source.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("mytarget", new Version(1, 0, 0, 0)));
@@ -302,7 +309,7 @@ public class CrossAssemblyGraphBuilderTests
         var assemblyA = TestAssemblyBuilder.Create("A").Build();
         var assemblyB = TestAssemblyBuilder.Create("B").Build();
         var assemblyC = TestAssemblyBuilder.Create("C").Build();
-        
+
         // A -> B -> C
         assemblyA.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("B", new Version(1, 0, 0, 0)));
@@ -330,7 +337,7 @@ public class CrossAssemblyGraphBuilderTests
         var left = TestAssemblyBuilder.Create("Left").Build();
         var right = TestAssemblyBuilder.Create("Right").Build();
         var bottom = TestAssemblyBuilder.Create("Bottom").Build();
-        
+
         //    Top
         //   /   \
         // Left  Right
@@ -365,7 +372,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var target = TestAssemblyBuilder.Create("Target").Build();
         var source = TestAssemblyBuilder.Create("Source").Build();
-        
+
         // Different versions of same assembly (should match by name only)
         source.MainModule.AssemblyReferences.Add(
             new AssemblyNameReference("Target", new Version(1, 0, 0, 0)));
@@ -393,7 +400,7 @@ public class CrossAssemblyGraphBuilderTests
     {
         var target = TestAssemblyBuilder.Create("TargetEvidence").Build();
         var source = TestAssemblyBuilder.Create("SourceEvidence").Build();
-        
+
         var reference = new AssemblyNameReference("TargetEvidence", new Version(2, 5, 1, 0))
         {
             Culture = "en-US",

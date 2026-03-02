@@ -6,7 +6,8 @@ namespace MLVScan.Services.Helpers
     {
         public static int? ExtractFolderPathArgument(Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
         {
-            for (int i = Math.Max(0, currentIndex - 5); i < currentIndex; i++)
+            int start = Math.Max(0, currentIndex - 5);
+            for (int i = currentIndex - 1; i >= start; i--)
             {
                 var instr = instructions[i];
 

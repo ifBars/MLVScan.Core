@@ -127,7 +127,7 @@ namespace MLVScan.Models.Rules.Helpers
         public static int? ExtractFolderPathArgument(Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
         {
             int start = Math.Max(0, currentIndex - 5);
-            for (int i = start; i < currentIndex; i++)
+            for (int i = currentIndex - 1; i >= start; i--)
             {
                 Instruction instruction = instructions[i];
                 if (instruction.OpCode == OpCodes.Ldc_I4)
