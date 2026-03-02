@@ -4,10 +4,7 @@ namespace MLVScan.Models.Rules.Helpers
 {
     internal static class ObfuscatedDecodeMatcher
     {
-        private static readonly char[] TokenSeparators =
-        {
-            '-', '`', ':', ',', '|', ' '
-        };
+        private static readonly char[] TokenSeparators = { '-', '`', ':', ',', '|', ' ' };
 
         public static bool TryGetDecodeCallScore(
             MethodReference calledMethod,
@@ -40,7 +37,8 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             if (typeName == "System.Convert" &&
-                (methodName == "FromBase64String" || methodName == "FromHexString" || methodName == "ToInt32" || methodName == "ToByte"))
+                (methodName == "FromBase64String" || methodName == "FromHexString" || methodName == "ToInt32" ||
+                 methodName == "ToByte"))
             {
                 score = 11;
                 reason = $"convert.{methodName} transform";
@@ -93,7 +91,8 @@ namespace MLVScan.Models.Rules.Helpers
             if ((methodName.IndexOf("decode", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  methodName.IndexOf("decrypt", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  methodName.IndexOf("deobfusc", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                (calledMethod.ReturnType.FullName == "System.String" || calledMethod.ReturnType.FullName == "System.Byte[]"))
+                (calledMethod.ReturnType.FullName == "System.String" ||
+                 calledMethod.ReturnType.FullName == "System.Byte[]"))
             {
                 score = 8;
                 reason = $"custom {methodName} helper";
@@ -200,8 +199,8 @@ namespace MLVScan.Models.Rules.Helpers
         {
             string[] markers =
             {
-                "powershell", "cmd.exe", "wscript", "cscript", "mshta", "rundll32", "regsvr32",
-                "http://", "https://", "%temp%", "\\temp\\", "appdata", "startup", "shell32.dll"
+                "powershell", "cmd.exe", "wscript", "cscript", "mshta", "rundll32", "regsvr32", "http://",
+                "https://", "%temp%", "\\temp\\", "appdata", "startup", "shell32.dll"
             };
 
             foreach (string candidate in markers)

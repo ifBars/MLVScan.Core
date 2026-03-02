@@ -8,13 +8,13 @@ namespace MLVScan.Models.Rules
 {
     /// <summary>
     /// Detects Process.Start calls with severity scaling based on target and arguments.
-    /// 
+    ///
     /// Severity levels:
     /// - Critical: LOLBin execution (powershell, cmd, mshta, wscript) with suspicious arguments
     /// - High: LOLBin execution without suspicious arguments, or suspicious arguments with unknown target
     /// - Medium: Unknown external process with arguments
     /// - Low: Known safe external tool (yt-dlp, ffmpeg, etc.)
-    /// 
+    ///
     /// Suppresses safe patterns like:
     /// - Bare "explorer.exe" calls (Windows Explorer file/folder operations)
     /// - Current process restart patterns
@@ -41,10 +41,12 @@ namespace MLVScan.Models.Rules
 
         private static readonly HashSet<string> LolBinExecutables = new(StringComparer.OrdinalIgnoreCase)
         {
-            "powershell.exe", "pwsh.exe",
+            "powershell.exe",
+            "pwsh.exe",
             "cmd.exe",
             "mshta.exe",
-            "wscript.exe", "cscript.exe",
+            "wscript.exe",
+            "cscript.exe",
             "regsvr32.exe",
             "rundll32.exe",
             "certutil.exe",
@@ -58,18 +60,30 @@ namespace MLVScan.Models.Rules
 
         private static readonly HashSet<string> KnownSafeTools = new(StringComparer.OrdinalIgnoreCase)
         {
-            "yt-dlp.exe", "yt-dlp",
-            "ffmpeg.exe", "ffmpeg",
-            "ffprobe.exe", "ffprobe",
-            "git.exe", "git",
-            "node.exe", "node",
-            "npm.exe", "npm",
-            "python.exe", "python",
-            "dotnet.exe", "dotnet"
+            "yt-dlp.exe",
+            "yt-dlp",
+            "ffmpeg.exe",
+            "ffmpeg",
+            "ffprobe.exe",
+            "ffprobe",
+            "git.exe",
+            "git",
+            "node.exe",
+            "node",
+            "npm.exe",
+            "npm",
+            "python.exe",
+            "python",
+            "dotnet.exe",
+            "dotnet"
         };
 
         private static readonly Regex SuspiciousArgumentPattern = new Regex(
             @"(?i)(-ep\s+bypass|-enc\s+[A-Za-z0-9+/=]|iex|invoke-(expression|webrequest)|iwr\s+|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string|http://|https://)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex TempPathPattern = new Regex(
+            @"(?i)(%temp%|%tmp%|\\temp\\|\\tmp\\|gettemppath|gettempfile)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex DownloadPattern = new Regex(
@@ -139,7 +153,7 @@ namespace MLVScan.Models.Rules
             // This prevents duplicate findings like:
             // - System.Diagnostics.Process.Start:285 (less useful - framework method)
             // - MoreTrees.Mod/<AsyncSwitch>d__1.MoveNext:285 (useful - actual malicious code)
-            // 
+            //
             // IMPORTANT: Check by assembly name, not namespace, to prevent bypass attacks
             // where attacker creates their own "System.Diagnostics" namespace
             var declaringType = method.DeclaringType;
@@ -156,21 +170,57 @@ namespace MLVScan.Models.Rules
             var target = ExtractProcessTarget(null, method, instructions, instructionIndex);
             var arguments = ExtractProcessArguments(null, instructions, instructionIndex);
 
+            // Detect ProcessStartInfo evasion indicators
+            var hasUseShell =
+                InstructionValueResolver.TryResolveUseShellExecute(null, instructions, instructionIndex,
+                    out var useShell);
+            var hasCreateNoWin =
+                InstructionValueResolver.TryResolveCreateNoWindow(null, instructions, instructionIndex,
+                    out var createNoWin);
+            var hasWindowStyle =
+                InstructionValueResolver.TryResolveWindowStyle(null, instructions, instructionIndex,
+                    out var windowStyle);
+            var hasWorkingDir =
+                InstructionValueResolver.TryResolveWorkingDirectory(null, instructions, instructionIndex,
+                    out var workingDir);
+
+            var useShellExecute = hasUseShell && useShell == true;
+            var createNoWindow = hasCreateNoWin && createNoWin == true;
+            var windowStyleHidden = hasWindowStyle && windowStyle == 1; // 1 = Hidden
+            var workingDirectoryIsTemp = hasWorkingDir && workingDir != null && TempPathPattern.IsMatch(workingDir);
+
             var targetLower = target.ToLowerInvariant().Trim('"');
             var argumentsLower = arguments.ToLowerInvariant();
 
-            var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments);
+            var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
+                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp);
 
             if (severity == null)
                 yield break;
 
-            var description = $"Detected Process.Start call which could execute arbitrary programs. Target: {target}. Arguments: {arguments}";
+            var description =
+                $"Detected Process.Start call which could execute arbitrary programs. Target: {target}. Arguments: {arguments}";
+
+            // Add evasion indicators to description
+            var evasionIndicators = new List<string>();
+            if (useShellExecute) evasionIndicators.Add("UseShellExecute=true");
+            if (createNoWindow) evasionIndicators.Add("CreateNoWindow=true");
+            if (windowStyleHidden) evasionIndicators.Add("WindowStyle=Hidden");
+            if (workingDirectoryIsTemp) evasionIndicators.Add("WorkingDirectory=Temp");
+
+            if (evasionIndicators.Count > 0)
+            {
+                description += " [Evasion: " + string.Join(", ", evasionIndicators) + "]";
+            }
+
             if (!string.IsNullOrEmpty(riskReason))
                 description += $" [{riskReason}]";
 
             var snippetBuilder = new System.Text.StringBuilder();
             int contextLines = 2;
-            for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
+            for (int j = Math.Max(0, instructionIndex - contextLines);
+                 j < Math.Min(instructions.Count, instructionIndex + contextLines + 1);
+                 j++)
             {
                 snippetBuilder.Append(j == instructionIndex ? ">>> " : "    ");
                 snippetBuilder.AppendLine(instructions[j].ToString());
@@ -187,13 +237,19 @@ namespace MLVScan.Models.Rules
             string targetLower,
             string argumentsLower,
             string targetDisplay,
-            string argumentsDisplay)
+            string argumentsDisplay,
+            bool useShellExecute = false,
+            bool createNoWindow = false,
+            bool windowStyleHidden = false,
+            bool workingDirectoryIsTemp = false)
         {
             bool isLolBin = LolBinExecutables.Contains(targetLower) ||
-                            LolBinExecutables.Any(lol => targetLower.EndsWith("\\" + lol) || targetLower.EndsWith("/" + lol));
+                            LolBinExecutables.Any(lol =>
+                                targetLower.EndsWith("\\" + lol) || targetLower.EndsWith("/" + lol));
 
             bool isKnownSafe = KnownSafeTools.Contains(targetLower) ||
-                               KnownSafeTools.Any(safe => targetLower.EndsWith("\\" + safe) || targetLower.EndsWith("/" + safe));
+                               KnownSafeTools.Any(safe =>
+                                   targetLower.EndsWith("\\" + safe) || targetLower.EndsWith("/" + safe));
 
             bool hasSuspiciousArgs = !string.IsNullOrEmpty(argumentsLower) &&
                                      argumentsLower != "<unknown/no-arguments>" &&
@@ -202,7 +258,50 @@ namespace MLVScan.Models.Rules
             bool hasDownloadUrl = !string.IsNullOrEmpty(argumentsLower) &&
                                   DownloadPattern.IsMatch(argumentsLower);
 
+            bool hasTempPath = !string.IsNullOrEmpty(argumentsLower) &&
+                               argumentsLower != "<unknown/no-arguments>" &&
+                               TempPathPattern.IsMatch(argumentsLower);
+
             bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
+
+            // Check for evasion indicators first - these escalate severity
+            bool hasEvasionIndicators =
+                useShellExecute || createNoWindow || windowStyleHidden || workingDirectoryIsTemp;
+
+            if (hasEvasionIndicators && isLolBin)
+            {
+                var reasons = new List<string>();
+                if (useShellExecute) reasons.Add("UseShellExecute");
+                if (createNoWindow) reasons.Add("CreateNoWindow");
+                if (windowStyleHidden) reasons.Add("WindowStyle.Hidden");
+                if (workingDirectoryIsTemp) reasons.Add("WorkingDirectory=Temp");
+                return (Severity.Critical, $"LOLBin with hidden execution ({string.Join(", ", reasons)})");
+            }
+
+            if (hasEvasionIndicators && hasSuspiciousArgs)
+            {
+                return (Severity.Critical, "Process with evasion and suspicious arguments");
+            }
+
+            if (hasEvasionIndicators && hasDownloadUrl)
+            {
+                return (Severity.Critical, "Process with evasion and download URL");
+            }
+
+            if (hasEvasionIndicators && hasTempPath)
+            {
+                return (Severity.Critical, "Process with evasion and temp path execution");
+            }
+
+            if (hasEvasionIndicators)
+            {
+                var reasons = new List<string>();
+                if (useShellExecute) reasons.Add("UseShellExecute");
+                if (createNoWindow) reasons.Add("CreateNoWindow");
+                if (windowStyleHidden) reasons.Add("WindowStyle.Hidden");
+                if (workingDirectoryIsTemp) reasons.Add("WorkingDirectory=Temp");
+                return (Severity.High, $"Hidden process execution ({string.Join(", ", reasons)})");
+            }
 
             if (isLolBin && hasSuspiciousArgs)
             {
@@ -252,9 +351,7 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int instructionIndex)
         {
-            string target = ExtractProcessTarget(null, method, instructions, instructionIndex);
-            string arguments = ExtractProcessArguments(null, instructions, instructionIndex);
-            return $"{Description} Target: {target}. Arguments: {arguments}";
+            return BuildFindingDescription(null, method, instructions, instructionIndex);
         }
 
         public string GetFindingDescription(
@@ -263,9 +360,48 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int instructionIndex)
         {
+            return BuildFindingDescription(containingMethod, method, instructions, instructionIndex);
+        }
+
+        private string BuildFindingDescription(
+            MethodDefinition? containingMethod,
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int instructionIndex)
+        {
             string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex);
             string arguments = ExtractProcessArguments(containingMethod, instructions, instructionIndex);
-            return $"{Description} Target: {target}. Arguments: {arguments}";
+
+            // Detect ProcessStartInfo evasion indicators
+            var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(containingMethod, instructions,
+                instructionIndex, out var useShell);
+            var hasCreateNoWin = InstructionValueResolver.TryResolveCreateNoWindow(containingMethod, instructions,
+                instructionIndex, out var createNoWin);
+            var hasWindowStyle = InstructionValueResolver.TryResolveWindowStyle(containingMethod, instructions,
+                instructionIndex, out var windowStyle);
+            var hasWorkingDir = InstructionValueResolver.TryResolveWorkingDirectory(containingMethod, instructions,
+                instructionIndex, out var workingDir);
+
+            var useShellExecute = hasUseShell && useShell == true;
+            var createNoWindow = hasCreateNoWin && createNoWin == true;
+            var windowStyleHidden = hasWindowStyle && windowStyle == 1; // 1 = Hidden
+            var workingDirectoryIsTemp = hasWorkingDir && workingDir != null && TempPathPattern.IsMatch(workingDir);
+
+            var description = $"{Description} Target: {target}. Arguments: {arguments}";
+
+            // Add evasion indicators to description
+            var evasionIndicators = new List<string>();
+            if (useShellExecute) evasionIndicators.Add("UseShellExecute=true");
+            if (createNoWindow) evasionIndicators.Add("CreateNoWindow=true");
+            if (windowStyleHidden) evasionIndicators.Add("WindowStyle=Hidden");
+            if (workingDirectoryIsTemp) evasionIndicators.Add("WorkingDirectory=Temp");
+
+            if (evasionIndicators.Count > 0)
+            {
+                description += " [Evasion: " + string.Join(", ", evasionIndicators) + "]";
+            }
+
+            return description;
         }
 
         public bool ShouldSuppressFinding(
@@ -418,7 +554,8 @@ namespace MLVScan.Models.Rules
                     for (int i = getFileNameIndex + 1; i < processStartIndex; i++)
                     {
                         var inst = instructions[i];
-                        if (inst.OpCode != Mono.Cecil.Cil.OpCodes.Call && inst.OpCode != Mono.Cecil.Cil.OpCodes.Callvirt)
+                        if (inst.OpCode != Mono.Cecil.Cil.OpCodes.Call &&
+                            inst.OpCode != Mono.Cecil.Cil.OpCodes.Callvirt)
                             continue;
 
                         if (inst.Operand is MethodReference methodRef)
@@ -449,7 +586,8 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            if (InstructionValueResolver.TryResolveProcessTarget(containingMethod, method, instructions, processStartIndex, out string target))
+            if (InstructionValueResolver.TryResolveProcessTarget(containingMethod, method, instructions,
+                    processStartIndex, out string target))
             {
                 return target;
             }
@@ -462,7 +600,8 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, instructions, processStartIndex, out string arguments))
+            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, instructions, processStartIndex,
+                    out string arguments))
             {
                 return arguments;
             }

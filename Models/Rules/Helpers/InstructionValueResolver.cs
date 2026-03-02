@@ -7,8 +7,11 @@ namespace MLVScan.Models.Rules.Helpers
     internal static class InstructionValueResolver
     {
         private const int MaxDepth = 16;
+
         private static readonly Regex ExecutableNameRegex =
-            new Regex(@"([A-Za-z0-9._-]+\.(?:exe|bat|cmd|com|ps1|msi))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            new Regex(@"([A-Za-z0-9._-]+\.(?:exe|bat|cmd|com|ps1|msi))",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
         private static readonly Regex FormatItemRegex =
             new Regex(@"\{(\d+)(?:[^}]*)\}", RegexOptions.CultureInvariant);
 
@@ -21,8 +24,10 @@ namespace MLVScan.Models.Rules.Helpers
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoSetter(context, containingMethod, instructions, processStartIndex, out var resolved) ||
-                TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions, processStartIndex, out resolved))
+            if (TryResolveFromStartInfoSetter(context, containingMethod, instructions, processStartIndex,
+                    out var resolved) ||
+                TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved))
             {
                 target = BuildTargetDisplay(resolved);
                 return true;
@@ -40,7 +45,8 @@ namespace MLVScan.Models.Rules.Helpers
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoArgumentsSetter(context, containingMethod, instructions, processStartIndex, out var resolved))
+            if (TryResolveFromStartInfoArgumentsSetter(context, containingMethod, instructions, processStartIndex,
+                    out var resolved))
             {
                 arguments = resolved.Display;
                 return true;
@@ -58,13 +64,224 @@ namespace MLVScan.Models.Rules.Helpers
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveTopStackValue(context, containingMethod, instructions, beforeIndex, null, 0, out var resolved, out _))
+            if (TryResolveTopStackValue(context, containingMethod, instructions, beforeIndex, null, 0, out var resolved,
+                    out _))
             {
                 valueDisplay = resolved.Display;
                 return true;
             }
 
             valueDisplay = "<unknown/non-literal>";
+            return false;
+        }
+
+        public static bool TryResolveUseShellExecute(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out bool? useShellExecute)
+        {
+            useShellExecute = null;
+            int searchStart = Math.Max(0, processStartIndex - 400);
+            var context = new ResolverContext(containingMethod?.Module);
+
+            for (int i = processStartIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    methodRef.Name != "set_UseShellExecute")
+                {
+                    continue;
+                }
+
+                if (TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out var resolved,
+                        out _))
+                {
+                    if (resolved.Display is "True" or "true" or "1")
+                    {
+                        useShellExecute = true;
+                        return true;
+                    }
+
+                    if (resolved.Display is "False" or "false" or "0")
+                    {
+                        useShellExecute = false;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public static bool TryResolveCreateNoWindow(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out bool? createNoWindow)
+        {
+            createNoWindow = null;
+            int searchStart = Math.Max(0, processStartIndex - 400);
+            var context = new ResolverContext(containingMethod?.Module);
+
+            for (int i = processStartIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    methodRef.Name != "set_CreateNoWindow")
+                {
+                    continue;
+                }
+
+                if (TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out var resolved,
+                        out _))
+                {
+                    if (resolved.Display is "True" or "true" or "1")
+                    {
+                        createNoWindow = true;
+                        return true;
+                    }
+
+                    if (resolved.Display is "False" or "false" or "0")
+                    {
+                        createNoWindow = false;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public static bool TryResolveWindowStyle(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out int? windowStyle)
+        {
+            windowStyle = null;
+            int searchStart = Math.Max(0, processStartIndex - 400);
+            var context = new ResolverContext(containingMethod?.Module);
+
+            // First, find the set_WindowStyle call
+            int setWindowStyleIndex = -1;
+            for (int i = processStartIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    methodRef.Name != "set_WindowStyle")
+                {
+                    continue;
+                }
+
+                setWindowStyleIndex = i;
+                break;
+            }
+
+            if (setWindowStyleIndex < 0)
+                return false;
+
+            // Now look backwards from the set_WindowStyle call to find the value (ldc.i4.X)
+            for (int i = setWindowStyleIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+
+                // Skip instructions that don't affect the value we're looking for
+                if (instruction.OpCode == OpCodes.Call ||
+                    instruction.OpCode == OpCodes.Callvirt ||
+                    instruction.OpCode == OpCodes.Pop ||
+                    instruction.OpCode == OpCodes.Stloc ||
+                    instruction.OpCode == OpCodes.Stloc_0 ||
+                    instruction.OpCode == OpCodes.Stloc_1 ||
+                    instruction.OpCode == OpCodes.Stloc_2 ||
+                    instruction.OpCode == OpCodes.Stloc_3 ||
+                    instruction.OpCode == OpCodes.Stloc_S ||
+                    instruction.OpCode == OpCodes.Stfld ||
+                    instruction.OpCode == OpCodes.Stsfld ||
+                    instruction.OpCode == OpCodes.Dup)
+                {
+                    continue;
+                }
+
+                // Try to resolve as int32 literal
+                if (TryResolveInt32Literal(instruction, out int intVal))
+                {
+                    windowStyle = intVal;
+                    return true;
+                }
+
+                // If we found a field load, try to resolve it
+                if (instruction.OpCode == OpCodes.Ldfld || instruction.OpCode == OpCodes.Ldsfld)
+                {
+                    if (TryResolveTopStackValue(context, containingMethod, instructions, i, null, 0, out var resolved,
+                            out _))
+                    {
+                        if (int.TryParse(resolved.Display, out int parsedVal))
+                        {
+                            windowStyle = parsedVal;
+                            return true;
+                        }
+                    }
+                }
+
+                // Stop after finding the first non-skipped instruction
+                break;
+            }
+
+            return false;
+        }
+
+        public static bool TryResolveWorkingDirectory(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out string? workingDirectory)
+        {
+            workingDirectory = null;
+            int searchStart = Math.Max(0, processStartIndex - 400);
+            var context = new ResolverContext(containingMethod?.Module);
+
+            for (int i = processStartIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    methodRef.Name != "set_WorkingDirectory")
+                {
+                    continue;
+                }
+
+                if (TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out var resolved,
+                        out _))
+                {
+                    workingDirectory = resolved.Display?.ToLowerInvariant();
+                    return true;
+                }
+            }
+
             return false;
         }
 
@@ -93,7 +310,8 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value, out _);
+                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
+                    out _);
             }
 
             return false;
@@ -124,7 +342,8 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value, out _);
+                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
+                    out _);
             }
 
             return false;
@@ -140,10 +359,12 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) || calledMethod.Parameters.Count == 0)
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count == 0)
                 return false;
 
-            if (!TryResolveCallArguments(context, containingMethod, instructions, processStartIndex, calledMethod.Parameters.Count, null, 0, out var args))
+            if (!TryResolveCallArguments(context, containingMethod, instructions, processStartIndex,
+                    calledMethod.Parameters.Count, null, 0, out var args))
                 return false;
 
             if (args.Count == 0)
@@ -168,7 +389,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             for (int i = parameterCount - 1; i >= 0; i--)
             {
-                if (!TryResolveTopStackValue(context, containingMethod, instructions, cursor, argumentMap, depth + 1, out var value, out int producerIndex))
+                if (!TryResolveTopStackValue(context, containingMethod, instructions, cursor, argumentMap, depth + 1,
+                        out var value, out int producerIndex))
                     return false;
 
                 arguments.Insert(0, value);
@@ -198,7 +420,8 @@ namespace MLVScan.Models.Rules.Helpers
             if (producerIndex < 0)
                 return false;
 
-            return TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, argumentMap, depth + 1, out value);
+            return TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, argumentMap,
+                depth + 1, out value);
         }
 
         private static int FindTopValueProducerIndex(
@@ -256,7 +479,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.OpCode == OpCodes.Box)
             {
-                if (TryResolveTopStackValue(context, containingMethod, instructions, producerIndex - 1, argumentMap, depth + 1, out value, out _))
+                if (TryResolveTopStackValue(context, containingMethod, instructions, producerIndex - 1, argumentMap,
+                        depth + 1, out value, out _))
                     return true;
 
                 value = new ResolvedValue("<boxed-value>", null, false);
@@ -265,7 +489,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (TryGetLocalIndex(instruction, out int localIndex))
             {
-                if (TryResolveLocalValue(context, containingMethod, instructions, producerIndex - 1, localIndex, argumentMap, depth + 1, out value))
+                if (TryResolveLocalValue(context, containingMethod, instructions, producerIndex - 1, localIndex,
+                        argumentMap, depth + 1, out value))
                     return true;
 
                 value = new ResolvedValue($"<local V_{localIndex}>", null, false);
@@ -286,7 +511,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.OpCode == OpCodes.Ldfld && instruction.Operand is FieldReference fieldRef)
             {
-                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1, fieldRef, false, depth + 1, out value) ||
+                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1, fieldRef,
+                        false, depth + 1, out value) ||
                     TryResolveFieldValueAcrossModule(context, fieldRef, false, depth + 1, out value))
                 {
                     return true;
@@ -298,7 +524,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.OpCode == OpCodes.Ldsfld && instruction.Operand is FieldReference staticFieldRef)
             {
-                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1, staticFieldRef, true, depth + 1, out value) ||
+                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1,
+                        staticFieldRef, true, depth + 1, out value) ||
                     TryResolveFieldValueAcrossModule(context, staticFieldRef, true, depth + 1, out value))
                 {
                     return true;
@@ -308,10 +535,12 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
-            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt || instruction.OpCode == OpCodes.Newobj) &&
+            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt ||
+                 instruction.OpCode == OpCodes.Newobj) &&
                 instruction.Operand is MethodReference methodRef)
             {
-                if (TryResolveMethodCallValue(context, containingMethod, instructions, producerIndex, methodRef, depth + 1, out value))
+                if (TryResolveMethodCallValue(context, containingMethod, instructions, producerIndex, methodRef,
+                        depth + 1, out value))
                     return true;
 
                 value = new ResolvedValue($"<dynamic via {methodRef.Name}>", null, false);
@@ -340,7 +569,8 @@ namespace MLVScan.Models.Rules.Helpers
                 if (!TryGetStoredLocalIndex(instruction, out int storedIndex) || storedIndex != localIndex)
                     continue;
 
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, argumentMap, depth + 1, out value, out _);
+                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, argumentMap, depth + 1,
+                    out value, out _);
             }
 
             return false;
@@ -368,7 +598,8 @@ namespace MLVScan.Models.Rules.Helpers
                 if (!string.Equals(candidate.FullName, field.FullName, StringComparison.Ordinal))
                     continue;
 
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, depth + 1, out value, out _);
+                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, depth + 1,
+                    out value, out _);
             }
 
             return false;
@@ -406,14 +637,17 @@ namespace MLVScan.Models.Rules.Helpers
                         for (int i = methodInstructions.Count - 1; i >= 0; i--)
                         {
                             var instruction = methodInstructions[i];
-                            bool isStore = isStatic ? instruction.OpCode == OpCodes.Stsfld : instruction.OpCode == OpCodes.Stfld;
+                            bool isStore = isStatic
+                                ? instruction.OpCode == OpCodes.Stsfld
+                                : instruction.OpCode == OpCodes.Stfld;
                             if (!isStore || instruction.Operand is not FieldReference candidate)
                                 continue;
 
                             if (!string.Equals(candidate.FullName, field.FullName, StringComparison.Ordinal))
                                 continue;
 
-                            if (!TryResolveTopStackValue(context, method, methodInstructions, i - 1, null, depth + 1, out var resolved, out _))
+                            if (!TryResolveTopStackValue(context, method, methodInstructions, i - 1, null, depth + 1,
+                                    out var resolved, out _))
                                 continue;
 
                             if (!found || IsBetterCandidate(resolved, best))
@@ -460,14 +694,16 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
 
             int parameterCount = method.Parameters.Count;
-            if (!TryResolveCallArguments(context, containingMethod, instructions, producerIndex, parameterCount, null, depth + 1, out var callArgs))
+            if (!TryResolveCallArguments(context, containingMethod, instructions, producerIndex, parameterCount, null,
+                    depth + 1, out var callArgs))
                 callArgs = new List<ResolvedValue>();
 
             string declaringType = method.DeclaringType?.FullName ?? string.Empty;
 
             if (declaringType == "System.IO.Path")
             {
-                if (method.Name == "Combine" || method.Name == "Join" || method.Name == "GetFullPath" || method.Name == "GetFileName")
+                if (method.Name == "Combine" || method.Name == "Join" || method.Name == "GetFullPath" ||
+                    method.Name == "GetFileName")
                 {
                     string composed = callArgs.Count > 0
                         ? CombinePathLikeArguments(callArgs)
@@ -495,7 +731,8 @@ namespace MLVScan.Models.Rules.Helpers
                 if (method.Name == "Concat")
                 {
                     string composed = string.Concat(callArgs.Select(a => a.Display));
-                    value = new ResolvedValue(composed, ExtractExecutableName(composed), callArgs.All(a => a.IsConcrete));
+                    value = new ResolvedValue(composed, ExtractExecutableName(composed),
+                        callArgs.All(a => a.IsConcrete));
                     return true;
                 }
 
@@ -521,7 +758,8 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             var resolvedMethod = method.Resolve();
-            if (resolvedMethod != null && resolvedMethod.HasBody && context.Module != null && resolvedMethod.Module == context.Module)
+            if (resolvedMethod != null && resolvedMethod.HasBody && context.Module != null &&
+                resolvedMethod.Module == context.Module)
             {
                 if (TryResolveMethodReturnValue(context, resolvedMethod, callArgs, depth + 1, out value))
                     return true;
@@ -567,7 +805,8 @@ namespace MLVScan.Models.Rules.Helpers
                     if (instructions[i].OpCode != OpCodes.Ret || i == 0)
                         continue;
 
-                    if (!TryResolveTopStackValue(context, method, instructions, i - 1, argMap, depth + 1, out var resolved, out _))
+                    if (!TryResolveTopStackValue(context, method, instructions, i - 1, argMap, depth + 1,
+                            out var resolved, out _))
                         continue;
 
                     if (!found || IsBetterCandidate(resolved, best))
@@ -729,7 +968,8 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static int GetPushCount(Instruction instruction)
         {
-            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) && instruction.Operand is MethodReference method)
+            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                instruction.Operand is MethodReference method)
                 return method.ReturnType?.FullName == "System.Void" ? 0 : 1;
 
             if (instruction.OpCode == OpCodes.Newobj)
@@ -787,7 +1027,8 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static int GetPopCount(Instruction instruction)
         {
-            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) && instruction.Operand is MethodReference method)
+            if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                instruction.Operand is MethodReference method)
             {
                 int count = method.Parameters.Count;
                 if (method.HasThis)

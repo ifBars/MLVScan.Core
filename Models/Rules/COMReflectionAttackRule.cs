@@ -11,7 +11,9 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class COMReflectionAttackRule : IScanRule
     {
-        public string Description => "Detected reflective shell execution via COM (GetTypeFromProgID + InvokeMember pattern).";
+        public string Description =>
+            "Detected reflective shell execution via COM (GetTypeFromProgID + InvokeMember pattern).";
+
         public Severity Severity => Severity.Critical;
         public string RuleId => "COMReflectionAttackRule";
         public bool RequiresCompanionFinding => false;
@@ -21,8 +23,8 @@ namespace MLVScan.Models.Rules
         {
             "Shell.Application",
             "WScript.Shell",
-            "Schedule.Service",      // Task scheduler (persistence)
-            "MMC20.Application",     // UAC bypass vector
+            "Schedule.Service", // Task scheduler (persistence)
+            "MMC20.Application", // UAC bypass vector
         };
 
         // ProgIDs that are risky but could have edge-case legitimate uses
@@ -39,15 +41,11 @@ namespace MLVScan.Models.Rules
         // Command execution indicators
         private static readonly string[] CommandStrings =
         {
-            "cmd.exe", "powershell", "pwsh", "/c ", "/k ",
-            "wscript", "cscript", "mshta", "regsvr32"
+            "cmd.exe", "powershell", "pwsh", "/c ", "/k ", "wscript", "cscript", "mshta", "regsvr32"
         };
 
         // Shell-related method/string indicators
-        private static readonly string[] ShellIndicators =
-        {
-            "ShellExecute", "shell32", "Run", "Exec"
-        };
+        private static readonly string[] ShellIndicators = { "ShellExecute", "shell32", "Run", "Exec" };
 
         public bool IsSuspicious(MethodReference method)
         {
@@ -224,6 +222,7 @@ namespace MLVScan.Models.Rules
                     return str;
                 }
             }
+
             return null;
         }
 
@@ -276,7 +275,8 @@ namespace MLVScan.Models.Rules
 
             if (suspiciousStrings.Count > 0)
             {
-                snippet.AppendLine($"Suspicious strings: {string.Join(", ", suspiciousStrings.Select(s => $"\"{s}\""))}");
+                snippet.AppendLine(
+                    $"Suspicious strings: {string.Join(", ", suspiciousStrings.Select(s => $"\"{s}\""))}");
             }
 
             return new ScanFinding(location, description, severity, snippet.ToString().TrimEnd());

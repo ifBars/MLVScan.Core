@@ -13,7 +13,9 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class ReflectionRule : IScanRule
     {
-        public string Description => "Detected reflection invocation without determinable target method (potential bypass).";
+        public string Description =>
+            "Detected reflection invocation without determinable target method (potential bypass).";
+
         public Severity Severity => Severity.High;
         public string RuleId => "ReflectionRule";
         public bool RequiresCompanionFinding => true;
@@ -33,7 +35,8 @@ namespace MLVScan.Models.Rules
             return isReflectionInvoke;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             var findings = new List<ScanFinding>();
 
@@ -61,7 +64,8 @@ namespace MLVScan.Models.Rules
             {
                 var finding = new ScanFinding(
                     $"{method.DeclaringType?.FullName}.{method.Name}",
-                    Description + $" - uses reflection types: {string.Join(", ", reflectionTypes.Take(3))}{(reflectionTypes.Count > 3 ? $" and {reflectionTypes.Count - 3} more" : "")}",
+                    Description +
+                    $" - uses reflection types: {string.Join(", ", reflectionTypes.Take(3))}{(reflectionTypes.Count > 3 ? $" and {reflectionTypes.Count - 3} more" : "")}",
                     Severity,
                     $"Reflection variable types detected: {string.Join(", ", reflectionTypes)}");
 
@@ -71,7 +75,9 @@ namespace MLVScan.Models.Rules
             return findings;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method, Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals)
         {
             if (method?.DeclaringType == null)
                 yield break;
@@ -105,21 +111,21 @@ namespace MLVScan.Models.Rules
             // Look backward for sequential ldc.i4 (integer constant) loads
             int ldc4Count = 0;
             int windowStart = Math.Max(0, instructionIndex - 20);
-            
+
             for (int i = instructionIndex - 1; i >= windowStart; i--)
             {
                 var instr = instructions[i];
-                
+
                 // Stop if we hit a call that might consume our values
                 if ((instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt) && i != instructionIndex)
                     break;
-                
+
                 // Count consecutive ldc.i4 instructions
                 if (IsLdcI4Instruction(instr))
                 {
                     ldc4Count++;
                 }
-                else if (instr.OpCode != OpCodes.Nop && instr.OpCode != OpCodes.Dup && 
+                else if (instr.OpCode != OpCodes.Nop && instr.OpCode != OpCodes.Dup &&
                          instr.OpCode != OpCodes.Pop && !IsLocalVariableLoad(instr))
                 {
                     // Non-ldc, non-control-flow instruction breaks the sequence
@@ -133,7 +139,9 @@ namespace MLVScan.Models.Rules
             {
                 var snippetBuilder = new System.Text.StringBuilder();
                 int contextLines = 3;
-                for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
+                for (int j = Math.Max(0, instructionIndex - contextLines);
+                     j < Math.Min(instructions.Count, instructionIndex + contextLines + 1);
+                     j++)
                 {
                     snippetBuilder.Append(j == instructionIndex ? ">>> " : "    ");
                     snippetBuilder.AppendLine(instructions[j].ToString());

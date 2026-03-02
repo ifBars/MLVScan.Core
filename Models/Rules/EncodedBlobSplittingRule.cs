@@ -6,7 +6,9 @@ namespace MLVScan.Models.Rules
 {
     public class EncodedBlobSplittingRule : IScanRule
     {
-        public string Description => "Detected structured encoded blob splitting pattern (backtick/dash separator in loop).";
+        public string Description =>
+            "Detected structured encoded blob splitting pattern (backtick/dash separator in loop).";
+
         public Severity Severity => Severity.High;
         public string RuleId => "EncodedBlobSplittingRule";
         public bool RequiresCompanionFinding => false;
@@ -18,7 +20,8 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {
             var findings = new List<ScanFinding>();
 
@@ -110,9 +113,12 @@ namespace MLVScan.Models.Rules
                                         for (int k = Math.Max(0, i - 10); k < i; k++)
                                         {
                                             var checkInstr = instructions[k];
-                                            if (checkInstr.OpCode == OpCodes.Ldloc || checkInstr.OpCode == OpCodes.Ldloc_0 ||
-                                                checkInstr.OpCode == OpCodes.Ldloc_1 || checkInstr.OpCode == OpCodes.Ldloc_2 ||
-                                                checkInstr.OpCode == OpCodes.Ldloc_3 || checkInstr.OpCode == OpCodes.Ldloc_S)
+                                            if (checkInstr.OpCode == OpCodes.Ldloc ||
+                                                checkInstr.OpCode == OpCodes.Ldloc_0 ||
+                                                checkInstr.OpCode == OpCodes.Ldloc_1 ||
+                                                checkInstr.OpCode == OpCodes.Ldloc_2 ||
+                                                checkInstr.OpCode == OpCodes.Ldloc_3 ||
+                                                checkInstr.OpCode == OpCodes.Ldloc_S)
                                             {
                                                 hasLdlocBefore = true;
                                                 break;
@@ -168,4 +174,3 @@ namespace MLVScan.Models.Rules
         }
     }
 }
-

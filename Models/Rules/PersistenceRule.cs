@@ -22,9 +22,9 @@ namespace MLVScan.Models.Rules
             "For save data, use the game's official persistence APIs if available. " +
             "Do not write executable files to TEMP or other system folders.",
             null,
-            new[] {
-                "MelonPreferences.CreateEntry<T> (MelonLoader)",
-                "Config.Bind<T> (BepInEx)",
+            new[]
+            {
+                "MelonPreferences.CreateEntry<T> (MelonLoader)", "Config.Bind<T> (BepInEx)",
                 "UnityEngine.PlayerPrefs (Unity)"
             },
             true
@@ -117,7 +117,9 @@ namespace MLVScan.Models.Rules
             {
                 var snippetBuilder = new System.Text.StringBuilder();
                 int contextLines = 2;
-                for (int j = Math.Max(0, instructionIndex - contextLines); j < Math.Min(instructions.Count, instructionIndex + contextLines + 1); j++)
+                for (int j = Math.Max(0, instructionIndex - contextLines);
+                     j < Math.Min(instructions.Count, instructionIndex + contextLines + 1);
+                     j++)
                 {
                     snippetBuilder.Append(j == instructionIndex ? ">>> " : "    ");
                     snippetBuilder.AppendLine(instructions[j].ToString());

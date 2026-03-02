@@ -14,7 +14,9 @@ namespace MLVScan.Models.Rules
         private const int ReflectionOnlyDangerFloor = 10;
         private const int ReflectionOnlyDecodeFloor = 45;
 
-        public string Description => "Detected correlated obfuscation/decode behavior reaching reflective or staged execution sinks.";
+        public string Description =>
+            "Detected correlated obfuscation/decode behavior reaching reflective or staged execution sinks.";
+
         public Severity Severity => Severity.High;
         public string RuleId => "ObfuscatedReflectiveExecutionRule";
         public bool RequiresCompanionFinding => false;
@@ -59,11 +61,7 @@ namespace MLVScan.Models.Rules
                 $"{methodDef.DeclaringType?.FullName}.{methodDef.Name}:{offset}",
                 BuildDescription(evidence),
                 severity,
-                snippet)
-            {
-                RiskScore = evidence.TotalScore,
-                BypassCompanionCheck = evidence.TotalScore >= 85
-            };
+                snippet) { RiskScore = evidence.TotalScore, BypassCompanionCheck = evidence.TotalScore >= 85 };
 
             return new[] { finding };
         }
@@ -111,7 +109,8 @@ namespace MLVScan.Models.Rules
 
         private static Severity DetermineSeverity(ObfuscatedExecutionEvidence evidence)
         {
-            bool strongExecutionSink = evidence.HasProcessLikeSink || evidence.HasAssemblyLoadSink || evidence.HasNativeSink;
+            bool strongExecutionSink =
+                evidence.HasProcessLikeSink || evidence.HasAssemblyLoadSink || evidence.HasNativeSink;
             bool hasDangerPivot = evidence.HasDangerousLiteral ||
                                   evidence.DangerScore >= 15 ||
                                   (evidence.HasNetworkCall && evidence.HasFileWriteCall);
@@ -130,7 +129,8 @@ namespace MLVScan.Models.Rules
             string sink = BuildReasonSegment(evidence.SinkReasons, "sink evidence");
             string danger = BuildReasonSegment(evidence.DangerReasons, "context evidence");
 
-            return $"Detected correlated obfuscation/decode behavior that reaches reflective or staged execution (score {evidence.TotalScore}): {decode}; {sink}; {danger}.";
+            return
+                $"Detected correlated obfuscation/decode behavior that reaches reflective or staged execution (score {evidence.TotalScore}): {decode}; {sink}; {danger}.";
         }
 
         private static string BuildReasonSegment(IReadOnlyList<string> reasons, string fallback)
@@ -143,7 +143,8 @@ namespace MLVScan.Models.Rules
             return string.Join(", ", reasons.Take(3));
         }
 
-        private static string BuildSnippet(Mono.Collections.Generic.Collection<Instruction> instructions, int centerIndex, int context)
+        private static string BuildSnippet(Mono.Collections.Generic.Collection<Instruction> instructions,
+            int centerIndex, int context)
         {
             var snippetBuilder = new StringBuilder();
             int start = Math.Max(0, centerIndex - context);
