@@ -270,7 +270,7 @@ public class CrossAssemblyGraphBuilderTests
 
         var targets = new List<(string, AssemblyDefinition, AssemblyArtifactRole)>
         {
-            (@"C:\mods\FallbackName.dll", assembly, AssemblyArtifactRole.Mod)
+            (@"mods/FallbackName.dll", assembly, AssemblyArtifactRole.Mod)
         };
 
         var graph = _builder.Build(targets);
