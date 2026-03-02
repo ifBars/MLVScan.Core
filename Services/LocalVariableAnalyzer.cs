@@ -23,7 +23,8 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
         }
 
-        public IEnumerable<ScanFinding> AnalyzeLocalVariables(MethodDefinition method, Mono.Collections.Generic.Collection<VariableDefinition> variables, MethodSignals? methodSignals)
+        public IEnumerable<ScanFinding> AnalyzeLocalVariables(MethodDefinition method,
+            Mono.Collections.Generic.Collection<VariableDefinition> variables, MethodSignals? methodSignals)
         {
             var findings = new List<ScanFinding>();
 
@@ -44,7 +45,7 @@ namespace MLVScan.Services
                         if (rule.RequiresCompanionFinding)
                         {
                             bool hasOtherTriggeredRules = methodSignals != null &&
-                                methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                                          methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
 
                             if (!hasOtherTriggeredRules)
                                 continue;
@@ -76,4 +77,3 @@ namespace MLVScan.Services
         }
     }
 }
-

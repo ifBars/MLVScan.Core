@@ -5,7 +5,8 @@ namespace MLVScan.Models.Rules.Helpers
 {
     internal static class ObfuscatedExecutionHeuristics
     {
-        public static ObfuscatedExecutionEvidence CollectEvidence(Mono.Collections.Generic.Collection<Instruction> instructions)
+        public static ObfuscatedExecutionEvidence CollectEvidence(
+            Mono.Collections.Generic.Collection<Instruction> instructions)
         {
             var evidence = new ObfuscatedExecutionEvidence();
 

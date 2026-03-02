@@ -7,14 +7,16 @@ namespace MLVScan.Models.Rules.Helpers
     {
         public static bool IsReflectionInvokeSink(string typeName, string methodName)
         {
-            return ((typeName == "System.Reflection.MethodInfo" || typeName == "System.Reflection.MethodBase") && methodName == "Invoke") ||
+            return ((typeName == "System.Reflection.MethodInfo" || typeName == "System.Reflection.MethodBase") &&
+                    methodName == "Invoke") ||
                    (typeName == "System.Delegate" && methodName == "DynamicInvoke");
         }
 
         public static bool IsAssemblyLoadSink(string typeName, string methodName)
         {
             if (typeName == "System.Reflection.Assembly" &&
-                (methodName == "Load" || methodName == "LoadFrom" || methodName == "LoadFile" || methodName == "UnsafeLoadFrom"))
+                (methodName == "Load" || methodName == "LoadFrom" || methodName == "LoadFile" ||
+                 methodName == "UnsafeLoadFrom"))
             {
                 return true;
             }
@@ -33,7 +35,8 @@ namespace MLVScan.Models.Rules.Helpers
             return typeName == "System.Diagnostics.Process" && methodName == "Start";
         }
 
-        public static bool IsPotentialNativeExecutionSink(MethodReference calledMethod, string typeName, string methodName)
+        public static bool IsPotentialNativeExecutionSink(MethodReference calledMethod, string typeName,
+            string methodName)
         {
             if (methodName.IndexOf("ShellExecute", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 methodName.IndexOf("CreateProcess", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -61,7 +64,8 @@ namespace MLVScan.Models.Rules.Helpers
         public static bool IsDynamicTargetResolution(string typeName, string methodName)
         {
             if (typeName == "System.Type" &&
-                (methodName == "GetType" || methodName == "GetMethod" || methodName == "GetProperty" || methodName == "GetField" || methodName == "InvokeMember"))
+                (methodName == "GetType" || methodName == "GetMethod" || methodName == "GetProperty" ||
+                 methodName == "GetField" || methodName == "InvokeMember"))
             {
                 return true;
             }
@@ -124,7 +128,8 @@ namespace MLVScan.Models.Rules.Helpers
             return typeName == "System.IO.BinaryWriter" && methodName.StartsWith("Write", StringComparison.Ordinal);
         }
 
-        public static int? ExtractFolderPathArgument(Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
+        public static int? ExtractFolderPathArgument(Mono.Collections.Generic.Collection<Instruction> instructions,
+            int currentIndex)
         {
             int start = Math.Max(0, currentIndex - 5);
             for (int i = currentIndex - 1; i >= start; i--)

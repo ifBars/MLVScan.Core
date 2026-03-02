@@ -38,9 +38,7 @@ public static class ScanResultMapper
             },
             Input = new ScanInputDto
             {
-                FileName = fileName,
-                SizeBytes = assemblyBytes.Length,
-                Sha256Hash = ComputeSha256(assemblyBytes)
+                FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = ComputeSha256(assemblyBytes)
             },
             Summary = BuildSummary(findingsList),
             Findings = findingsList.Select(ToFindingDto).ToList()
@@ -109,8 +107,7 @@ public static class ScanResultMapper
     {
         var options = new ScanResultOptions
         {
-            IncludeDeveloperGuidance = developerMode,
-            ScanMode = developerMode ? "developer" : "detailed"
+            IncludeDeveloperGuidance = developerMode, ScanMode = developerMode ? "developer" : "detailed"
         };
         return ToDto(findings, fileName, assemblyBytes, options);
     }

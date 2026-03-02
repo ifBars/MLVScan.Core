@@ -72,16 +72,21 @@ namespace MLVScan.Services
             _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder);
 
             // Create deep behavior orchestrator for practical Unity-mod threat correlation
-            _deepBehaviorOrchestrator = new DeepBehaviorOrchestrator(_config.DeepAnalysis, snippetBuilder, entryPointProvider);
+            _deepBehaviorOrchestrator =
+                new DeepBehaviorOrchestrator(_config.DeepAnalysis, snippetBuilder, entryPointProvider);
 
-            var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
-            var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);
+            var reflectionDetector =
+                new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
+            var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
+                stringPatternDetector, snippetBuilder, _config, _callGraphBuilder);
             var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, _config);
             var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, _config);
-            var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, _config);
+            var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
+                localVariableAnalyzer, exceptionHandlerAnalyzer, _config);
             var propertyEventScanner = new PropertyEventScanner(methodScanner, _config);
 
-            _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules, _config);
+            _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder,
+                propertyEventScanner, rules, _config);
             _metadataScanner = new MetadataScanner(rules);
             _dllImportScanner = new DllImportScanner(rules, _callGraphBuilder);
         }
@@ -134,10 +139,7 @@ namespace MLVScan.Services
                 findings.Add(new ScanFinding(
                     "Assembly scanning",
                     "Warning: Some parts of the assembly could not be scanned. This doesn't necessarily mean the mod is malicious.",
-                    Severity.Low)
-                {
-                    RuleId = "AssemblyScanner"
-                });
+                    Severity.Low) { RuleId = "AssemblyScanner" });
             }
 
             return FilterEmptyFindings(findings);
@@ -193,10 +195,7 @@ namespace MLVScan.Services
                 findings.Add(new ScanFinding(
                     virtualPath ?? "Assembly scanning",
                     "Warning: Some parts of the assembly could not be scanned. Please ensure this is a valid Unity mod. This doesn't necessarily mean the mod is malicious.",
-                    Severity.Low)
-                {
-                    RuleId = "AssemblyScanner"
-                });
+                    Severity.Low) { RuleId = "AssemblyScanner" });
             }
 
             return FilterEmptyFindings(findings);
@@ -273,7 +272,8 @@ namespace MLVScan.Services
 
                         if (_deepBehaviorOrchestrator.ShouldDeepScan(method, signals, scopedFindings))
                         {
-                            var deepFindings = _deepBehaviorOrchestrator.AnalyzeMethod(method, signals, methodFindings, typeFindings, namespaceFindings);
+                            var deepFindings = _deepBehaviorOrchestrator.AnalyzeMethod(method, signals, methodFindings,
+                                typeFindings, namespaceFindings);
 
                             if (!_config.DeepAnalysis.EmitDiagnosticFindings)
                             {
@@ -331,10 +331,12 @@ namespace MLVScan.Services
                     f.RuleId == "ReflectionRule" ||
                     f.Description.Contains("reflection invocation", StringComparison.OrdinalIgnoreCase) ||
                     f.Description.Contains("Activator::CreateInstance", StringComparison.OrdinalIgnoreCase)),
-                HasEncodedStrings = findings.Any(f => f.RuleId != null && DeepBehaviorRuleSets.EncodedRuleIds.Contains(f.RuleId)),
+                HasEncodedStrings =
+                    findings.Any(f => f.RuleId != null && DeepBehaviorRuleSets.EncodedRuleIds.Contains(f.RuleId)),
                 HasBase64 = findings.Any(f => f.RuleId == "Base64Rule"),
                 HasProcessLikeCall = findings.Any(f => f.RuleId == "ProcessStartRule" || f.RuleId == "Shell32Rule"),
-                HasNetworkCall = findings.Any(f => f.RuleId == "DataExfiltrationRule" || f.RuleId == "DataInfiltrationRule"),
+                HasNetworkCall =
+                    findings.Any(f => f.RuleId == "DataExfiltrationRule" || f.RuleId == "DataInfiltrationRule"),
                 HasFileWrite = findings.Any(f => f.Description.Contains("write", StringComparison.OrdinalIgnoreCase)),
                 UsesSensitiveFolder = findings.Any(f => f.RuleId == "EnvironmentPathRule"),
                 HasPathManipulation = findings.Any(f =>

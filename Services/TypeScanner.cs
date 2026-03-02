@@ -33,14 +33,17 @@ namespace MLVScan.Services
         private readonly IEnumerable<IScanRule> _rules;
         private readonly ScanConfig _config;
 
-        public TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker, ReflectionDetector reflectionDetector,
-                          CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules, ScanConfig config)
+        public TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker,
+            ReflectionDetector reflectionDetector,
+            CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules,
+            ScanConfig config)
         {
             _methodScanner = methodScanner ?? throw new ArgumentNullException(nameof(methodScanner));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _reflectionDetector = reflectionDetector ?? throw new ArgumentNullException(nameof(reflectionDetector));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
-            _propertyEventScanner = propertyEventScanner ?? throw new ArgumentNullException(nameof(propertyEventScanner));
+            _propertyEventScanner =
+                propertyEventScanner ?? throw new ArgumentNullException(nameof(propertyEventScanner));
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _config = config ?? new ScanConfig();
         }
@@ -60,7 +63,9 @@ namespace MLVScan.Services
                 }
 
                 // Queue of pending reflection findings that need type-level signals to be confirmed
-                var pendingReflectionFindings = new List<(MethodDefinition method, Instruction instruction, int index, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>();
+                var pendingReflectionFindings =
+                    new List<(MethodDefinition method, Instruction instruction, int index,
+                        Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>();
 
                 // Scan methods in this type
                 foreach (var method in type.Methods)
@@ -101,8 +106,11 @@ namespace MLVScan.Services
             return findings;
         }
 
-        private void ProcessPendingReflectionFindings(List<(MethodDefinition method, Instruction instruction, int index, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)> pendingReflectionFindings,
-                                                      string typeFullName, List<ScanFinding> findings)
+        private void ProcessPendingReflectionFindings(
+            List<(MethodDefinition method, Instruction instruction, int index,
+                    Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>
+                pendingReflectionFindings,
+            string typeFullName, List<ScanFinding> findings)
         {
             if (pendingReflectionFindings.Count == 0)
                 return;
@@ -130,11 +138,7 @@ namespace MLVScan.Services
                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                     reflectionRule.Description + " (combined with other suspicious patterns detected in this type)",
                     reflectionRule.Severity,
-                    snippet)
-                {
-                    RuleId = reflectionRule.RuleId,
-                    DeveloperGuidance = reflectionRule.DeveloperGuidance
-                };
+                    snippet) { RuleId = reflectionRule.RuleId, DeveloperGuidance = reflectionRule.DeveloperGuidance };
                 findings.Add(finding);
                 // Mark rule as triggered
                 if (methodSignals != null)

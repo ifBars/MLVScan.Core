@@ -50,12 +50,12 @@ namespace MLVScan.Models.Rules.Helpers
             string methodName = calledMethod.Name ?? string.Empty;
 
             if (ObfuscatedDecodeMatcher.TryGetDecodeCallScore(
-                calledMethod,
-                typeName,
-                methodName,
-                out int decodeScore,
-                out string? decodeReason,
-                out bool isStrongDecodePrimitive))
+                    calledMethod,
+                    typeName,
+                    methodName,
+                    out int decodeScore,
+                    out string? decodeReason,
+                    out bool isStrongDecodePrimitive))
             {
                 evidence.AddDecode(decodeScore, decodeReason!, index);
                 if (isStrongDecodePrimitive)

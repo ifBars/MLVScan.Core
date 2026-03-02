@@ -9,6 +9,7 @@ namespace MLVScan.Services.Helpers
     internal static class DllImportInvocationContextExtractor
     {
         private const int SearchWindow = 240;
+
         private static readonly string[] ShellExecuteInfoFieldOrder =
         [
             "lpVerb",
@@ -50,7 +51,8 @@ namespace MLVScan.Services.Helpers
 
             if (TryGetCallArgumentAddressLocalIndex(instructions, callInstructionIndex, out var structLocalIndex))
             {
-                ExtractShellExecuteInfoFieldValues(callerMethod, instructions, callInstructionIndex, structLocalIndex, fieldValues);
+                ExtractShellExecuteInfoFieldValues(callerMethod, instructions, callInstructionIndex, structLocalIndex,
+                    fieldValues);
             }
 
             var builder = new StringBuilder();
@@ -112,7 +114,8 @@ namespace MLVScan.Services.Helpers
                     continue;
                 }
 
-                if (InstructionValueResolver.TryResolveStackValueDisplay(callerMethod, instructions, i - 1, out var resolvedValue))
+                if (InstructionValueResolver.TryResolveStackValueDisplay(callerMethod, instructions, i - 1,
+                        out var resolvedValue))
                 {
                     fieldValues[fieldRef.Name] = NormalizeDisplayValue(resolvedValue);
                 }
@@ -136,7 +139,8 @@ namespace MLVScan.Services.Helpers
             {
                 var instruction = instructions[i];
 
-                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt || instruction.OpCode == OpCodes.Newobj) &&
+                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt ||
+                     instruction.OpCode == OpCodes.Newobj) &&
                     instruction.Operand is MethodReference methodRef)
                 {
                     var declaringType = methodRef.DeclaringType?.FullName ?? string.Empty;
@@ -148,7 +152,8 @@ namespace MLVScan.Services.Helpers
                     }
 
                     if ((declaringType.StartsWith("System.IO.File", StringComparison.Ordinal) &&
-                         (methodName.Contains("Write", StringComparison.Ordinal) || methodName.Contains("Create", StringComparison.Ordinal))) ||
+                         (methodName.Contains("Write", StringComparison.Ordinal) ||
+                          methodName.Contains("Create", StringComparison.Ordinal))) ||
                         (declaringType == "System.IO.FileStream" && methodName == ".ctor") ||
                         (declaringType == "System.IO.Stream" && methodName == "CopyTo"))
                     {
@@ -513,13 +518,15 @@ namespace MLVScan.Services.Helpers
                 normalized = normalized[..140] + "...";
             }
 
-            if (normalized.StartsWith("<", StringComparison.Ordinal) && normalized.EndsWith(">", StringComparison.Ordinal))
+            if (normalized.StartsWith("<", StringComparison.Ordinal) &&
+                normalized.EndsWith(">", StringComparison.Ordinal))
                 return normalized;
 
             if (int.TryParse(normalized, out _))
                 return normalized;
 
-            if (normalized.StartsWith("\"", StringComparison.Ordinal) && normalized.EndsWith("\"", StringComparison.Ordinal))
+            if (normalized.StartsWith("\"", StringComparison.Ordinal) &&
+                normalized.EndsWith("\"", StringComparison.Ordinal))
                 return normalized;
 
             return $"\"{normalized}\"";

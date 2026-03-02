@@ -51,7 +51,8 @@ namespace MLVScan.Models
         /// </summary>
         public string? TargetMethodKey { get; set; }
 
-        public DataFlowNode(string location, string operation, DataFlowNodeType nodeType, string dataDescription, int instructionOffset, string? codeSnippet = null, string? methodKey = null)
+        public DataFlowNode(string location, string operation, DataFlowNodeType nodeType, string dataDescription,
+            int instructionOffset, string? codeSnippet = null, string? methodKey = null)
         {
             Location = location;
             Operation = operation;
@@ -170,7 +171,8 @@ namespace MLVScan.Models
         /// </summary>
         public int CallDepth => InvolvedMethods.Count > 0 ? InvolvedMethods.Count : 1;
 
-        public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, double confidence, string summary, string methodLocation)
+        public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, double confidence,
+            string summary, string methodLocation)
         {
             ChainId = chainId;
             Pattern = pattern;
@@ -204,12 +206,7 @@ namespace MLVScan.Models
             if (Nodes.Count == 0)
                 return Summary;
 
-            var lines = new List<string>
-            {
-                Summary,
-                "",
-                $"Data Flow Chain (Confidence: {Confidence * 100:F0}%):"
-            };
+            var lines = new List<string> { Summary, "", $"Data Flow Chain (Confidence: {Confidence * 100:F0}%):" };
 
             for (int i = 0; i < Nodes.Count; i++)
             {

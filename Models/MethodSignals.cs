@@ -39,6 +39,7 @@ namespace MLVScan.Models
             {
                 return _triggeredRuleIds.Count > 0;
             }
+
             return _triggeredRuleIds.Count > 0 && !_triggeredRuleIds.All(id => id == ruleId);
         }
 

@@ -33,6 +33,7 @@ public sealed class CrossAssemblyRiskPropagator
         }
 
         var pathCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         string NormalizePath(string path)
         {
             if (!pathCache.TryGetValue(path, out var normalized))
@@ -40,6 +41,7 @@ public sealed class CrossAssemblyRiskPropagator
                 normalized = Path.GetFullPath(path);
                 pathCache[path] = normalized;
             }
+
             return normalized;
         }
 
@@ -47,7 +49,8 @@ public sealed class CrossAssemblyRiskPropagator
         foreach (var suspiciousPath in suspiciousTargets)
         {
             var matchingEdges = graph.Edges
-                .Where(edge => string.Equals(NormalizePath(edge.TargetPath), suspiciousPath, StringComparison.OrdinalIgnoreCase))
+                .Where(edge => string.Equals(NormalizePath(edge.TargetPath), suspiciousPath,
+                    StringComparison.OrdinalIgnoreCase))
                 .ToList();
             var callers = matchingEdges
                 .Select(edge => edge.SourcePath)
@@ -61,22 +64,17 @@ public sealed class CrossAssemblyRiskPropagator
                     location: caller,
                     description: "Cross-assembly correlation: assembly calls into a high-risk sidecar dependency.",
                     severity: Severity.High,
-                    codeSnippet: null)
-                {
-                    RuleId = "CrossAssemblyDependency"
-                });
+                    codeSnippet: null) { RuleId = "CrossAssemblyDependency" });
             }
 
             if (policy == QuarantinePolicy.CallerAndCallee || policy == QuarantinePolicy.DependencyCluster)
             {
                 correlated.Add(new ScanFinding(
                     location: canonicalTargetPath,
-                    description: "Cross-assembly correlation: high-risk dependency is actively referenced by local assemblies.",
+                    description:
+                    "Cross-assembly correlation: high-risk dependency is actively referenced by local assemblies.",
                     severity: Severity.High,
-                    codeSnippet: null)
-                {
-                    RuleId = "CrossAssemblyDependency"
-                });
+                    codeSnippet: null) { RuleId = "CrossAssemblyDependency" });
             }
 
             if (policy == QuarantinePolicy.DependencyCluster)
@@ -108,10 +106,12 @@ public sealed class CrossAssemblyRiskPropagator
                          string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(normalizePath(edge.TargetPath), current, StringComparison.OrdinalIgnoreCase)))
             {
-                var neighborNormalized = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
+                var neighborNormalized = string.Equals(normalizePath(edge.SourcePath), current,
+                    StringComparison.OrdinalIgnoreCase)
                     ? normalizePath(edge.TargetPath)
                     : normalizePath(edge.SourcePath);
-                var neighborOriginal = string.Equals(normalizePath(edge.SourcePath), current, StringComparison.OrdinalIgnoreCase)
+                var neighborOriginal = string.Equals(normalizePath(edge.SourcePath), current,
+                    StringComparison.OrdinalIgnoreCase)
                     ? edge.TargetPath
                     : edge.SourcePath;
 
@@ -125,10 +125,7 @@ public sealed class CrossAssemblyRiskPropagator
                     location: neighborOriginal,
                     description: "Cross-assembly correlation: assembly belongs to a suspicious dependency cluster.",
                     severity: Severity.Medium,
-                    codeSnippet: null)
-                {
-                    RuleId = "CrossAssemblyDependency"
-                });
+                    codeSnippet: null) { RuleId = "CrossAssemblyDependency" });
             }
         }
 

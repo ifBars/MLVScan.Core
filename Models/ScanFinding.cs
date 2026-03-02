@@ -1,6 +1,10 @@
 namespace MLVScan.Models
 {
-    public class ScanFinding(string location, string description, Severity severity = Severity.Low, string? codeSnippet = null)
+    public class ScanFinding(
+        string location,
+        string description,
+        Severity severity = Severity.Low,
+        string? codeSnippet = null)
     {
         public string Location { get; set; } = location;
         public string Description { get; set; } = description;
@@ -64,6 +68,7 @@ namespace MLVScan.Models
             {
                 logMessage += $"\n   Snippet: {CodeSnippet}";
             }
+
             return logMessage;
         }
     }

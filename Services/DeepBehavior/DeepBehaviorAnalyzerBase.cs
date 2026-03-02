@@ -28,10 +28,7 @@ public abstract class DeepBehaviorAnalyzer
             ? $"{context.Method.DeclaringType?.FullName}.{context.Method.Name}:{offset.Value}"
             : $"{context.Method.DeclaringType?.FullName}.{context.Method.Name}";
 
-        return new ScanFinding(location, description, severity, snippet)
-        {
-            RuleId = ruleId
-        };
+        return new ScanFinding(location, description, severity, snippet) { RuleId = ruleId };
     }
 
     protected string BuildSnippet(Mono.Collections.Generic.Collection<Instruction> instructions, int? offset = null)

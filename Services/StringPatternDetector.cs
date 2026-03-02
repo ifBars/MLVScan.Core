@@ -6,7 +6,8 @@ namespace MLVScan.Services
 {
     public class StringPatternDetector
     {
-        public bool HasSuspiciousStringPatterns(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
+        public bool HasSuspiciousStringPatterns(MethodDefinition methodDef,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
         {
             // Check nearby instructions for suspicious string patterns
             int windowStart = Math.Max(0, currentIndex - 20);
@@ -59,7 +60,8 @@ namespace MLVScan.Services
             return false;
         }
 
-        public bool HasAssemblyLoadingInMethod(MethodDefinition methodDef, Mono.Collections.Generic.Collection<Instruction> instructions)
+        public bool HasAssemblyLoadingInMethod(MethodDefinition methodDef,
+            Mono.Collections.Generic.Collection<Instruction> instructions)
         {
             foreach (var instruction in instructions)
             {
@@ -79,6 +81,7 @@ namespace MLVScan.Services
                     }
                 }
             }
+
             return false;
         }
     }

@@ -16,23 +16,31 @@ namespace MLVScan.Services
         private readonly ExceptionHandlerAnalyzer _exceptionHandlerAnalyzer;
         private readonly ScanConfig _config;
 
-        public MethodScanner(IEnumerable<IScanRule> rules, SignalTracker signalTracker, InstructionAnalyzer instructionAnalyzer,
-                            CodeSnippetBuilder snippetBuilder, LocalVariableAnalyzer localVariableAnalyzer,
-                            ExceptionHandlerAnalyzer exceptionHandlerAnalyzer, ScanConfig config)
+        public MethodScanner(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
+            InstructionAnalyzer instructionAnalyzer,
+            CodeSnippetBuilder snippetBuilder, LocalVariableAnalyzer localVariableAnalyzer,
+            ExceptionHandlerAnalyzer exceptionHandlerAnalyzer, ScanConfig config)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _instructionAnalyzer = instructionAnalyzer ?? throw new ArgumentNullException(nameof(instructionAnalyzer));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
-            _localVariableAnalyzer = localVariableAnalyzer ?? throw new ArgumentNullException(nameof(localVariableAnalyzer));
-            _exceptionHandlerAnalyzer = exceptionHandlerAnalyzer ?? throw new ArgumentNullException(nameof(exceptionHandlerAnalyzer));
+            _localVariableAnalyzer =
+                localVariableAnalyzer ?? throw new ArgumentNullException(nameof(localVariableAnalyzer));
+            _exceptionHandlerAnalyzer = exceptionHandlerAnalyzer ??
+                                        throw new ArgumentNullException(nameof(exceptionHandlerAnalyzer));
             _config = config ?? new ScanConfig();
         }
 
         public class MethodScanResult
         {
             public List<ScanFinding> Findings { get; set; } = new List<ScanFinding>();
-            public List<(MethodDefinition method, Instruction instruction, int index, Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)> PendingReflectionFindings { get; set; } = new List<(MethodDefinition, Instruction, int, Mono.Collections.Generic.Collection<Instruction>, MethodSignals?)>();
+
+            public List<(MethodDefinition method, Instruction instruction, int index,
+                    Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>
+                PendingReflectionFindings { get; set; } =
+                new List<(MethodDefinition, Instruction, int, Mono.Collections.Generic.Collection<Instruction>,
+                    MethodSignals?)>();
         }
 
         public MethodScanResult ScanMethod(MethodDefinition method, string typeFullName)
@@ -53,7 +61,8 @@ namespace MLVScan.Services
                 // Analyze local variables if present
                 if (method.Body.HasVariables)
                 {
-                    var variableFindings = _localVariableAnalyzer.AnalyzeLocalVariables(method, method.Body.Variables, methodSignals);
+                    var variableFindings =
+                        _localVariableAnalyzer.AnalyzeLocalVariables(method, method.Body.Variables, methodSignals);
                     result.Findings.AddRange(variableFindings);
                 }
 
@@ -74,10 +83,11 @@ namespace MLVScan.Services
                         // If rule requires companion finding, check if other rules have been triggered
                         // Exception: Low severity findings are always allowed (e.g., legitimate update checkers)
                         // Exception: Findings with BypassCompanionCheck are always allowed (high-confidence scored findings)
-                        if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low && !finding.BypassCompanionCheck)
+                        if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low &&
+                            !finding.BypassCompanionCheck)
                         {
                             bool hasOtherTriggeredRules = methodSignals != null &&
-                                methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                                          methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
 
                             // Only add finding if other rules have been triggered
                             if (!hasOtherTriggeredRules)
@@ -90,10 +100,12 @@ namespace MLVScan.Services
                         // Companion-requiring rules that only emitted a Low finding (audit annotation) must
                         // not mark themselves as triggered — that would let them bootstrap their own companion.
                         // Non-companion rules may always mark triggered regardless of severity.
-                        if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                        if (methodSignals != null &&
+                            !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                         {
                             _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                         }
+
                         // Update signals if encoded strings were detected
                         if (methodSignals != null &&
                             (rule is EncodedStringLiteralRule ||
@@ -121,10 +133,11 @@ namespace MLVScan.Services
                                 // If rule requires companion finding, check if other rules have been triggered
                                 // Exception: Low severity findings are always allowed (e.g., legitimate update checkers)
                                 // Exception: Findings with BypassCompanionCheck are always allowed (high-confidence scored findings)
-                                if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low && !finding.BypassCompanionCheck)
+                                if (rule.RequiresCompanionFinding && finding.Severity != Severity.Low &&
+                                    !finding.BypassCompanionCheck)
                                 {
                                     bool hasOtherTriggeredRules = methodSignals != null &&
-                                        methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                                                  methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
 
                                     // Only add finding if other rules have been triggered
                                     if (!hasOtherTriggeredRules)
@@ -134,10 +147,12 @@ namespace MLVScan.Services
                                 // Enrich finding with rule metadata
                                 finding.WithRuleMetadata(rule);
                                 result.Findings.Add(finding);
-                                if (methodSignals != null && !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                                if (methodSignals != null &&
+                                    !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                                 {
                                     _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
                                 }
+
                                 // Update signals if encoded strings were detected
                                 if (methodSignals != null)
                                 {
@@ -149,7 +164,8 @@ namespace MLVScan.Services
                 }
 
                 // Analyze instructions for method calls and suspicious patterns
-                var instructionResult = _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName);
+                var instructionResult =
+                    _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName);
                 result.Findings.AddRange(instructionResult.Findings);
                 result.PendingReflectionFindings.AddRange(instructionResult.PendingReflectionFindings);
 

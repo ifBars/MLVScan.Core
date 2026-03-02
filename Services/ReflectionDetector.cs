@@ -12,11 +12,13 @@ namespace MLVScan.Services
         private readonly StringPatternDetector _stringPatternDetector;
         private readonly CodeSnippetBuilder _snippetBuilder;
 
-        public ReflectionDetector(IEnumerable<IScanRule> rules, SignalTracker signalTracker, StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder)
+        public ReflectionDetector(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
+            StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
-            _stringPatternDetector = stringPatternDetector ?? throw new ArgumentNullException(nameof(stringPatternDetector));
+            _stringPatternDetector =
+                stringPatternDetector ?? throw new ArgumentNullException(nameof(stringPatternDetector));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
         }
 
@@ -69,8 +71,9 @@ namespace MLVScan.Services
             return false;
         }
 
-        public IEnumerable<ScanFinding> ScanForReflectionInvocation(MethodDefinition methodDef, Instruction instruction, MethodReference calledMethod, int index,
-                                                                   Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)
+        public IEnumerable<ScanFinding> ScanForReflectionInvocation(MethodDefinition methodDef, Instruction instruction,
+            MethodReference calledMethod, int index,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)
         {
             var findings = new List<ScanFinding>();
 
@@ -114,10 +117,7 @@ namespace MLVScan.Services
                         $"{methodDef.DeclaringType?.FullName}.{methodDef.Name}:{instruction.Offset}",
                         "Reflection invocation with non-literal target method name (cannot determine what is being invoked) - combined with other suspicious patterns",
                         severity,
-                        snippet)
-                    {
-                        RuleId = "ReflectionRule"
-                    });
+                        snippet) { RuleId = "ReflectionRule" });
                     return findings;
                 }
 
@@ -132,9 +132,11 @@ namespace MLVScan.Services
                 };
 
                 // Check if any rules would flag this method name
-                if (_rules.Any(rule => rule.IsSuspicious(fakeMethodRef) || WouldRuleMatchMethodName(rule, invokedMethodName)))
+                if (_rules.Any(rule =>
+                        rule.IsSuspicious(fakeMethodRef) || WouldRuleMatchMethodName(rule, invokedMethodName)))
                 {
-                    var rule = _rules.FirstOrDefault(r => r.IsSuspicious(fakeMethodRef) || WouldRuleMatchMethodName(r, invokedMethodName));
+                    var rule = _rules.FirstOrDefault(r =>
+                        r.IsSuspicious(fakeMethodRef) || WouldRuleMatchMethodName(r, invokedMethodName));
                     if (rule == null)
                         return findings;
 
@@ -144,11 +146,7 @@ namespace MLVScan.Services
                         $"{methodDef.DeclaringType?.FullName}.{methodDef.Name}:{instruction.Offset}",
                         $"Potential reflection bypass: {rule.Description}",
                         rule.Severity == Severity.Low ? Severity.Medium : rule.Severity,
-                        snippet)
-                    {
-                        RuleId = rule.RuleId,
-                        DeveloperGuidance = rule.DeveloperGuidance
-                    });
+                        snippet) { RuleId = rule.RuleId, DeveloperGuidance = rule.DeveloperGuidance });
                 }
             }
             catch (Exception)
@@ -159,7 +157,8 @@ namespace MLVScan.Services
             return findings;
         }
 
-        private string? ExtractInvokedMethodName(Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
+        private string? ExtractInvokedMethodName(Mono.Collections.Generic.Collection<Instruction> instructions,
+            int currentIndex)
         {
             // IMPROVEMENT: Track local variables to follow one step back
             var localVarIndex = -1;
@@ -263,11 +262,11 @@ namespace MLVScan.Services
                 return true;
 
             // Focus on specific dangerous method names rather than any valid method name pattern
-            string[] suspiciousNames = {
-                "ShellExecute", "Shell", "Execute", "Start", "Process",
-                "Exec", "Run", "Launch", "CreateProcess", "Spawn",
-                "Command", "Eval", "LoadLibrary", "LoadFrom", "cmd.exe",
-                "powershell.exe", "wscript.exe", "cscript.exe"
+            string[] suspiciousNames =
+            {
+                "ShellExecute", "Shell", "Execute", "Start", "Process", "Exec", "Run", "Launch", "CreateProcess",
+                "Spawn", "Command", "Eval", "LoadLibrary", "LoadFrom", "cmd.exe", "powershell.exe", "wscript.exe",
+                "cscript.exe"
             };
 
             return suspiciousNames.Any(name =>
@@ -294,9 +293,7 @@ namespace MLVScan.Services
                 }
 
                 // For other process-related rules, use broader matching
-                string[] processMethods = {
-                    "Process", "Exec", "Run", "Launch"
-                };
+                string[] processMethods = { "Process", "Exec", "Run", "Launch" };
 
                 return processMethods.Any(name =>
                     methodName.Equals(name, StringComparison.OrdinalIgnoreCase) ||

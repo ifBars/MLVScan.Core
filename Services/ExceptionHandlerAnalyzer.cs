@@ -17,7 +17,7 @@ namespace MLVScan.Services
         private readonly ScanConfig _config;
 
         public ExceptionHandlerAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
-                                        CodeSnippetBuilder snippetBuilder, ScanConfig config)
+            CodeSnippetBuilder snippetBuilder, ScanConfig config)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
@@ -97,11 +97,7 @@ namespace MLVScan.Services
                                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                                     rule.Description + $" (found in exception {handlerTypeDesc})",
                                     rule.Severity,
-                                    snippet)
-                                {
-                                    RuleId = rule.RuleId,
-                                    DeveloperGuidance = rule.DeveloperGuidance
-                                };
+                                    snippet) { RuleId = rule.RuleId, DeveloperGuidance = rule.DeveloperGuidance };
 
                                 findings.Add(finding);
 
@@ -109,7 +105,8 @@ namespace MLVScan.Services
                                 {
                                     if (!(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                                     {
-                                        _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                                        _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
+                                            rule.RuleId);
                                     }
 
                                     _signalTracker.MarkSuspiciousExceptionHandling(methodSignals, method.DeclaringType);
@@ -172,4 +169,3 @@ namespace MLVScan.Services
         }
     }
 }
-

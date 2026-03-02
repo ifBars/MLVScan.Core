@@ -9,7 +9,8 @@ namespace MLVScan.Services.CrossAssembly;
 /// </summary>
 public sealed class CrossAssemblyGraphBuilder
 {
-    public AssemblyDependencyGraph Build(IEnumerable<(string path, AssemblyDefinition assembly, AssemblyArtifactRole role)> targets)
+    public AssemblyDependencyGraph Build(
+        IEnumerable<(string path, AssemblyDefinition assembly, AssemblyArtifactRole role)> targets)
     {
         var targetList = targets.ToList();
         var nodes = new List<AssemblyGraphNode>(targetList.Count);
@@ -22,12 +23,7 @@ public sealed class CrossAssemblyGraphBuilder
             var fullPath = Normalize(path);
             var simpleName = assembly.Name?.Name ?? Path.GetFileNameWithoutExtension(fullPath);
 
-            nodes.Add(new AssemblyGraphNode
-            {
-                Path = fullPath,
-                AssemblyName = simpleName,
-                Role = role
-            });
+            nodes.Add(new AssemblyGraphNode { Path = fullPath, AssemblyName = simpleName, Role = role });
 
             if (!pathByAssemblyName.ContainsKey(simpleName))
             {
@@ -60,11 +56,7 @@ public sealed class CrossAssemblyGraphBuilder
             }
         }
 
-        return new AssemblyDependencyGraph
-        {
-            Nodes = nodes,
-            Edges = DeduplicateEdges(edges)
-        };
+        return new AssemblyDependencyGraph { Nodes = nodes, Edges = DeduplicateEdges(edges) };
     }
 
     private static string Normalize(string path)

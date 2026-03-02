@@ -25,7 +25,8 @@ namespace MLVScan.Models
         /// </summary>
         public CallChainNodeType NodeType { get; set; }
 
-        public CallChainNode(string location, string description, CallChainNodeType nodeType, string? codeSnippet = null)
+        public CallChainNode(string location, string description, CallChainNodeType nodeType,
+            string? codeSnippet = null)
         {
             Location = location;
             Description = description;

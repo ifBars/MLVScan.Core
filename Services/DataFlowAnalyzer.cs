@@ -47,14 +47,16 @@ namespace MLVScan.Services
         private readonly List<DataFlowChain> _crossMethodChains = new();
 
         // Instruction caching for snippet building in cross-method analysis
-        private readonly Dictionary<string, Mono.Collections.Generic.Collection<Instruction>> _methodInstructions = new();
+        private readonly Dictionary<string, Mono.Collections.Generic.Collection<Instruction>> _methodInstructions =
+            new();
 
         public DataFlowAnalyzer(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder)
             : this(rules, snippetBuilder, new DataFlowAnalyzerConfig())
         {
         }
 
-        public DataFlowAnalyzer(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder, DataFlowAnalyzerConfig config)
+        public DataFlowAnalyzer(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder,
+            DataFlowAnalyzerConfig config)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
@@ -208,7 +210,8 @@ namespace MLVScan.Services
         /// </summary>
         public int SuspiciousCrossMethodChainCount => _crossMethodChains.Count(c => c.IsSuspicious);
 
-        private List<InterestingOperation> IdentifyInterestingOperations(MethodDefinition method, Mono.Collections.Generic.Collection<Instruction> instructions)
+        private List<InterestingOperation> IdentifyInterestingOperations(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions)
         {
             var operations = new List<InterestingOperation>();
 
@@ -250,39 +253,49 @@ namespace MLVScan.Services
 
             // Source operations (where data originates)
             if (IsNetworkSource(declType, methodName))
-                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/string (network data)");
+                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[]/string (network data)");
 
             if (IsFileSource(declType, methodName))
-                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/string (file data)");
+                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[]/string (file data)");
 
             if (IsRegistrySource(declType, methodName))
-                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "string (registry data)");
+                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}",
+                    "string (registry data)");
 
             if (IsResourceSource(declType, methodName))
-                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}", "stream/byte[] (embedded resource)");
+                return (DataFlowNodeType.Source, $"{method.DeclaringType?.Name}.{methodName}",
+                    "stream/byte[] (embedded resource)");
 
             // Transform operations (data is modified)
             if (IsBase64Decode(declType, methodName))
                 return (DataFlowNodeType.Transform, "Convert.FromBase64String", "byte[] (decoded)");
 
             if (IsEncoding(declType, methodName))
-                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/string (encoded)");
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[]/string (encoded)");
 
             if (IsCryptoOperation(declType, methodName))
-                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[] (crypto operation)");
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[] (crypto operation)");
 
             if (IsCompressionOperation(declType, methodName))
-                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[]/stream (decompressed)");
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[]/stream (decompressed)");
 
             if (IsStreamMaterialization(declType, methodName))
-                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}", "byte[] (materialized from stream)");
+                return (DataFlowNodeType.Transform, $"{method.DeclaringType?.Name}.{methodName}",
+                    "byte[] (materialized from stream)");
 
             // Sink operations (where data is consumed in a dangerous way)
             if (IsAssemblyLoad(declType, methodName))
-                return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}", "Assembly (dynamic code loaded)");
+                return (DataFlowNodeType.Sink, $"{method.DeclaringType?.Name}.{methodName}",
+                    "Assembly (dynamic code loaded)");
 
             if (IsNativeExecutionSink(method))
-                return (DataFlowNodeType.Sink, GetNativeExecutionOperationName(method), "Executes native shell/process");
+                return (DataFlowNodeType.Sink, GetNativeExecutionOperationName(method),
+                    "Executes native shell/process");
 
             if (IsProcessStart(declType, methodName))
                 return (DataFlowNodeType.Sink, "Process.Start", "Executes process");
@@ -506,8 +519,8 @@ namespace MLVScan.Services
 
             // Increase confidence if we have all three types (source, transform, sink)
             var hasAllTypes = operations.Any(op => op.NodeType == DataFlowNodeType.Source) &&
-                             operations.Any(op => op.NodeType == DataFlowNodeType.Transform) &&
-                             operations.Any(op => op.NodeType == DataFlowNodeType.Sink);
+                              operations.Any(op => op.NodeType == DataFlowNodeType.Transform) &&
+                              operations.Any(op => op.NodeType == DataFlowNodeType.Sink);
 
             if (hasAllTypes)
                 confidence += 0.1;
@@ -557,7 +570,8 @@ namespace MLVScan.Services
         // Helper methods for pattern recognition
         private bool HasNetworkSource(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Source &&
-                         (op.Operation.Contains("Http") || op.Operation.Contains("Web") || op.Operation.Contains("Network")));
+                          (op.Operation.Contains("Http") || op.Operation.Contains("Web") ||
+                           op.Operation.Contains("Network")));
 
         private bool HasFileSource(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Source && op.Operation.Contains("File"));
@@ -567,27 +581,29 @@ namespace MLVScan.Services
 
         private bool HasResourceSource(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Source &&
-                         (op.Operation.Contains("GetManifestResourceStream", StringComparison.OrdinalIgnoreCase) ||
-                          op.DataDescription.Contains("embedded resource", StringComparison.OrdinalIgnoreCase)));
+                          (op.Operation.Contains("GetManifestResourceStream", StringComparison.OrdinalIgnoreCase) ||
+                           op.DataDescription.Contains("embedded resource", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasTransform(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Transform);
 
         private bool HasFileWrite(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
-                         ((op.Operation.Contains("Write") || op.Operation.Contains("Create")) && op.Operation.Contains("File") ||
-                          op.Operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase)));
+                          ((op.Operation.Contains("Write") || op.Operation.Contains("Create")) &&
+                           op.Operation.Contains("File") ||
+                           op.Operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasProcessStart(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
-                         (op.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase) ||
-                          op.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
-                          op.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
-                          op.Operation.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase)));
+                          (op.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase) ||
+                           op.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
+                           op.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
+                           op.Operation.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasNetworkSink(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
-                         (op.Operation.Contains("Http") || op.Operation.Contains("Web") || op.Operation.Contains("Network")));
+                          (op.Operation.Contains("Http") || op.Operation.Contains("Web") ||
+                           op.Operation.Contains("Network")));
 
         private bool HasRegistrySink(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink && op.Operation.Contains("Registry"));
@@ -694,7 +710,8 @@ namespace MLVScan.Services
             declType.Contains("Microsoft.Win32.Registry") &&
             (methodName.Contains("SetValue") || methodName.Contains("CreateSubKey"));
 
-        private int? TryGetTargetLocalVariable(Mono.Collections.Generic.Collection<Instruction> instructions, int callIndex)
+        private int? TryGetTargetLocalVariable(Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex)
         {
             // Look ahead for stloc (store to local variable)
             if (callIndex + 1 < instructions.Count)
@@ -734,6 +751,7 @@ namespace MLVScan.Services
             {
                 return instructions;
             }
+
             return new Mono.Collections.Generic.Collection<Instruction>();
         }
 
@@ -944,7 +962,7 @@ namespace MLVScan.Services
 
             // Add nodes from caller
             foreach (var op in callerInfo.Operations.Where(op =>
-                op.NodeType == DataFlowNodeType.Source || op.NodeType == DataFlowNodeType.Transform))
+                         op.NodeType == DataFlowNodeType.Source || op.NodeType == DataFlowNodeType.Transform))
             {
                 var snippet = _snippetBuilder.BuildSnippet(
                     GetInstructionsForMethod(callerInfo.MethodKey),
@@ -977,11 +995,7 @@ namespace MLVScan.Services
                 callSite.InstructionOffset,
                 callSiteSnippet,
                 callerInfo.MethodKey
-            )
-            {
-                IsMethodBoundary = true,
-                TargetMethodKey = calleeInfo.MethodKey
-            };
+            ) { IsMethodBoundary = true, TargetMethodKey = calleeInfo.MethodKey };
             chain.AppendNode(boundaryNode);
 
             // Add nodes from callee
@@ -1019,7 +1033,8 @@ namespace MLVScan.Services
             baseConfidence -= 0.1;
 
             // Increase confidence if we have parameter mapping
-            if (callerInfo.OutgoingCalls.Any(c => c.TargetMethodKey == calleeInfo.MethodKey && c.ParameterMapping.Count > 0))
+            if (callerInfo.OutgoingCalls.Any(c =>
+                    c.TargetMethodKey == calleeInfo.MethodKey && c.ParameterMapping.Count > 0))
             {
                 baseConfidence += 0.1;
             }
@@ -1140,11 +1155,7 @@ namespace MLVScan.Services
                     1
                 ),
                 callerInfo.MethodKey
-            )
-            {
-                IsMethodBoundary = true,
-                TargetMethodKey = calleeInfo.MethodKey
-            };
+            ) { IsMethodBoundary = true, TargetMethodKey = calleeInfo.MethodKey };
             chain.AppendNode(returnBoundaryNode);
 
             // Add nodes from caller (sinks after the call)
@@ -1492,11 +1503,11 @@ namespace MLVScan.Services
             var summary = BuildDeepChainSummary(pattern, rootNode, targetNode);
             var chainId = $"deep:{string.Join("->", rootNode.VisitedMethods)}";
 
-            var chain = new DataFlowChain(chainId, pattern, severity, confidence, summary, rootNode.MethodInfo.MethodKey)
-            {
-                IsCrossMethod = true,
-                InvolvedMethods = rootNode.VisitedMethods.ToList()
-            };
+            var chain =
+                new DataFlowChain(chainId, pattern, severity, confidence, summary, rootNode.MethodInfo.MethodKey)
+                {
+                    IsCrossMethod = true, InvolvedMethods = rootNode.VisitedMethods.ToList()
+                };
 
             // Add all source nodes
             foreach (var (info, op) in allSourceOps)
@@ -1609,11 +1620,7 @@ namespace MLVScan.Services
                         site.InstructionOffset,
                         snippet,
                         caller.MethodKey
-                    )
-                    {
-                        IsMethodBoundary = true,
-                        TargetMethodKey = targetInfo.MethodKey
-                    };
+                    ) { IsMethodBoundary = true, TargetMethodKey = targetInfo.MethodKey };
                     chain.AppendNode(boundaryNode);
                 }
             }
@@ -1660,7 +1667,8 @@ namespace MLVScan.Services
         {
             var patternDesc = pattern switch
             {
-                DataFlowPattern.EmbeddedResourceDropAndExecute => "Multi-method embedded resource drop-and-execute pattern",
+                DataFlowPattern.EmbeddedResourceDropAndExecute =>
+                    "Multi-method embedded resource drop-and-execute pattern",
                 DataFlowPattern.DownloadAndExecute => "Multi-method download and execute pattern",
                 DataFlowPattern.DataExfiltration => "Multi-method data exfiltration pattern",
                 DataFlowPattern.DynamicCodeLoading => "Multi-method dynamic code loading pattern",

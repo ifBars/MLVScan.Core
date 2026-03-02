@@ -25,7 +25,8 @@ namespace MLVScan.Services
         /// </summary>
         private readonly Dictionary<string, List<CallSite>> _callSites = new();
 
-        public CallGraphBuilder(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder, IEntryPointProvider? entryPointProvider = null)
+        public CallGraphBuilder(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder,
+            IEntryPointProvider? entryPointProvider = null)
         {
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
@@ -91,7 +92,8 @@ namespace MLVScan.Services
 
             // Avoid duplicates
             var callerKey = GetMethodKey(callerMethod);
-            var existingSite = sites.FirstOrDefault(s => s.CallerMethodKey == callerKey && s.InstructionOffset == instructionOffset);
+            var existingSite = sites.FirstOrDefault(s =>
+                s.CallerMethodKey == callerKey && s.InstructionOffset == instructionOffset);
             if (existingSite != null)
             {
                 if (string.IsNullOrWhiteSpace(existingSite.ContextDescription) &&
@@ -233,7 +235,8 @@ namespace MLVScan.Services
             if (callSites.Count > 3)
                 callersStr += $" (+{callSites.Count - 3} more)";
 
-            var summary = $"{declaration.RuleDescription} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
+            var summary =
+                $"{declaration.RuleDescription} - Hidden in {declaration.Method.DeclaringType?.Name}.{declaration.Method.Name}, invoked from: {callersStr}";
 
             var contextDescriptions = callSites
                 .Select(cs => cs.ContextDescription)

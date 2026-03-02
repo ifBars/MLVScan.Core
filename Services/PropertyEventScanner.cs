@@ -32,14 +32,16 @@ namespace MLVScan.Services
                     // Scan property getter
                     if (property.GetMethod?.HasBody == true)
                     {
-                        var getterFindings = ScanPropertyAccessor(property.GetMethod, property.Name, "getter", typeFullName);
+                        var getterFindings =
+                            ScanPropertyAccessor(property.GetMethod, property.Name, "getter", typeFullName);
                         findings.AddRange(getterFindings);
                     }
 
                     // Scan property setter
                     if (property.SetMethod?.HasBody == true)
                     {
-                        var setterFindings = ScanPropertyAccessor(property.SetMethod, property.Name, "setter", typeFullName);
+                        var setterFindings =
+                            ScanPropertyAccessor(property.SetMethod, property.Name, "setter", typeFullName);
                         findings.AddRange(setterFindings);
                     }
                 }
@@ -93,7 +95,8 @@ namespace MLVScan.Services
             return findings;
         }
 
-        private IEnumerable<ScanFinding> ScanPropertyAccessor(MethodDefinition method, string propertyName, string accessorType, string typeFullName)
+        private IEnumerable<ScanFinding> ScanPropertyAccessor(MethodDefinition method, string propertyName,
+            string accessorType, string typeFullName)
         {
             var findings = new List<ScanFinding>();
 
@@ -129,7 +132,8 @@ namespace MLVScan.Services
             return findings;
         }
 
-        private IEnumerable<ScanFinding> ScanEventHandler(MethodDefinition method, string eventName, string handlerType, string typeFullName)
+        private IEnumerable<ScanFinding> ScanEventHandler(MethodDefinition method, string eventName, string handlerType,
+            string typeFullName)
         {
             var findings = new List<ScanFinding>();
 
@@ -166,4 +170,3 @@ namespace MLVScan.Services
         }
     }
 }
-

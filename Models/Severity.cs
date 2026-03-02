@@ -8,4 +8,3 @@ namespace MLVScan.Models
         Critical = 4
     }
 }
-

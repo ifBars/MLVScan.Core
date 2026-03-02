@@ -49,7 +49,8 @@ namespace MLVScan.Services
 
                                 var dllName = method.PInvokeInfo.Module.Name;
                                 var entryPoint = method.PInvokeInfo.EntryPoint ?? method.Name;
-                                var snippet = $"[DllImport(\"{dllName}\", EntryPoint = \"{entryPoint}\")]\n{method.ReturnType.Name} {method.Name}({string.Join(", ", method.Parameters.Select(p => $"{p.ParameterType.Name} {p.Name}"))});";
+                                var snippet =
+                                    $"[DllImport(\"{dllName}\", EntryPoint = \"{entryPoint}\")]\n{method.ReturnType.Name} {method.Name}({string.Join(", ", method.Parameters.Select(p => $"{p.ParameterType.Name} {p.Name}"))});";
                                 var description = $"P/Invoke declaration imports {entryPoint} from {dllName}";
 
                                 if (_callGraphBuilder != null)
