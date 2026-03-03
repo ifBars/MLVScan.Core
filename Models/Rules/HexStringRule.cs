@@ -22,9 +22,9 @@ namespace MLVScan.Models.Rules
             true
         );
 
-        // Regex for continuous hex strings (even length, min 16 chars)
-        // We look for a sequence of hex digits that is at least 16 characters long.
-        private static readonly Regex HexPattern = new Regex(@"^[0-9A-Fa-f]{16,}$", RegexOptions.Compiled);
+        // Regex for continuous hex strings (even length, min 12 chars)
+        // Lowered from 16 to catch shorter encoded strings like "Process" (50726f63657373 = 14 chars)
+        private static readonly Regex HexPattern = new Regex(@"^[0-9A-Fa-f]{12,}$", RegexOptions.Compiled);
 
         public bool IsSuspicious(MethodReference method)
         {

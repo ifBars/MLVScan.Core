@@ -77,10 +77,24 @@ public class HexStringRuleTests
     {
         var method = CreateTestMethod();
 
-        // Less than 16 characters
+        // Less than 12 characters (threshold lowered from 16 to catch shorter encoded strings)
         var findings = _rule.AnalyzeStringLiteral("48656C6C6F", method, 0);
 
         findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeStringLiteral_TwelveCharHex_DetectsShortEncodedStrings()
+    {
+        var method = CreateTestMethod();
+
+        // 14-char hex string: "Process" = 50726f63657373 (lowered threshold catches this)
+        var hexString = "50726f63657373";
+
+        var findings = _rule.AnalyzeStringLiteral(hexString, method, 0).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Description.Should().Contain("Process");
     }
 
     [Fact]
@@ -157,7 +171,7 @@ public class HexStringRuleTests
         var method = CreateTestMethod();
 
         // Hex-encoded "cmd.exe" (63 6D 64 2E 65 78 65)
-        var hexString = "636D642E6578652020202020"; // Added padding to reach 16 chars
+        var hexString = "636D642E6578652020202020"; // Added padding to reach 12 chars
 
         var findings = _rule.AnalyzeStringLiteral(hexString, method, 0).ToList();
 

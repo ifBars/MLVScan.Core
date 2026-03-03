@@ -23,6 +23,7 @@ namespace MLVScan.Models.Rules.Helpers
                     instruction.Operand is MethodReference calledMethod)
                 {
                     ObfuscatedExecutionPatternMatcher.AnalyzeCall(instructions, i, calledMethod, evidence);
+                    DetectCharConcatenationChain(instructions, i, calledMethod, evidence);
                 }
 
                 if (instruction.OpCode == OpCodes.Conv_U1 || instruction.OpCode == OpCodes.Conv_U2 ||
@@ -43,6 +44,50 @@ namespace MLVScan.Models.Rules.Helpers
 
             evidence.TotalScore = ComputeTotalScore(evidence);
             return evidence;
+        }
+
+        private static void DetectCharConcatenationChain(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            ObfuscatedExecutionEvidence evidence)
+        {
+            string typeName = calledMethod.DeclaringType?.FullName ?? string.Empty;
+            string methodName = calledMethod.Name ?? string.Empty;
+
+            if (typeName != "System.String" || methodName != "Concat")
+                return;
+
+            int singleCharStringCount = 0;
+            int shortStringCount = 0;
+            int lookback = Math.Min(15, callIndex);
+
+            for (int i = callIndex - 1; i >= callIndex - lookback; i--)
+            {
+                Instruction instr = instructions[i];
+
+                if (instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt)
+                    break;
+
+                if (instr.OpCode == OpCodes.Ldstr && instr.Operand is string s)
+                {
+                    if (s.Length == 1)
+                        singleCharStringCount++;
+                    else if (s.Length <= 3)
+                        shortStringCount++;
+                }
+            }
+
+            if (singleCharStringCount >= 4)
+            {
+                evidence.HasStrongDecodePrimitive = true;
+                evidence.AddDecode(12, $"single-char concatenation chain ({singleCharStringCount} chars)", callIndex);
+            }
+            else if (singleCharStringCount + shortStringCount >= 5)
+            {
+                evidence.HasStrongDecodePrimitive = true;
+                evidence.AddDecode(10, "short-string concatenation chain", callIndex);
+            }
         }
 
         private static int ComputeTotalScore(ObfuscatedExecutionEvidence evidence)

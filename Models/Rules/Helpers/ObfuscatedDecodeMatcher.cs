@@ -88,6 +88,41 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
+            if (typeName == "System.String" && methodName == "Concat" &&
+                calledMethod.Parameters.Count >= 3)
+            {
+                score = 6;
+                reason = "multi-string concatenation chain";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
+            if (methodName.IndexOf("reverse", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                (calledMethod.ReturnType.FullName == "System.String" ||
+                 calledMethod.ReturnType.FullName == "System.Char[]"))
+            {
+                score = 8;
+                reason = "string reversal transform";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
+            if (typeName == "System.Array" && methodName == "Reverse")
+            {
+                score = 7;
+                reason = "array reversal primitive";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
+            if (typeName == "System.Linq.Enumerable" && methodName == "Reverse")
+            {
+                score = 7;
+                reason = "sequence reversal primitive";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
             if ((methodName.IndexOf("decode", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  methodName.IndexOf("decrypt", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  methodName.IndexOf("deobfusc", StringComparison.OrdinalIgnoreCase) >= 0) &&
@@ -166,7 +201,7 @@ namespace MLVScan.Models.Rules.Helpers
 
         public static bool IsHexLikeLiteral(string literal)
         {
-            if (literal.Length < 16)
+            if (literal.Length < 12)
             {
                 return false;
             }
@@ -176,7 +211,7 @@ namespace MLVScan.Models.Rules.Helpers
                 .Replace(":", string.Empty, StringComparison.Ordinal)
                 .Replace(" ", string.Empty, StringComparison.Ordinal);
 
-            if (normalized.Length < 16 || normalized.Length % 2 != 0)
+            if (normalized.Length < 12 || normalized.Length % 2 != 0)
             {
                 return false;
             }
@@ -212,8 +247,28 @@ namespace MLVScan.Models.Rules.Helpers
                 }
             }
 
+            string reversed = ReverseString(literal);
+            foreach (string candidate in markers)
+            {
+                if (reversed.IndexOf(candidate, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    marker = $"{candidate} (reversed: {literal})";
+                    return true;
+                }
+            }
+
             marker = string.Empty;
             return false;
+        }
+
+        private static string ReverseString(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input;
+
+            var chars = input.ToCharArray();
+            System.Array.Reverse(chars);
+            return new string(chars);
         }
     }
 }
