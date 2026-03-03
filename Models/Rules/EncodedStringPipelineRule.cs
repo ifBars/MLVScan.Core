@@ -27,17 +27,21 @@ namespace MLVScan.Models.Rules
 
             try
             {
-                // Pattern: Int32::Parse → conv.u2 → Select<String,Char> → Concat<Char>
-                // Note: Parse → conv.u2 may be in a lambda, but Select<String,Char> → Concat<Char> is the key indicator
+                // Pattern 1: Int32::Parse → conv.u2 → Select<String,Char> → Concat<Char>
+                // Pattern 2: Array.ConvertAll<String,Char> → new String(Char[])
                 bool hasInt32Parse = false;
                 bool hasConvU2 = false;
                 bool hasSelectStringChar = false;
                 bool hasConcatChar = false;
+                bool hasConvertAllStringChar = false;
+                bool hasNewStringCharArray = false;
 
                 int parseIndex = -1;
                 int convU2Index = -1;
                 int selectIndex = -1;
                 int concatIndex = -1;
+                int convertAllIndex = -1;
+                int newStringIndex = -1;
 
                 // First pass: Find all components
                 for (int i = 0; i < instructions.Count; i++)
@@ -63,7 +67,6 @@ namespace MLVScan.Models.Rules
                             // Check for Select<String,Char>
                             if (typeName == "System.Linq.Enumerable" && methodName == "Select")
                             {
-                                // Check generic arguments
                                 if (calledMethod is GenericInstanceMethod genericMethod &&
                                     genericMethod.GenericArguments.Count == 2)
                                 {
@@ -88,6 +91,34 @@ namespace MLVScan.Models.Rules
                                     concatIndex = i;
                                 }
                             }
+
+                            // Check for Array.ConvertAll<String,Char>
+                            if (typeName == "System.Array" && methodName == "ConvertAll")
+                            {
+                                if (calledMethod is GenericInstanceMethod genericMethod &&
+                                    genericMethod.GenericArguments.Count == 2)
+                                {
+                                    var arg1 = genericMethod.GenericArguments[0].FullName;
+                                    var arg2 = genericMethod.GenericArguments[1].FullName;
+                                    if (arg1 == "System.String" && arg2 == "System.Char")
+                                    {
+                                        hasConvertAllStringChar = true;
+                                        convertAllIndex = i;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Check for newobj System.String::.ctor(Char[])
+                    if (instr.OpCode == OpCodes.Newobj && instr.Operand is MethodReference ctorMethod)
+                    {
+                        if (ctorMethod.DeclaringType?.FullName == "System.String" &&
+                            ctorMethod.Parameters.Count == 1 &&
+                            ctorMethod.Parameters[0].ParameterType.FullName == "System.Char[]")
+                        {
+                            hasNewStringCharArray = true;
+                            newStringIndex = i;
                         }
                     }
 
@@ -102,37 +133,54 @@ namespace MLVScan.Models.Rules
                     }
                 }
 
-                // Detect pattern: Select<String,Char> → Concat<Char> is the key indicator
-                // Parse → conv.u2 may be in a lambda, so we check for it separately
-                if (hasSelectStringChar && hasConcatChar)
+                // Detect pattern 1: Select<String,Char> → Concat<Char>
+                if (hasSelectStringChar && hasConcatChar && selectIndex < concatIndex)
                 {
-                    // Verify the sequence makes sense (Select → Concat)
-                    if (selectIndex < concatIndex)
+                    bool hasParseConvPattern = hasInt32Parse && hasConvU2 && parseIndex < convU2Index;
+
+                    var snippetBuilder = new System.Text.StringBuilder();
+                    int startIdx = Math.Max(0,
+                        Math.Min(hasParseConvPattern ? parseIndex : selectIndex, selectIndex) - 2);
+                    int endIdx = Math.Min(instructions.Count, concatIndex + 3);
+
+                    for (int j = startIdx; j < endIdx; j++)
                     {
-                        // If we also found Parse → conv.u2 in the same method, that's even more suspicious
-                        bool hasParseConvPattern = hasInt32Parse && hasConvU2 && parseIndex < convU2Index;
-
-                        var snippetBuilder = new System.Text.StringBuilder();
-                        int startIdx = Math.Max(0,
-                            Math.Min(hasParseConvPattern ? parseIndex : selectIndex, selectIndex) - 2);
-                        int endIdx = Math.Min(instructions.Count, concatIndex + 3);
-
-                        for (int j = startIdx; j < endIdx; j++)
-                        {
-                            if (j == selectIndex || j == concatIndex ||
-                                (hasParseConvPattern && (j == parseIndex || j == convU2Index)))
-                                snippetBuilder.Append(">>> ");
-                            else
-                                snippetBuilder.Append("    ");
-                            snippetBuilder.AppendLine(instructions[j].ToString());
-                        }
-
-                        findings.Add(new ScanFinding(
-                            $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
-                            "Detected encoded string to char decoding pipeline (ASCII number parsing pattern)",
-                            Severity.High,
-                            snippetBuilder.ToString().TrimEnd()));
+                        if (j == selectIndex || j == concatIndex ||
+                            (hasParseConvPattern && (j == parseIndex || j == convU2Index)))
+                            snippetBuilder.Append(">>> ");
+                        else
+                            snippetBuilder.Append("    ");
+                        snippetBuilder.AppendLine(instructions[j].ToString());
                     }
+
+                    findings.Add(new ScanFinding(
+                        $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
+                        "Detected encoded string to char decoding pipeline (Select<String,Char> → Concat<Char>)",
+                        Severity.High,
+                        snippetBuilder.ToString().TrimEnd()));
+                }
+
+                // Detect pattern 2: Array.ConvertAll<String,Char> → new String(Char[])
+                if (hasConvertAllStringChar && hasNewStringCharArray && convertAllIndex < newStringIndex)
+                {
+                    var snippetBuilder = new System.Text.StringBuilder();
+                    int startIdx = Math.Max(0, convertAllIndex - 3);
+                    int endIdx = Math.Min(instructions.Count, newStringIndex + 3);
+
+                    for (int j = startIdx; j < endIdx; j++)
+                    {
+                        if (j == convertAllIndex || j == newStringIndex)
+                            snippetBuilder.Append(">>> ");
+                        else
+                            snippetBuilder.Append("    ");
+                        snippetBuilder.AppendLine(instructions[j].ToString());
+                    }
+
+                    findings.Add(new ScanFinding(
+                        $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
+                        "Detected encoded string to char decoding pipeline (Array.ConvertAll<String,Char> → new String(Char[]))",
+                        Severity.High,
+                        snippetBuilder.ToString().TrimEnd()));
                 }
             }
             catch

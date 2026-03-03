@@ -70,6 +70,23 @@ namespace MLVScan.Models.Rules.Helpers
                 }
             }
 
+            // Array.ConvertAll<String,Char> - variant of Select<String,Char> used in some malware
+            if (typeName == "System.Array" && methodName == "ConvertAll")
+            {
+                if (calledMethod is GenericInstanceMethod genericMethod &&
+                    genericMethod.GenericArguments.Count == 2)
+                {
+                    string projectionTarget = genericMethod.GenericArguments[1].FullName;
+                    if (projectionTarget == "System.Char" || projectionTarget == "System.Byte")
+                    {
+                        score = 10;
+                        reason = "array conversion pipeline (ConvertAll)";
+                        isStrongDecodePrimitive = true;
+                        return true;
+                    }
+                }
+            }
+
             if (typeName == "System.String" && methodName == "Split")
             {
                 score = 5;

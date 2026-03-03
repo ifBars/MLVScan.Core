@@ -239,7 +239,8 @@ namespace MLVScan.Models.Rules
                         severity,
                         snippetBuilder.ToString().TrimEnd())
                     {
-                        RiskScore = handlerScore, BypassCompanionCheck = handlerScore >= 50
+                        RiskScore = handlerScore,
+                        BypassCompanionCheck = handlerScore >= 50
                     });
                 }
             }
@@ -859,7 +860,8 @@ namespace MLVScan.Models.Rules
                         evasionScore >= 50 ? Severity.High : Severity.Medium,
                         snippetBuilder.ToString().TrimEnd())
                     {
-                        RiskScore = evasionScore, BypassCompanionCheck = evasionScore >= 50
+                        RiskScore = evasionScore,
+                        BypassCompanionCheck = evasionScore >= 50
                     });
                 }
             }

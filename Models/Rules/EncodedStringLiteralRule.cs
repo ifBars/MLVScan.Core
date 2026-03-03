@@ -42,6 +42,7 @@ namespace MLVScan.Models.Rules
             if (string.IsNullOrWhiteSpace(literal))
                 yield break;
 
+            // Check single-level encoding first
             if (IsEncodedString(literal))
             {
                 var decoded = DecodeNumericString(literal);
@@ -52,7 +53,28 @@ namespace MLVScan.Models.Rules
                         $"Numeric-encoded string with suspicious content detected. Decoded: {decoded}",
                         Severity.High,
                         $"Encoded: {literal}\nDecoded: {decoded}");
+                    yield break;
                 }
+            }
+
+            // Check multi-level encoding: primary separator splits into segments,
+            // each segment uses a secondary separator for numeric values.
+            // e.g., "83-116-97-114-116`80-114-111-99-101-115-115`99-109-100-46-101-120-101"
+            var multiLevelResult = TryDecodeMultiLevelString(literal);
+            if (multiLevelResult != null && ContainsSuspiciousContent(multiLevelResult))
+            {
+                string truncatedEncoded = literal.Length > 200
+                    ? literal.Substring(0, 200) + "..."
+                    : literal;
+                string truncatedDecoded = multiLevelResult.Length > 500
+                    ? multiLevelResult.Substring(0, 500) + "..."
+                    : multiLevelResult;
+
+                yield return new ScanFinding(
+                    $"{method.DeclaringType.FullName}.{method.Name}:{instructionIndex}",
+                    $"Multi-level numeric-encoded string with suspicious content detected. Decoded segments: {truncatedDecoded}",
+                    Severity.Critical,
+                    $"Encoded: {truncatedEncoded}\nDecoded: {truncatedDecoded}");
             }
         }
 
@@ -94,6 +116,22 @@ namespace MLVScan.Models.Rules
                                             $"Hidden payload in assembly metadata attribute. Decoded content: {decoded}",
                                             Severity.Critical,
                                             $"Encoded: {strValue}\nDecoded: {decoded}"));
+                                    }
+                                }
+                                // Check for multi-level encoding in metadata
+                                else
+                                {
+                                    var multiDecoded = TryDecodeMultiLevelString(strValue);
+                                    if (multiDecoded != null && ContainsSuspiciousContent(multiDecoded))
+                                    {
+                                        string truncated = multiDecoded.Length > 500
+                                            ? multiDecoded.Substring(0, 500) + "..."
+                                            : multiDecoded;
+                                        findings.Add(new ScanFinding(
+                                            $"Assembly Metadata: {attr.AttributeType.Name}",
+                                            $"Hidden multi-level encoded payload in assembly metadata. Decoded: {truncated}",
+                                            Severity.Critical,
+                                            $"Encoded length: {strValue.Length}\nDecoded: {truncated}"));
                                     }
                                 }
                             }
@@ -150,6 +188,96 @@ namespace MLVScan.Models.Rules
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Attempts to decode multi-level encoded strings where a primary separator splits segments
+        /// and each segment uses a secondary separator for numeric ASCII values.
+        /// e.g., "83-116-97-114-116`80-114-111-99-101-115-115" → "Start Process"
+        /// </summary>
+        public static string? TryDecodeMultiLevelString(string literal)
+        {
+            if (string.IsNullOrWhiteSpace(literal) || literal.Length < 20)
+                return null;
+
+            // Primary separators that split segments
+            char[] primarySeparators = { '`', '|', ';', '\n' };
+            // Secondary separators that split numeric tokens within segments
+            char[] secondarySeparators = { '-', '.', ',' };
+
+            foreach (char primary in primarySeparators)
+            {
+                if (!literal.Contains(primary))
+                    continue;
+
+                string[] segments = literal.Split(primary);
+                if (segments.Length < 2)
+                    continue;
+
+                foreach (char secondary in secondarySeparators)
+                {
+                    string? decoded = TryDecodeSegments(segments, secondary);
+                    if (decoded != null)
+                        return decoded;
+                }
+            }
+
+            return null;
+        }
+
+        private static string? TryDecodeSegments(string[] segments, char secondary)
+        {
+            var decodedSegments = new List<string>();
+            int successCount = 0;
+
+            foreach (string segment in segments)
+            {
+                string trimmed = segment.Trim();
+                if (string.IsNullOrEmpty(trimmed))
+                    continue;
+
+                string[] tokens = trimmed.Split(secondary);
+                if (tokens.Length < 2)
+                {
+                    // Single token segment: if it's a single numeric ASCII value, decode it
+                    if (int.TryParse(trimmed, out int singleVal) && singleVal >= 32 && singleVal <= 126)
+                    {
+                        decodedSegments.Add(((char)singleVal).ToString());
+                        successCount++;
+                        continue;
+                    }
+
+                    return null; // Non-numeric single segment means this isn't the right pattern
+                }
+
+                var chars = new char[tokens.Length];
+                bool allValid = true;
+
+                for (int i = 0; i < tokens.Length; i++)
+                {
+                    if (int.TryParse(tokens[i].Trim(), out int charCode) && charCode >= 0 && charCode <= 127)
+                    {
+                        chars[i] = (char)charCode;
+                    }
+                    else
+                    {
+                        allValid = false;
+                        break;
+                    }
+                }
+
+                if (!allValid)
+                    return null;
+
+                decodedSegments.Add(new string(chars));
+                successCount++;
+            }
+
+            // Need at least 2 successfully decoded segments
+            if (successCount < 2)
+                return null;
+
+            return string.Join(" ", decodedSegments);
         }
 
         public static bool ContainsSuspiciousContent(string decodedText)

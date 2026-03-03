@@ -31,6 +31,9 @@ namespace MLVScan.Models.Rules
                 int splitIndex = -1;
                 char separatorChar = '\0';
 
+                // Suspicious separator char values: 96=backtick, 45=dash, 46=dot
+                var suspiciousSeparators = new HashSet<int> { 96, 45, 46 };
+
                 // Find Split calls with suspicious separators
                 for (int i = 0; i < instructions.Count; i++)
                 {
@@ -41,18 +44,22 @@ namespace MLVScan.Models.Rules
                         calledMethod.DeclaringType.FullName == "System.String" &&
                         calledMethod.Name == "Split")
                     {
-                        // Check if Split has the right signature: Split(Char, StringSplitOptions)
-                        if (calledMethod.Parameters.Count == 2)
+                        // Match Split(Char, StringSplitOptions) - 2 params
+                        // Match Split(Char[]) - 1 param (array overload)
+                        // Match Split(Char[], StringSplitOptions) - 2 params (array overload)
+                        if (calledMethod.Parameters.Count >= 1 && calledMethod.Parameters.Count <= 2)
                         {
                             // Look backward for the separator char constant
-                            for (int j = Math.Max(0, i - 5); j < i; j++)
+                            // For array overloads, the separator is loaded via newarr + stelem,
+                            // but the ldc.i4 constant will still be in the preceding instructions
+                            for (int j = Math.Max(0, i - 10); j < i; j++)
                             {
                                 var prevInstr = instructions[j];
 
-                                // Check for ldc.i4.s (load constant byte) with value 96 (`) or 45 (-)
+                                // Check for ldc.i4.s (load constant byte)
                                 if (prevInstr.OpCode == OpCodes.Ldc_I4_S && prevInstr.Operand is sbyte byteVal)
                                 {
-                                    if (byteVal == 96 || byteVal == 45)
+                                    if (suspiciousSeparators.Contains(byteVal))
                                     {
                                         hasSplitWithSeparator = true;
                                         splitIndex = i;
@@ -63,7 +70,7 @@ namespace MLVScan.Models.Rules
                                 // Also check ldc.i4 (load constant int32)
                                 else if (prevInstr.OpCode == OpCodes.Ldc_I4 && prevInstr.Operand is int intVal)
                                 {
-                                    if (intVal == 96 || intVal == 45)
+                                    if (suspiciousSeparators.Contains(intVal))
                                     {
                                         hasSplitWithSeparator = true;
                                         splitIndex = i;
@@ -157,7 +164,12 @@ namespace MLVScan.Models.Rules
                         snippetBuilder.AppendLine(instructions[j].ToString());
                     }
 
-                    string separatorName = separatorChar == 96 ? "backtick (`)" : "dash (-)";
+                    string separatorName = separatorChar switch
+                    {
+                        (char)96 => "backtick (`)",
+                        (char)46 => "dot (.)",
+                        _ => "dash (-)"
+                    };
                     findings.Add(new ScanFinding(
                         $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
                         $"Detected structured encoded blob splitting pattern ({separatorName} separator in loop)",

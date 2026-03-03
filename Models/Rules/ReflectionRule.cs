@@ -28,11 +28,17 @@ namespace MLVScan.Models.Rules
             string typeName = method.DeclaringType.FullName;
             string methodName = method.Name;
 
-            bool isReflectionInvoke =
-                (typeName == "System.Reflection.MethodInfo" && methodName == "Invoke") ||
-                (typeName == "System.Reflection.MethodBase" && methodName == "Invoke");
+            // Reflection invocation - MethodInfo.Invoke and MethodBase.Invoke are high-confidence indicators
+            // of dynamic method invocation which is commonly used for bypassing security controls
+            if ((typeName == "System.Reflection.MethodInfo" && methodName == "Invoke") ||
+                (typeName == "System.Reflection.MethodBase" && methodName == "Invoke"))
+                return true;
 
-            return isReflectionInvoke;
+            // Note: PropertyInfo.SetValue is intentionally NOT included here because it has many legitimate
+            // uses in modding (UI manipulation, configuration setting). It is only flagged as suspicious
+            // when part of a chain (Type.GetProperty + SetValue) in AnalyzeInstructions.
+
+            return false;
         }
 
         public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
@@ -40,39 +46,195 @@ namespace MLVScan.Models.Rules
         {
             var findings = new List<ScanFinding>();
 
-            if (!method.HasBody || !method.Body.HasVariables)
+            if (!method.HasBody)
                 return findings;
 
-            // Only trigger on local variables if companion findings exist
-            if (methodSignals == null || !methodSignals.HasTriggeredRuleOtherThan(RuleId))
-                return findings;
-
-            var reflectionTypes = new List<string>();
-
-            foreach (var variable in method.Body.Variables)
+            // --- Pattern: Reflection variable types (requires companion finding) ---
+            if (method.Body.HasVariables && methodSignals != null &&
+                methodSignals.HasTriggeredRuleOtherThan(RuleId))
             {
-                var variableType = variable.VariableType.FullName;
+                var reflectionTypes = new List<string>();
 
-                // Check for reflection types used for invocation
-                if (IsReflectionInvocationType(variableType))
+                foreach (var variable in method.Body.Variables)
                 {
-                    reflectionTypes.Add($"{variableType} (var_{variable.Index})");
+                    var variableType = variable.VariableType.FullName;
+
+                    if (IsReflectionInvocationType(variableType))
+                    {
+                        reflectionTypes.Add($"{variableType} (var_{variable.Index})");
+                    }
+                }
+
+                if (reflectionTypes.Count > 0)
+                {
+                    findings.Add(new ScanFinding(
+                        $"{method.DeclaringType?.FullName}.{method.Name}",
+                        Description +
+                        $" - uses reflection types: {string.Join(", ", reflectionTypes.Take(3))}{(reflectionTypes.Count > 3 ? $" and {reflectionTypes.Count - 3} more" : "")}",
+                        Severity,
+                        $"Reflection variable types detected: {string.Join(", ", reflectionTypes)}"));
                 }
             }
 
-            if (reflectionTypes.Count > 0)
-            {
-                var finding = new ScanFinding(
-                    $"{method.DeclaringType?.FullName}.{method.Name}",
-                    Description +
-                    $" - uses reflection types: {string.Join(", ", reflectionTypes.Take(3))}{(reflectionTypes.Count > 3 ? $" and {reflectionTypes.Count - 3} more" : "")}",
-                    Severity,
-                    $"Reflection variable types detected: {string.Join(", ", reflectionTypes)}");
+            // --- IL instruction pattern scanning ---
+            bool hasTypeGetMethod = false;
+            bool hasMethodBaseInvoke = false;
+            bool hasAppDomainGetAssemblies = false;
+            bool hasSelectManyGetTypes = false;
+            bool hasFirstOrDefault = false;
+            bool hasGetCustomAttribute = false;
 
-                findings.Add(finding);
+            int getMethodIndex = -1;
+            int invokeIndex = -1;
+            int getAssembliesIndex = -1;
+            int getCustomAttrIndex = -1;
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                var instr = instructions[i];
+
+                if (instr.OpCode != OpCodes.Call && instr.OpCode != OpCodes.Callvirt)
+                    continue;
+
+                if (instr.Operand is not MethodReference calledMethod || calledMethod.DeclaringType == null)
+                    continue;
+
+                string typeName = calledMethod.DeclaringType.FullName;
+                string methodName = calledMethod.Name;
+
+                // Type.GetMethod
+                if (typeName == "System.Type" && methodName == "GetMethod")
+                {
+                    hasTypeGetMethod = true;
+                    getMethodIndex = i;
+                }
+
+                // MethodBase.Invoke / MethodInfo.Invoke
+                if ((typeName == "System.Reflection.MethodBase" || typeName == "System.Reflection.MethodInfo") &&
+                    methodName == "Invoke")
+                {
+                    hasMethodBaseInvoke = true;
+                    invokeIndex = i;
+                }
+
+                // AppDomain.get_CurrentDomain or AppDomain.GetAssemblies
+                if (typeName == "System.AppDomain" &&
+                    (methodName == "GetAssemblies" || methodName == "get_CurrentDomain"))
+                {
+                    hasAppDomainGetAssemblies = true;
+                    getAssembliesIndex = i;
+                }
+
+                // SelectMany (used to flatten GetTypes across assemblies)
+                if (typeName == "System.Linq.Enumerable" && methodName == "SelectMany")
+                {
+                    hasSelectManyGetTypes = true;
+                }
+
+                // FirstOrDefault (used to find a specific type by name)
+                if (typeName == "System.Linq.Enumerable" && methodName == "FirstOrDefault")
+                {
+                    hasFirstOrDefault = true;
+                }
+
+                // GetCustomAttribute<T> or GetCustomAttributes
+                if (methodName.StartsWith("GetCustomAttribute"))
+                {
+                    hasGetCustomAttribute = true;
+                    getCustomAttrIndex = i;
+                }
+            }
+
+            // Fix 5: Type.GetMethod + MethodBase.Invoke chain
+            // This detects dynamic method invocation which is a high-confidence indicator of
+            // potential security bypass (e.g., invoking private/internal methods)
+            if (hasTypeGetMethod && hasMethodBaseInvoke && getMethodIndex < invokeIndex)
+            {
+                findings.Add(new ScanFinding(
+                    $"{method.DeclaringType?.FullName}.{method.Name}",
+                    "Detected reflection execution chain: Type.GetMethod → MethodBase.Invoke (dynamic method invocation)",
+                    Severity.High,
+                    BuildSnippet(instructions, getMethodIndex, invokeIndex)));
+            }
+
+            // Note: Type.GetProperty + PropertyInfo.SetValue chain detection is intentionally omitted.
+            // While this pattern can be used maliciously (e.g., setting ProcessStartInfo properties),
+            // it is also commonly used legitimately in modding for UI manipulation and configuration.
+            // Malicious use of SetValue for process manipulation is better detected by ProcessStartRule
+            // which has specific context about what properties are being set on what types.
+
+            // Fix 6: AppDomain.GetAssemblies → SelectMany(GetTypes) → FirstOrDefault
+            if (hasAppDomainGetAssemblies && hasSelectManyGetTypes && hasFirstOrDefault)
+            {
+                findings.Add(new ScanFinding(
+                    $"{method.DeclaringType?.FullName}.{method.Name}",
+                    "Detected runtime type scanning: AppDomain.GetAssemblies → SelectMany(GetTypes) → FirstOrDefault (type enumeration to resolve APIs dynamically)",
+                    Severity.High,
+                    "Method enumerates all loaded assemblies and types to find specific types at runtime, " +
+                    "bypassing compile-time references."));
+            }
+
+            // Fix 7: GetCustomAttribute (especially near AppDomain or Assembly access)
+            if (hasGetCustomAttribute && getCustomAttrIndex >= 0)
+            {
+                // Check if it's specifically accessing AssemblyMetadataAttribute
+                var attrInstr = instructions[getCustomAttrIndex];
+                bool isMetadataAttr = false;
+                if (attrInstr.Operand is MethodReference attrMethod)
+                {
+                    // Check generic arguments for AssemblyMetadataAttribute
+                    if (attrMethod is GenericInstanceMethod genericAttrMethod)
+                    {
+                        foreach (var genArg in genericAttrMethod.GenericArguments)
+                        {
+                            if (genArg.FullName.Contains("AssemblyMetadataAttribute"))
+                            {
+                                isMetadataAttr = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Also check non-generic overloads by parameter type
+                    foreach (var param in attrMethod.Parameters)
+                    {
+                        if (param.ParameterType.FullName.Contains("AssemblyMetadataAttribute"))
+                        {
+                            isMetadataAttr = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (isMetadataAttr)
+                {
+                    findings.Add(new ScanFinding(
+                        $"{method.DeclaringType?.FullName}.{method.Name}",
+                        "Detected runtime access to AssemblyMetadataAttribute (potential hidden payload retrieval)",
+                        Severity.High,
+                        "Method reads AssemblyMetadataAttribute at runtime, which can be used to store " +
+                        "and retrieve encoded payloads hidden in assembly metadata."));
+                }
             }
 
             return findings;
+        }
+
+        private static string BuildSnippet(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int startIdx, int endIdx)
+        {
+            var sb = new System.Text.StringBuilder();
+            int from = Math.Max(0, startIdx - 2);
+            int to = Math.Min(instructions.Count, endIdx + 3);
+
+            for (int j = from; j < to; j++)
+            {
+                sb.Append(j == startIdx || j == endIdx ? ">>> " : "    ");
+                sb.AppendLine(instructions[j].ToString());
+            }
+
+            return sb.ToString().TrimEnd();
         }
 
         public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
@@ -104,6 +266,9 @@ namespace MLVScan.Models.Rules
                 (method.DeclaringType.FullName == "System.Reflection.MethodBase" && method.Name == "Invoke") ||
                 (method.DeclaringType.FullName == "System.Activator" && method.Name.StartsWith("CreateInstance")) ||
                 (method.DeclaringType.FullName.Contains("Delegate") && method.Name == "DynamicInvoke");
+
+            // Note: PropertyInfo.SetValue is excluded from pattern detection here because it has
+            // many legitimate uses in modding. It is only flagged when part of a suspicious chain.
 
             if (!isDynamicCall)
                 yield break;
@@ -215,14 +380,10 @@ namespace MLVScan.Models.Rules
 
         private static bool IsReflectionInvocationType(string typeName)
         {
-            if (typeName == "System.Reflection.MethodInfo" ||
-                typeName == "System.Reflection.MethodBase" ||
-                typeName == "System.Reflection.ConstructorInfo")
-            {
-                return true;
-            }
-
-            return false;
+            return typeName == "System.Reflection.MethodInfo" ||
+                   typeName == "System.Reflection.MethodBase" ||
+                   typeName == "System.Reflection.ConstructorInfo" ||
+                   typeName == "System.Reflection.PropertyInfo";
         }
     }
 }
