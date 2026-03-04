@@ -44,9 +44,12 @@ ENVIRONMENT_API_REFERENCE.md
 ENVIRONMENT_GUIDANCE.md
 .opencode/
 
-## Testing Mods
+## Testing
 FALSE_POSITIVES/
 QUARANTINE/
+TestLogs/
+run-false-positive-tests.bat
+run-quarantine-tests.bat
 
 ## WASM / NPM
 MLVScan.WASM/npm/dist/

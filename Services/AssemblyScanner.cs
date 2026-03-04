@@ -33,6 +33,13 @@ namespace MLVScan.Services
             "PersistenceRule"
         };
 
+        private static readonly HashSet<string> ExecutionCorrelationRuleIds = new(StringComparer.Ordinal)
+        {
+            "DllImportRule",
+            "ProcessStartRule",
+            "Shell32Rule"
+        };
+
         private readonly IEnumerable<IScanRule> _rules;
         private readonly TypeScanner _typeScanner;
         private readonly MetadataScanner _metadataScanner;
@@ -133,6 +140,8 @@ namespace MLVScan.Services
                 // Build data flow findings
                 var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
                 findings.AddRange(dataFlowFindings);
+
+                CorrelateDataFlowIntoExecutionFindings(findings);
             }
             catch (Exception)
             {
@@ -189,6 +198,8 @@ namespace MLVScan.Services
                 // Build data flow findings
                 var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
                 findings.AddRange(dataFlowFindings);
+
+                CorrelateDataFlowIntoExecutionFindings(findings);
             }
             catch (Exception)
             {
@@ -394,6 +405,136 @@ namespace MLVScan.Services
             }
 
             return findings;
+        }
+
+        private static void CorrelateDataFlowIntoExecutionFindings(List<ScanFinding> findings)
+        {
+            if (findings.Count == 0)
+            {
+                return;
+            }
+
+            var dataFlowFindings = findings
+                .Where(f => f.RuleId == "DataFlowAnalysis" && f.HasDataFlow)
+                .ToList();
+
+            if (dataFlowFindings.Count == 0)
+            {
+                return;
+            }
+
+            var mergedDataFlowFindings = new HashSet<ScanFinding>();
+
+            foreach (var dataFlowFinding in dataFlowFindings)
+            {
+                var dataFlowChain = dataFlowFinding.DataFlowChain;
+                if (dataFlowChain == null)
+                {
+                    continue;
+                }
+
+                var executionSink = dataFlowChain.Nodes.FirstOrDefault(node =>
+                    node.NodeType == DataFlowNodeType.Sink && IsExecutionSinkOperation(node.Operation));
+
+                if (executionSink == null)
+                {
+                    continue;
+                }
+
+                var sinkMethodLocation = TrimOffset(executionSink.Location);
+                if (string.IsNullOrWhiteSpace(sinkMethodLocation))
+                {
+                    continue;
+                }
+
+                int? sinkOffset = ExtractOffset(executionSink.Location);
+
+                var correlatedExecutionFinding = findings
+                    .Where(f =>
+                        f != dataFlowFinding &&
+                        f.RuleId != null &&
+                        ExecutionCorrelationRuleIds.Contains(f.RuleId) &&
+                        string.Equals(TrimOffset(f.Location), sinkMethodLocation, StringComparison.Ordinal))
+                    .OrderByDescending(f =>
+                        sinkOffset.HasValue &&
+                        ExtractOffset(f.Location).HasValue &&
+                        ExtractOffset(f.Location) == sinkOffset)
+                    .ThenByDescending(f => f.Severity)
+                    .FirstOrDefault();
+
+                if (correlatedExecutionFinding == null)
+                {
+                    continue;
+                }
+
+                correlatedExecutionFinding.DataFlowChain = dataFlowChain;
+
+                if (dataFlowFinding.Severity > correlatedExecutionFinding.Severity)
+                {
+                    correlatedExecutionFinding.Severity = dataFlowFinding.Severity;
+                }
+
+                if (!correlatedExecutionFinding.Description.Contains("Correlated data flow:",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    correlatedExecutionFinding.Description +=
+                        $" Correlated data flow: {dataFlowChain.Summary}.";
+                }
+
+                mergedDataFlowFindings.Add(dataFlowFinding);
+            }
+
+            if (mergedDataFlowFindings.Count > 0)
+            {
+                findings.RemoveAll(f => mergedDataFlowFindings.Contains(f));
+            }
+        }
+
+        private static bool IsExecutionSinkOperation(string operation)
+        {
+            if (string.IsNullOrWhiteSpace(operation))
+            {
+                return false;
+            }
+
+            return operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase) ||
+                   operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
+                   operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
+                   operation.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string TrimOffset(string location)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+            {
+                return location;
+            }
+
+            int lastColon = location.LastIndexOf(':');
+            if (lastColon < 0 || lastColon == location.Length - 1)
+            {
+                return location;
+            }
+
+            var suffix = location[(lastColon + 1)..];
+            return int.TryParse(suffix, out _) ? location[..lastColon] : location;
+        }
+
+        private static int? ExtractOffset(string location)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+            {
+                return null;
+            }
+
+            int lastColon = location.LastIndexOf(':');
+            if (lastColon < 0 || lastColon == location.Length - 1)
+            {
+                return null;
+            }
+
+            var suffix = location[(lastColon + 1)..];
+            return int.TryParse(suffix, out int offset) ? offset : null;
         }
     }
 }

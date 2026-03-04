@@ -55,6 +55,38 @@ namespace MLVScan.Models.Rules
             "winmm.dll"
         ];
 
+        // Audio and media DLLs commonly used in legitimate mods for sound playback.
+        // These are low risk unless they import suspicious functions (checked separately).
+        private static readonly string[] LowRiskAudioMediaDlls =
+        [
+            "avrt.dll",
+            "bass.dll",
+            "bass_fx.dll",
+            "bassenc.dll",
+            "bassmix.dll",
+            "basswasapi.dll",
+            "bassasio.dll",
+            "basscd.dll",
+            "bassflac.dll",
+            "bassmidi.dll",
+            "bassopus.dll",
+            "basswma.dll",
+            "basswv.dll",
+            "bassape.dll",
+            "fmod.dll",
+            "fmodex.dll",
+            "fmodex64.dll",
+            "fmodstudio.dll",
+            "fmodstudio64.dll",
+            "xaudio2_9.dll",
+            "xaudio2_8.dll",
+            "xaudio2_7.dll",
+            "dsound.dll",
+            "msacm32.dll",
+            "winmm.dll",
+            "mci.dll"
+        ];
+
         // Strong indicators of execution, injection, or covert network activity.
         private static readonly string[] CriticalFunctions =
         [
@@ -162,6 +194,12 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
+            // Low-risk audio/media DLLs are allowed unless they import suspicious functions (checked above)
+            if (IsLowRiskAudioMediaDll(lowerDllName))
+            {
+                return false;
+            }
+
             // Check for elevated-risk DLLs
             if (ElevatedRiskDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
             {
@@ -230,6 +268,27 @@ namespace MLVScan.Models.Rules
 
             return NativeExecutionFunctions.Any(func =>
                 entryPointLower.Contains(func, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsLowRiskAudioMediaDll(string lowerDllName)
+        {
+            // Normalize: remove .dll extension for comparison
+            var normalizedDllName = lowerDllName.EndsWith(".dll")
+                ? lowerDllName.Substring(0, lowerDllName.Length - 4)
+                : lowerDllName;
+
+            foreach (var audioDll in LowRiskAudioMediaDlls)
+            {
+                // Normalize the known audio DLL name too
+                var normalizedAudioDll = audioDll.EndsWith(".dll")
+                    ? audioDll.Substring(0, audioDll.Length - 4)
+                    : audioDll;
+
+                if (normalizedDllName == normalizedAudioDll.ToLower())
+                    return true;
+            }
+
+            return false;
         }
     }
 }

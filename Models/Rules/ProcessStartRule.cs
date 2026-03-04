@@ -10,7 +10,7 @@ namespace MLVScan.Models.Rules
     /// Detects Process.Start calls with severity scaling based on target and arguments.
     ///
     /// Severity levels:
-    /// - Critical: LOLBin execution (powershell, cmd, mshta, wscript) with suspicious arguments
+    /// - Critical: Staged loader execution chain (download -> temp drop -> execute), or LOLBin with suspicious/evasive args
     /// - High: LOLBin execution without suspicious arguments, or suspicious arguments with unknown target
     /// - Medium: Unknown external process with arguments
     /// - Low: Known safe external tool (yt-dlp, ffmpeg, etc.)
@@ -21,8 +21,10 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class ProcessStartRule : IScanRule
     {
+        private Severity _severity = Severity.Critical;
+
         public string Description => "Detected Process.Start call which could execute arbitrary programs.";
-        public Severity Severity => Severity.Critical;
+        public Severity Severity => _severity;
         public string RuleId => "ProcessStartRule";
         public bool RequiresCompanionFinding => false;
 
@@ -79,7 +81,7 @@ namespace MLVScan.Models.Rules
         };
 
         private static readonly Regex SuspiciousArgumentPattern = new Regex(
-            @"(?i)(-ep\s+bypass|-enc\s+[A-Za-z0-9+/=]|iex|invoke-(expression|webrequest)|iwr\s+|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string|http://|https://)",
+            @"(?i)(-ep\s+bypass|-enc\s+[A-Za-z0-9+/=]|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex TempPathPattern = new Regex(
@@ -88,6 +90,18 @@ namespace MLVScan.Models.Rules
 
         private static readonly Regex DownloadPattern = new Regex(
             @"https?://[^\s""'<>]+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ScriptDropExtensionPattern = new Regex(
+            @"(?i)\.(bat|cmd|ps1|vbs|js|hta)(\b|\s|\""|'|$)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex StagedLoaderPivotPattern = new Regex(
+            @"(?i)(\s/c\s|\s/k\s|start-process|\bstart\b|\bcall\b|&&|\|)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex StagedLoaderDownloadCommandPattern = new Regex(
+            @"(?i)(\biwr\b|invoke-webrequest|\birm\b|invoke-restmethod|\biex\b|invoke-expression|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|new-object\s+net\.webclient|\bcurl\b|\bwget\b)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly HashSet<string> SystemAssemblies = new(StringComparer.OrdinalIgnoreCase)
@@ -193,7 +207,9 @@ namespace MLVScan.Models.Rules
             var argumentsLower = arguments.ToLowerInvariant();
 
             var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
-                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp);
+                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp,
+                methodSignals?.HasNetworkCall == true,
+                methodSignals?.HasFileWrite == true);
 
             if (severity == null)
                 yield break;
@@ -245,7 +261,9 @@ namespace MLVScan.Models.Rules
             bool useShellExecute = false,
             bool createNoWindow = false,
             bool windowStyleHidden = false,
-            bool workingDirectoryIsTemp = false)
+            bool workingDirectoryIsTemp = false,
+            bool hasNetworkCallSignal = false,
+            bool hasFileWriteSignal = false)
         {
             bool isLolBin = LolBinExecutables.Contains(targetLower) ||
                             LolBinExecutables.Any(lol =>
@@ -259,6 +277,15 @@ namespace MLVScan.Models.Rules
                                      argumentsLower != "<unknown/no-arguments>" &&
                                      SuspiciousArgumentPattern.IsMatch(argumentsLower);
 
+            bool hasResolverPlaceholderArgs = argumentsLower.Contains("<arg ") ||
+                                              argumentsLower.Contains("<dynamic") ||
+                                              argumentsLower.Contains("<unknown");
+
+            if (hasResolverPlaceholderArgs)
+            {
+                hasSuspiciousArgs = false;
+            }
+
             bool hasDownloadUrl = !string.IsNullOrEmpty(argumentsLower) &&
                                   DownloadPattern.IsMatch(argumentsLower);
 
@@ -266,11 +293,60 @@ namespace MLVScan.Models.Rules
                                argumentsLower != "<unknown/no-arguments>" &&
                                TempPathPattern.IsMatch(argumentsLower);
 
+            bool hasScriptDropExtension = !string.IsNullOrEmpty(argumentsLower) &&
+                                          argumentsLower != "<unknown/no-arguments>" &&
+                                          ScriptDropExtensionPattern.IsMatch(argumentsLower);
+
+            bool hasStagedLoaderPivot = !string.IsNullOrEmpty(argumentsLower) &&
+                                        argumentsLower != "<unknown/no-arguments>" &&
+                                        StagedLoaderPivotPattern.IsMatch(argumentsLower);
+
+            bool hasStagedDownloadCommand = !string.IsNullOrEmpty(argumentsLower) &&
+                                            argumentsLower != "<unknown/no-arguments>" &&
+                                            StagedLoaderDownloadCommandPattern.IsMatch(argumentsLower);
+
             bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
 
             // Check for evasion indicators first - these escalate severity
             bool hasEvasionIndicators =
                 useShellExecute || createNoWindow || windowStyleHidden || workingDirectoryIsTemp;
+
+            bool hasStagedLoaderChain =
+                hasDownloadUrl &&
+                (hasTempPath || hasScriptDropExtension || workingDirectoryIsTemp) &&
+                (hasStagedDownloadCommand || hasStagedLoaderPivot || hasSuspiciousArgs || hasFileWriteSignal ||
+                 hasNetworkCallSignal);
+
+            if (hasStagedLoaderChain)
+            {
+                if (isLolBin || hasEvasionIndicators || hasFileWriteSignal || hasNetworkCallSignal)
+                {
+                    return (Severity.Critical, "Staged loader chain (download -> temp drop -> execute)");
+                }
+
+                return (Severity.High, "Potential staged loader chain (download -> temp drop -> execute)");
+            }
+
+            if (isKnownSafe)
+            {
+                if ((hasDownloadUrl && hasTempPath && hasEvasionIndicators) ||
+                    (hasEvasionIndicators && hasFileWriteSignal && hasNetworkCallSignal))
+                {
+                    return (Severity.High, "Known tool with suspicious download-and-execute chain");
+                }
+
+                if (hasSuspiciousArgs && hasEvasionIndicators)
+                {
+                    return (Severity.High, "Known tool with suspicious hidden execution arguments");
+                }
+
+                if (hasEvasionIndicators || hasSuspiciousArgs || hasDownloadUrl || hasTempPath)
+                {
+                    return (Severity.Medium, "Known external tool with elevated execution context");
+                }
+
+                return (Severity.Low, "Known external tool");
+            }
 
             if (hasEvasionIndicators && isLolBin)
             {
@@ -325,6 +401,11 @@ namespace MLVScan.Models.Rules
                 return (Severity.Critical, "LOLBin with URL in arguments");
             }
 
+            if (isLolBin && hasTempPath)
+            {
+                return (Severity.Critical, "LOLBin with temp path execution");
+            }
+
             if (isLolBin)
             {
                 return (Severity.High, "LOLBin execution");
@@ -332,7 +413,12 @@ namespace MLVScan.Models.Rules
 
             if (hasSuspiciousArgs && hasDownloadUrl)
             {
-                return (Severity.Critical, "Process with suspicious download arguments");
+                if (hasEvasionIndicators && hasTempPath)
+                {
+                    return (Severity.Critical, "Process with hidden suspicious download-to-temp execution");
+                }
+
+                return (Severity.High, "Process with suspicious download arguments");
             }
 
             if (hasSuspiciousArgs)
@@ -401,6 +487,14 @@ namespace MLVScan.Models.Rules
 
             var description = $"{Description} Target: {target}. Arguments: {arguments}";
 
+            var targetLower = target.ToLowerInvariant().Trim('"');
+            var argumentsLower = arguments.ToLowerInvariant();
+
+            var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
+                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp);
+
+            _severity = severity ?? Severity.Medium;
+
             // Add evasion indicators to description
             var evasionIndicators = new List<string>();
             if (useShellExecute)
@@ -415,6 +509,11 @@ namespace MLVScan.Models.Rules
             if (evasionIndicators.Count > 0)
             {
                 description += " [Evasion: " + string.Join(", ", evasionIndicators) + "]";
+            }
+
+            if (!string.IsNullOrEmpty(riskReason))
+            {
+                description += $" [{riskReason}]";
             }
 
             return description;

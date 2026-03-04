@@ -230,7 +230,7 @@ public class DataFlowQuarantineTests
 
         var findings = scanner.Scan(path).ToList();
         var dataFlowFindings = findings
-            .Where(f => f.RuleId == "DataFlowAnalysis" && f.HasDataFlow)
+            .Where(f => f.HasDataFlow)
             .ToList();
 
         dataFlowFindings.Should().NotBeEmpty("RealRadio extracts a resource to disk and executes it through ShellExecuteEx");
@@ -264,7 +264,7 @@ public class DataFlowQuarantineTests
 
         // Act
         var findings = scanner.Scan(path).ToList();
-        var dataFlowFindings = findings.Where(f => f.RuleId == "DataFlowAnalysis").ToList();
+        var dataFlowFindings = findings.Where(f => f.HasDataFlow).ToList();
 
         // Assert - All data flow findings should have required properties
         foreach (var finding in dataFlowFindings)
@@ -272,7 +272,7 @@ public class DataFlowQuarantineTests
             finding.Location.Should().NotBeNullOrEmpty();
             finding.Description.Should().NotBeNullOrEmpty();
             finding.Severity.Should().BeOneOf(Severity.Low, Severity.Medium, Severity.High, Severity.Critical);
-            finding.RuleId.Should().Be("DataFlowAnalysis");
+            finding.DataFlowChain.Should().NotBeNull();
         }
     }
 
@@ -294,7 +294,7 @@ public class DataFlowQuarantineTests
 
         // Assert - Should have both call chain and potentially data flow findings
         var callChainFindings = findings.Where(f => f.HasCallChain).ToList();
-        var dataFlowFindings = findings.Where(f => f.RuleId == "DataFlowAnalysis").ToList();
+        var dataFlowFindings = findings.Where(f => f.HasDataFlow).ToList();
 
         // NoMoreTrash should have call chain findings (we know this from existing tests)
         callChainFindings.Should().NotBeEmpty();
