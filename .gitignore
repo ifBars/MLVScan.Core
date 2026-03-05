@@ -51,6 +51,9 @@ TestLogs/
 run-false-positive-tests.bat
 run-quarantine-tests.bat
 
+bump-version.bat
+bump-version.ps1
+
 ## WASM / NPM
 MLVScan.WASM/npm/dist/
 MLVScan.WASM/npm/node_modules/
