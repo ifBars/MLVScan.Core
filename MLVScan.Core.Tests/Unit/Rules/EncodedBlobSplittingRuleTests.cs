@@ -86,7 +86,7 @@ public class EncodedBlobSplittingRuleTests
     }
 
     [Fact]
-    public void AnalyzeInstructions_SplitWithOneParameter_DoesNotReport()
+    public void AnalyzeInstructions_SplitWithOneParameter_ProducesFinding()
     {
         var method = CreateMethodDefinition("BlobType", "Decode");
         var splitRef = CreateStringSplitMethod(method.Module, parameterCount: 1);
@@ -104,7 +104,11 @@ public class EncodedBlobSplittingRuleTests
 
         var findings = _rule.AnalyzeInstructions(method, instructions, new MethodSignals()).ToList();
 
-        findings.Should().BeEmpty();
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("backtick (`)");
+        findings[0].CodeSnippet.Should().NotBeNullOrEmpty();
+        findings[0].CodeSnippet.Should().Contain(">>>");
     }
 
     private static MethodDefinition CreateMethodDefinition(string typeName, string methodName)
