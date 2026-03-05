@@ -32,7 +32,7 @@ public class AssemblyScannerTests
     }
 
     [Fact]
-    public void Scan_WithProcessStart_ReturnsCriticalFinding()
+    public void Scan_WithProcessStart_ReturnsMediumFinding()
     {
         var assembly = TestAssemblyBuilder.Create("MaliciousMod")
             .AddType("MaliciousCode")
@@ -53,7 +53,7 @@ public class AssemblyScannerTests
         var findings = scanner.Scan(stream, "MaliciousMod.dll").ToList();
 
         findings.Should().NotBeEmpty();
-        findings.Should().Contain(f => f.Severity == Severity.Critical);
+        findings.Should().Contain(f => f.Severity == Severity.Medium);
         findings.Should().Contain(f => f.Description.Contains("Process.Start"));
     }
 

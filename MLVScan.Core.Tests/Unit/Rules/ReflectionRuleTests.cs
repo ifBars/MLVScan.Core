@@ -78,7 +78,7 @@ public class ReflectionRuleTests
         var signals = new MethodSignals();
         signals.MarkRuleTriggered("OtherRule");
 
-        var findings = _rule.AnalyzeInstructions(method, null!, signals);
+        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, signals);
 
         findings.Should().BeEmpty();
     }
