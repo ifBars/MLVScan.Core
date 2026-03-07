@@ -20,8 +20,8 @@ public class RuleFactoryTests
     {
         var rules = RuleFactory.CreateDefaultRules();
 
-        // Based on RuleFactory.cs, there are 17 rules (after removing Shell32Rule and EnvironmentPathRule)
-        rules.Should().HaveCount(17);
+        // Based on RuleFactory.cs, there are 18 rules.
+        rules.Should().HaveCount(18);
     }
 
     [Fact]
@@ -46,6 +46,7 @@ public class RuleFactoryTests
         rules.Should().ContainSingle(r => r is HexStringRule);
         rules.Should().ContainSingle(r => r is SuspiciousLocalVariableRule);
         rules.Should().ContainSingle(r => r is ObfuscatedReflectiveExecutionRule);
+        rules.Should().ContainSingle(r => r is SuspiciousAssemblyNameRule);
     }
 
     [Fact]

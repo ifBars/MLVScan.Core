@@ -236,6 +236,20 @@ namespace MLVScan.Services
                             DataDescription = opInfo.Value.DataDescription,
                             LocalVariableIndex = TryGetTargetLocalVariable(instructions, i)
                         });
+
+                        if (IsDirectDownloadToDisk(calledMethod.DeclaringType?.FullName ?? string.Empty,
+                                calledMethod.Name))
+                        {
+                            operations.Add(new InterestingOperation
+                            {
+                                Instruction = instruction,
+                                InstructionIndex = i,
+                                MethodReference = calledMethod,
+                                NodeType = DataFlowNodeType.Sink,
+                                Operation = $"{calledMethod.DeclaringType?.Name}.{calledMethod.Name}",
+                                DataDescription = "Writes downloaded data to file"
+                            });
+                        }
                     }
                 }
             }
@@ -348,7 +362,53 @@ namespace MLVScan.Services
             // Also look for sequential suspicious operations (even without variable tracking)
             chains.AddRange(BuildSequentialChains(method, instructions, operations));
 
+            // Capture direct-to-disk download APIs followed by later execution in the same method,
+            // including async state-machine methods where await scaffolding spreads the sink apart.
+            var directDownloadChain = BuildDirectDownloadToExecuteChain(method, instructions, operations);
+            if (directDownloadChain != null)
+            {
+                chains.Add(directDownloadChain);
+            }
+
             return chains;
+        }
+
+        private DataFlowChain? BuildDirectDownloadToExecuteChain(
+            MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            List<InterestingOperation> operations)
+        {
+            var downloadSource = operations.FirstOrDefault(op =>
+                op.NodeType == DataFlowNodeType.Source &&
+                IsDirectDownloadToDisk(op.MethodReference.DeclaringType?.FullName ?? string.Empty,
+                    op.MethodReference.Name));
+
+            if (downloadSource == null)
+                return null;
+
+            var downloadSink = operations.FirstOrDefault(op =>
+                op.NodeType == DataFlowNodeType.Sink &&
+                op.InstructionIndex == downloadSource.InstructionIndex &&
+                IsDirectDownloadToDisk(op.MethodReference.DeclaringType?.FullName ?? string.Empty,
+                    op.MethodReference.Name));
+
+            if (downloadSink == null)
+                return null;
+
+            var processStart = operations.FirstOrDefault(op =>
+                op.NodeType == DataFlowNodeType.Sink &&
+                op.InstructionIndex > downloadSource.InstructionIndex &&
+                op.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase));
+
+            if (processStart == null)
+                return null;
+
+            return BuildChain(method, instructions, new List<InterestingOperation>
+            {
+                downloadSource,
+                downloadSink,
+                processStart
+            });
         }
 
         private List<DataFlowChain> BuildSequentialChains(
@@ -360,7 +420,7 @@ namespace MLVScan.Services
 
             // Look for patterns like: Network call → Base64 decode → File write → Process start
             // within a reasonable instruction window (< 100 instructions apart)
-            const int maxInstructionDistance = 100;
+            const int maxInstructionDistance = 250;
 
             for (int i = 0; i < operations.Count - 1; i++)
             {
@@ -590,8 +650,9 @@ namespace MLVScan.Services
         private bool HasFileWrite(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
                           ((op.Operation.Contains("Write") || op.Operation.Contains("Create")) &&
-                           op.Operation.Contains("File") ||
-                           op.Operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase)));
+                            op.Operation.Contains("File") ||
+                            op.Operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase) ||
+                            op.Operation.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase)));
 
         private bool HasProcessStart(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Sink &&
@@ -619,6 +680,12 @@ namespace MLVScan.Services
             (declType.StartsWith("System.Net") || declType.Contains("HttpClient") ||
              declType.Contains("WebClient") || declType.Contains("UnityWebRequest")) &&
             (methodName.Contains("Get") || methodName.Contains("Download") || methodName.Contains("Receive"));
+
+        private bool IsDirectDownloadToDisk(string declType, string methodName) =>
+            (declType.StartsWith("System.Net") || declType.Contains("WebClient") ||
+             declType.Contains("UnityWebRequest")) &&
+            (methodName.Equals("DownloadFile", StringComparison.OrdinalIgnoreCase) ||
+             methodName.Equals("DownloadFileTaskAsync", StringComparison.OrdinalIgnoreCase));
 
         private bool IsFileSource(string declType, string methodName) =>
             declType.StartsWith("System.IO.File") &&

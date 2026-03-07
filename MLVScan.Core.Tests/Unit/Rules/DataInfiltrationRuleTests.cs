@@ -209,6 +209,41 @@ public class DataInfiltrationRuleTests
     }
 
     [Fact]
+    public void AnalyzeContextualPattern_DownloadFileWithExecutablePayload_ReturnsHighSeverityAndBypassesCompanionCheck()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.WebClient", "DownloadFileTaskAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://downloads.example.com/payload.exe"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].BypassCompanionCheck.Should().BeTrue();
+        findings[0].Description.Should().Contain("executable or script payload");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DownloadFileFromKnownMaliciousDomain_ReturnsHighSeverityAndBypassesCompanionCheck()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.WebClient", "DownloadFileTaskAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://minecraftmods.xyz/Venticularjpeggerson.exe"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].BypassCompanionCheck.Should().BeTrue();
+        findings[0].Description.Should().Contain("known malicious domain");
+        findings[0].Description.Should().Contain("minecraftmods.xyz");
+    }
+
+    [Fact]
     public void AnalyzeContextualPattern_GitHubReleases_ReturnsLowSeverity()
     {
         var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetStringAsync");
@@ -492,13 +527,13 @@ public class DataInfiltrationRuleTests
         var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetStringAsync");
         var instructions = new Mono.Collections.Generic.Collection<Instruction>();
 
-        // Add string far before the call (outside 10-instruction window)
-        for (int i = 0; i < 15; i++)
+        // Add string far before the call (outside 25-instruction window)
+        for (int i = 0; i < 30; i++)
         {
             instructions.Add(Instruction.Create(OpCodes.Nop));
         }
         instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://pastebin.com/raw/faraway"));
-        for (int i = 0; i < 15; i++)
+        for (int i = 0; i < 30; i++)
         {
             instructions.Add(Instruction.Create(OpCodes.Nop));
         }

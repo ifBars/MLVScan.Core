@@ -97,6 +97,7 @@ public class DataFlowQuarantineTests
     [InlineData("RealRadio.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
+    [InlineData("MelonLoaderMod55.dll.di")]
     public void Scan_QuarantineSample_ShouldAnalyzeDataFlows(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
@@ -127,7 +128,8 @@ public class DataFlowQuarantineTests
             "EndlessGraffiti.dll.di",
             "RealRadio.dll.di",
             "S1API.Il2Cpp.MelonLoader.dll.di",
-            "ScheduleIMoreNpcs.dll.di"
+            "ScheduleIMoreNpcs.dll.di",
+            "MelonLoaderMod55.dll.di"
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
@@ -247,6 +249,29 @@ public class DataFlowQuarantineTests
             node.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase));
     }
 
+    [SkippableFact]
+    public void Scan_MelonLoaderMod55_ShouldProduceDownloadAndExecuteDataFlow()
+    {
+        var path = GetSamplePath("MelonLoaderMod55.dll.di");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dataFlowFindings = findings.Where(f => f.HasDataFlow).ToList();
+
+        dataFlowFindings.Should().Contain(f =>
+            f.DataFlowChain!.Pattern == DataFlowPattern.DownloadAndExecute);
+
+        var chain = dataFlowFindings
+            .Select(f => f.DataFlowChain!)
+            .First(c => c.Pattern == DataFlowPattern.DownloadAndExecute);
+
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("DownloadFileTaskAsync", StringComparison.OrdinalIgnoreCase));
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase));
+    }
+
     [SkippableTheory]
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]
@@ -254,6 +279,7 @@ public class DataFlowQuarantineTests
     [InlineData("RealRadio.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
+    [InlineData("MelonLoaderMod55.dll.di")]
     public void Scan_QuarantineSample_DataFlowFindingsHaveRequiredProperties(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
@@ -312,6 +338,7 @@ public class DataFlowQuarantineTests
     [InlineData("RealRadio.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
+    [InlineData("MelonLoaderMod55.dll.di")]
     public void Scan_QuarantineSample_NoExceptionsThrown(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)

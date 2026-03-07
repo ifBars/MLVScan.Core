@@ -33,7 +33,8 @@ namespace MLVScan
                 new PersistenceRule(),
                 new HexStringRule(),
                 new SuspiciousLocalVariableRule(),
-                new ObfuscatedReflectiveExecutionRule()
+                new ObfuscatedReflectiveExecutionRule(),
+                new SuspiciousAssemblyNameRule()
             }.AsReadOnly();
         }
     }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using MLVScan.Models;
 using Mono.Cecil;
@@ -7,6 +8,16 @@ namespace MLVScan.Models.Rules
 {
     public class DataInfiltrationRule : IScanRule
     {
+        private static readonly HashSet<string> KnownMaliciousDomains = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "minecraftmods.xyz"
+        };
+
+        private static readonly HashSet<string> SuspiciousPayloadExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
+        };
+
         public string Description =>
             "Detected data download from suspicious endpoint (potential payload infiltration).";
 
@@ -67,8 +78,8 @@ namespace MLVScan.Models.Rules
                 yield break;
 
             // Sweep nearby string literals for indicators
-            int windowStart = Math.Max(0, instructionIndex - 10);
-            int windowEnd = Math.Min(instructions.Count, instructionIndex + 11);
+            int windowStart = Math.Max(0, instructionIndex - 25);
+            int windowEnd = Math.Min(instructions.Count, instructionIndex + 26);
             var literals = new List<string>();
             for (int k = windowStart; k < windowEnd; k++)
             {
@@ -156,6 +167,9 @@ namespace MLVScan.Models.Rules
 
             urls = urls.Distinct().ToList();
 
+            bool targetsKnownMaliciousDomain = urls.Any(IsKnownMaliciousDomain);
+            bool targetsDirectPayload = urls.Any(IsDirectPayloadUrl);
+
             string urlList = urls.Count > 0
                 ? $" URL(s): {string.Join(", ", urls)}"
                 : string.Empty;
@@ -187,6 +201,28 @@ namespace MLVScan.Models.Rules
                     Severity.Low,
                     snippetBuilder.ToString().TrimEnd());
             }
+            else if (targetsKnownMaliciousDomain)
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    $"Read-only operation to known malicious domain (confirmed payload delivery infrastructure).{urlList}",
+                    Severity.High,
+                    snippetBuilder.ToString().TrimEnd())
+                {
+                    BypassCompanionCheck = true
+                };
+            }
+            else if (targetsDirectPayload)
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    $"Read-only operation downloads executable or script payload from non-allowlisted domain.{urlList}",
+                    Severity.High,
+                    snippetBuilder.ToString().TrimEnd())
+                {
+                    BypassCompanionCheck = true
+                };
+            }
             // Non-legitimate sources: High severity (requires companion finding to actually trigger due to RequiresCompanionFinding = true)
             else if (hasRawPaste || hasBareIpUrl || mentionsNgrokOrTelegram)
             {
@@ -196,6 +232,28 @@ namespace MLVScan.Models.Rules
                     Severity.High,
                     snippetBuilder.ToString().TrimEnd());
             }
+        }
+
+        private static bool IsKnownMaliciousDomain(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Host))
+                return false;
+
+            return KnownMaliciousDomains.Contains(uri.Host) ||
+                   KnownMaliciousDomains.Any(domain => uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsDirectPayloadUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return false;
+
+            if (IsKnownMaliciousDomain(url))
+                return true;
+
+            string path = uri.AbsolutePath;
+            return SuspiciousPayloadExtensions.Any(ext =>
+                path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

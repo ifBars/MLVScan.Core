@@ -214,8 +214,8 @@ namespace MLVScan.Services
 
         private void ScanAssembly(AssemblyDefinition assembly, List<ScanFinding> findings)
         {
-            foreach (var module in assembly.Modules)
-            {
+                foreach (var module in assembly.Modules)
+                {
                 // Scan assembly metadata for hidden payloads
                 if (_config.DetectAssemblyMetadata)
                 {
@@ -226,17 +226,17 @@ namespace MLVScan.Services
                 // and findings are generated later in BuildCallChainFindings()
                 _dllImportScanner.ScanForDllImports(module);
 
-                foreach (var type in module.Types)
-                {
-                    findings.AddRange(_typeScanner.ScanType(type));
-
-                    // Phase 1: Analyze data flow for each method in the type (single-method analysis)
-                    foreach (var method in type.Methods)
+                    foreach (var type in module.Types)
                     {
-                        _dataFlowAnalyzer.AnalyzeMethod(method);
+                        findings.AddRange(_typeScanner.ScanType(type));
+
+                        // Phase 1: Analyze data flow for each method in the type (single-method analysis)
+                        foreach (var method in EnumerateMethodsRecursively(type))
+                        {
+                            _dataFlowAnalyzer.AnalyzeMethod(method);
+                        }
                     }
                 }
-            }
 
             // Phase 2: Analyze cross-method data flows after all methods have been processed
             _dataFlowAnalyzer.AnalyzeCrossMethodFlows();
@@ -257,6 +257,22 @@ namespace MLVScan.Services
             if (_config.DeepAnalysis.EnableDeepAnalysis)
             {
                 RunDeepBehaviorAnalysis(assembly, findings);
+            }
+        }
+
+        private static IEnumerable<MethodDefinition> EnumerateMethodsRecursively(TypeDefinition type)
+        {
+            foreach (var method in type.Methods)
+            {
+                yield return method;
+            }
+
+            foreach (var nestedType in type.NestedTypes)
+            {
+                foreach (var method in EnumerateMethodsRecursively(nestedType))
+                {
+                    yield return method;
+                }
             }
         }
 
