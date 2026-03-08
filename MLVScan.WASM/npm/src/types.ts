@@ -23,6 +23,8 @@ export interface ScanResult {
   dataFlows?: DataFlowChain[]
   /** Optional remediation guidance for developer mode. */
   developerGuidance?: DeveloperGuidance[]
+  /** Optional known malware family matches derived from threat-intel classification. */
+  threatFamilies?: ThreatFamily[]
 }
 
 /** Metadata about the scanner and this scan run. */
@@ -140,6 +142,26 @@ export interface DeveloperGuidance {
   documentationUrl?: string
   alternativeApis?: string[]
   isRemediable: boolean
+}
+
+export type ThreatMatchKind = 'ExactSampleHash' | 'BehaviorVariant'
+
+export interface ThreatFamilyEvidence {
+  kind: string
+  value: string
+}
+
+export interface ThreatFamily {
+  familyId: string
+  variantId: string
+  displayName: string
+  summary: string
+  matchKind: ThreatMatchKind
+  confidence: number
+  exactHashMatch: boolean
+  matchedRules: string[]
+  advisorySlugs: string[]
+  evidence: ThreatFamilyEvidence[]
 }
 
 export interface DeepBehaviorAnalysisConfig {

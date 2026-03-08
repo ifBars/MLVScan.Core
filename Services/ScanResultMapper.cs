@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using MLVScan.Models;
 using MLVScan.Models.Dto;
+using MLVScan.Models.ThreatIntel;
+using MLVScan.Services.ThreatIntel;
 
 namespace MLVScan.Services;
 
@@ -10,6 +12,8 @@ namespace MLVScan.Services;
 /// </summary>
 public static class ScanResultMapper
 {
+    private static readonly ThreatFamilyClassifier ThreatFamilyClassifier = new();
+
     /// <summary>
     /// Converts a collection of ScanFinding to a complete ScanResultDto.
     /// </summary>
@@ -24,6 +28,8 @@ public static class ScanResultMapper
         ScanResultOptions options)
     {
         var findingsList = findings.ToList();
+        var sha256Hash = ComputeSha256(assemblyBytes);
+        var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, sha256Hash);
         var result = new ScanResultDto
         {
             SchemaVersion = options.SchemaVersion,
@@ -38,11 +44,16 @@ public static class ScanResultMapper
             },
             Input = new ScanInputDto
             {
-                FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = ComputeSha256(assemblyBytes)
+                FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = sha256Hash
             },
             Summary = BuildSummary(findingsList),
             Findings = findingsList.Select(ToFindingDto).ToList()
         };
+
+        if (threatFamilies.Count > 0)
+        {
+            result.ThreatFamilies = threatFamilies.Select(ToThreatFamilyDto).ToList();
+        }
 
         // Add call chains if present and enabled
         if (options.IncludeCallChains)
@@ -213,6 +224,27 @@ public static class ScanResultMapper
             DocumentationUrl = guidance.DocumentationUrl,
             AlternativeApis = guidance.AlternativeApis,
             IsRemediable = guidance.IsRemediable
+        };
+    }
+
+    private static ThreatFamilyDto ToThreatFamilyDto(ThreatFamilyMatch match)
+    {
+        return new ThreatFamilyDto
+        {
+            FamilyId = match.FamilyId,
+            VariantId = match.VariantId,
+            DisplayName = match.DisplayName,
+            Summary = match.Summary,
+            MatchKind = match.MatchKind.ToString(),
+            Confidence = match.Confidence,
+            ExactHashMatch = match.ExactHashMatch,
+            MatchedRules = match.MatchedRules,
+            AdvisorySlugs = match.AdvisorySlugs,
+            Evidence = match.Evidence.Select(e => new ThreatFamilyEvidenceDto
+            {
+                Kind = e.Kind,
+                Value = e.Value
+            }).ToList()
         };
     }
 

@@ -313,4 +313,41 @@ public class ScanResultMapperTests
 
         result.DeveloperGuidance.Should().HaveCount(1); // Deduplicated by Remediation
     }
+
+    [Fact]
+    public void ToDto_WithKnownThreatFamily_IncludesThreatFamilies()
+    {
+        var findings = new List<ScanFinding>
+        {
+            new("Test.Mod.Init:52",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: iwr ... dl.bat ... Start-Sleep ... Remove-Item [Evasion: UseShellExecute=true, WindowStyle=Hidden]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, false);
+
+        result.ThreatFamilies.Should().NotBeNull();
+        result.ThreatFamilies!.Should().ContainSingle();
+        result.ThreatFamilies[0].FamilyId.Should().Be("family-powershell-iwr-dlbat-v1");
+        result.ThreatFamilies[0].MatchKind.Should().Be("BehaviorVariant");
+    }
+
+    [Fact]
+    public void ToDto_WithNoKnownThreatFamily_LeavesThreatFamiliesNull()
+    {
+        var findings = new List<ScanFinding>
+        {
+            new("Test.Mod.Init", "Opens a local folder for the user.", Severity.Low)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, false);
+
+        result.ThreatFamilies.Should().BeNull();
+    }
 }

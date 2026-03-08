@@ -48,4 +48,9 @@ public class ScanResultDto
     /// Only present when developer mode is enabled.
     /// </summary>
     public List<DeveloperGuidanceDto>? DeveloperGuidance { get; set; }
+
+    /// <summary>
+    /// Optional: Known malware family matches derived from threat-intel classification.
+    /// </summary>
+    public List<ThreatFamilyDto>? ThreatFamilies { get; set; }
 }
