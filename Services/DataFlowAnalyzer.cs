@@ -175,6 +175,11 @@ namespace MLVScan.Services
             {
                 foreach (var chain in chains.Where(c => c.IsSuspicious))
                 {
+                    if (!ShouldEmitFinding(chain.Pattern))
+                    {
+                        continue;
+                    }
+
                     var finding = CreateDataFlowFinding(chain);
                     findings.Add(finding);
                 }
@@ -183,6 +188,11 @@ namespace MLVScan.Services
             // Cross-method findings
             foreach (var chain in _crossMethodChains.Where(c => c.IsSuspicious))
             {
+                if (!ShouldEmitFinding(chain.Pattern))
+                {
+                    continue;
+                }
+
                 var finding = CreateDataFlowFinding(chain);
                 findings.Add(finding);
             }
@@ -627,6 +637,14 @@ namespace MLVScan.Services
             return finding;
         }
 
+        private static bool ShouldEmitFinding(DataFlowPattern pattern)
+        {
+            return pattern == DataFlowPattern.EmbeddedResourceDropAndExecute ||
+                   pattern == DataFlowPattern.DownloadAndExecute ||
+                   pattern == DataFlowPattern.DynamicCodeLoading ||
+                   pattern == DataFlowPattern.ObfuscatedPersistence;
+        }
+
         // Helper methods for pattern recognition
         private bool HasNetworkSource(List<InterestingOperation> ops) =>
             ops.Any(op => op.NodeType == DataFlowNodeType.Source &&
@@ -994,13 +1012,17 @@ namespace MLVScan.Services
             if (!callerHasDataOrigin || !calleeHasDataConsumption)
                 return null;
 
+            var callerFlowOps = GetCallerOpsPassedIntoCall(callerInfo, callSite);
+            if (callerFlowOps.Count == 0)
+            {
+                return null;
+            }
+
             // Build the combined operations list
             var combinedOps = new List<InterestingOperation>();
 
-            // Add caller's source/transform operations
-            combinedOps.AddRange(callerInfo.Operations
-                .Where(op => op.NodeType == DataFlowNodeType.Source || op.NodeType == DataFlowNodeType.Transform)
-                .OrderBy(op => op.InstructionIndex));
+            // Add caller's source/transform operations that are actually passed into the callee.
+            combinedOps.AddRange(callerFlowOps);
 
             // Add callee's sink operations
             combinedOps.AddRange(calleeInfo.Operations
@@ -1086,6 +1108,27 @@ namespace MLVScan.Services
             }
 
             return chain;
+        }
+
+        private static List<InterestingOperation> GetCallerOpsPassedIntoCall(
+            MethodFlowInfo callerInfo,
+            MethodCallSite callSite)
+        {
+            if (callSite.ParameterMapping.Count == 0)
+            {
+                return new List<InterestingOperation>();
+            }
+
+            var passedLocalIndexes = new HashSet<int>(callSite.ParameterMapping.Values);
+
+            return callerInfo.Operations
+                .Where(op =>
+                    (op.NodeType == DataFlowNodeType.Source || op.NodeType == DataFlowNodeType.Transform) &&
+                    op.LocalVariableIndex.HasValue &&
+                    op.InstructionIndex < callSite.InstructionIndex &&
+                    passedLocalIndexes.Contains(op.LocalVariableIndex.Value))
+                .OrderBy(op => op.InstructionIndex)
+                .ToList();
         }
 
         private double CalculateCrossMethodConfidence(
@@ -1532,6 +1575,17 @@ namespace MLVScan.Services
             CallChainNode targetNode,
             int chainLength)
         {
+            if (targetNode.IncomingCallSite == null)
+            {
+                return null;
+            }
+
+            var rootFlowOps = GetCallerOpsPassedIntoCall(rootNode.MethodInfo, targetNode.IncomingCallSite);
+            if (rootFlowOps.Count == 0)
+            {
+                return null;
+            }
+
             // Collect all operations across the chain
             var allSourceOps = new List<(MethodFlowInfo Info, InterestingOperation Op)>();
             var allSinkOps = new List<(MethodFlowInfo Info, InterestingOperation Op)>();
@@ -1552,8 +1606,17 @@ namespace MLVScan.Services
             // Build the combined operations list for pattern recognition
             var combinedOps = new List<InterestingOperation>();
 
-            // Add source operations
-            foreach (var (info, op) in allSourceOps)
+            foreach (var op in rootFlowOps)
+            {
+                combinedOps.Add(op);
+            }
+
+            foreach (var (_, op) in allTransformOps)
+            {
+                combinedOps.Add(op);
+            }
+
+            foreach (var (_, op) in allSinkOps)
             {
                 combinedOps.Add(op);
             }

@@ -515,6 +515,38 @@ public class AssemblyDynamicLoadRuleTests
         findings.Should().NotBeEmpty();
     }
 
+    [Fact]
+    public void ShouldSuppressFinding_SafeAssemblyNameLoad_ReturnsTrue()
+    {
+        var methodRef = CreateAssemblyLoadMethod("System.String");
+        methodRef.Name = "Load";
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "Assembly-CSharp"),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var shouldSuppress = _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals());
+
+        shouldSuppress.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_LoadFromPath_ReturnsFalse()
+    {
+        var methodRef = CreateAssemblyLoadMethod("System.String");
+        methodRef.Name = "LoadFrom";
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "Assembly-CSharp"),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var shouldSuppress = _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals());
+
+        shouldSuppress.Should().BeFalse();
+    }
+
     #endregion
 
     #region AnalyzeInstructions Tests

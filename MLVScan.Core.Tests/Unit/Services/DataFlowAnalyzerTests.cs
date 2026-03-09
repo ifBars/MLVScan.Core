@@ -303,6 +303,50 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeCrossMethodFlows_WhenCallerPassesUnrelatedLocal_DoesNotCreateChain()
+    {
+        var builder = TestAssemblyBuilder.Create("UnrelatedParameterFlowTest");
+        var module = builder.Module;
+
+        var typeBuilder = builder.AddType("TestNamespace.ChatLikeClass");
+
+        typeBuilder.AddMethod("ExecuteCommand", MethodAttributes.Public | MethodAttributes.Static)
+            .AddParameter("command", module.TypeSystem.String)
+            .EmitLdarg(0)
+            .EmitCall("System.Diagnostics.Process", "Start", module.TypeSystem.Object)
+            .EmitPop()
+            .EndMethod();
+
+        var sinkMethod = typeBuilder.TypeDefinition.Methods.First(m => m.Name == "ExecuteCommand");
+
+        typeBuilder.AddMethod("ReceiveAndLog", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(module.TypeSystem.String, out var downloadedLocal)
+            .AddLocal(module.TypeSystem.String, out var commandLocal)
+            .EmitCall("System.Net.WebClient", "DownloadString", module.TypeSystem.String)
+            .EmitStloc(downloadedLocal)
+            .EmitString("notepad.exe")
+            .EmitStloc(commandLocal)
+            .EmitLdloc(commandLocal)
+            .EmitCallInternal(sinkMethod)
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var testType = assembly.MainModule.Types.First(t => t.Name == "ChatLikeClass");
+        var sourceMethod = testType.Methods.First(m => m.Name == "ReceiveAndLog");
+        var targetMethod = testType.Methods.First(m => m.Name == "ExecuteCommand");
+
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        analyzer.AnalyzeMethod(sourceMethod);
+        analyzer.AnalyzeMethod(targetMethod);
+        analyzer.AnalyzeCrossMethodFlows();
+
+        analyzer.CrossMethodChainCount.Should().Be(0);
+    }
+
+    [Fact]
     public void BuildDataFlowFindings_IncludesCrossMethodFindings()
     {
         // Arrange
@@ -350,6 +394,37 @@ public class DataFlowAnalyzerTests
         // Should have at least some findings (single-method or cross-method)
         // The exact count depends on pattern recognition
         findings.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void BuildDataFlowFindings_DataExfiltrationPattern_DoesNotEmitStandaloneFinding()
+    {
+        var builder = TestAssemblyBuilder.Create("StandaloneExfiltrationTest");
+        var module = builder.Module;
+        var typeBuilder = builder.AddType("TestNamespace.TelemetryClass");
+
+        typeBuilder.AddMethod("UploadTelemetry", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(module.TypeSystem.String, out var localIdx)
+            .EmitString("telemetry.json")
+            .EmitCall("System.IO.File", "ReadAllText", module.TypeSystem.String)
+            .EmitStloc(localIdx)
+            .EmitLdloc(localIdx)
+            .EmitCall("System.Net.WebClient", "UploadString", module.TypeSystem.String)
+            .EmitPop()
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var method = assembly.MainModule.Types.First(t => t.Name == "TelemetryClass")
+            .Methods.First(m => m.Name == "UploadTelemetry");
+
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        analyzer.AnalyzeMethod(method);
+
+        analyzer.SuspiciousChainCount.Should().BeGreaterThan(0);
+        analyzer.BuildDataFlowFindings().Should().BeEmpty();
     }
 
     [Fact]

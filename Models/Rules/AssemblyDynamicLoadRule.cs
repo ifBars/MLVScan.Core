@@ -256,6 +256,28 @@ namespace MLVScan.Models.Rules
             return findings;
         }
 
+        public bool ShouldSuppressFinding(
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex,
+            MethodSignals methodSignals,
+            MethodSignals? typeSignals = null)
+        {
+            if (method?.DeclaringType == null)
+            {
+                return false;
+            }
+
+            var overload = ClassifyOverload(method);
+            if (overload != LoadOverload.LoadString && overload != LoadOverload.LoadAssemblyName)
+            {
+                return false;
+            }
+
+            var argName = ExtractStringArgument(instructions, instructionIndex);
+            return argName != null && IsSafeAssemblyName(argName);
+        }
+
         public IEnumerable<ScanFinding> PostAnalysisRefine(
             ModuleDefinition module,
             IEnumerable<ScanFinding> existingFindings)

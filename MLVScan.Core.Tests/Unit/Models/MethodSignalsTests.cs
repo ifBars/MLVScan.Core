@@ -108,7 +108,7 @@ public class MethodSignalsTests
     }
 
     [Fact]
-    public void IsHighRiskCombination_NetworkPlusFileWrite_ReturnsTrue()
+    public void IsHighRiskCombination_NetworkPlusFileWrite_ReturnsFalse()
     {
         var signals = new MethodSignals
         {
@@ -116,16 +116,28 @@ public class MethodSignalsTests
             HasFileWrite = true
         };
 
-        signals.IsHighRiskCombination().Should().BeTrue();
+        signals.IsHighRiskCombination().Should().BeFalse();
     }
 
     [Fact]
-    public void IsHighRiskCombination_Base64PlusNetwork_ReturnsTrue()
+    public void IsHighRiskCombination_Base64PlusNetwork_ReturnsFalse()
     {
         var signals = new MethodSignals
         {
             HasBase64 = true,
             HasNetworkCall = true
+        };
+
+        signals.IsHighRiskCombination().Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsHighRiskCombination_Base64PlusProcess_ReturnsTrue()
+    {
+        var signals = new MethodSignals
+        {
+            HasBase64 = true,
+            HasProcessLikeCall = true
         };
 
         signals.IsHighRiskCombination().Should().BeTrue();

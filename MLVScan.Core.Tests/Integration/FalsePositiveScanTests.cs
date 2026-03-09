@@ -75,8 +75,16 @@ public class FalsePositiveScanTests
     #region False Positive Sample Tests
 
     [SkippableTheory]
+    [InlineData("BankApp.dll")]
     [InlineData("DeliveryCartPlus_v.1.0.dll")]
+    [InlineData("eMployee.dll")]
+    [InlineData("FGMONOMobileBanking.dll")]
+    [InlineData("HUB.Chat.dll")]
+    [InlineData("KeepWateringCanFull.dll")]
+    [InlineData("OverTheCounter-Loader.dll")]
+    [InlineData("SaveFileSharing.dll")]
     [InlineData("SimpleSingleplayerRespawn.dll")]
+    [InlineData("UnlimitedLaundering.dll")]
     [InlineData("NoMoreTrashMono.dll")]
     [InlineData("RecipeRandomizer.dll")]
     public void Scan_FalsePositiveSample_ShouldNotProduceFindings(string filename)
@@ -164,6 +172,23 @@ public class FalsePositiveScanTests
             "CustomTV's controlled yt-dlp process usage should not trigger SuspiciousLocalVariableRule");
     }
 
+    [SkippableFact]
+    public void Scan_HubSmartEmployees_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("HUB.SmartEmployees.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "HUB.SmartEmployees.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "HUB.SmartEmployees only decodes recipe seed data and should not be escalated as a staged loader or payload execution risk");
+
+        findings.Should().NotContain(f => f.RuleId == "MultiSignalDetection",
+            "recipe seed decoding plus catalog networking should not trigger high-risk multi-signal detection on its own");
+    }
+
     /// <summary>
     /// Bannerlord ButterLib is a popular Bannerlord modding library.
     /// Currently disabled due to false positive findings being detected.
@@ -239,14 +264,21 @@ public class FalsePositiveScanTests
             "CustomTV.dll",
             "DeliveryCartPlus_v.1.0.dll",
             "eMployee.dll",
+            "FGMONOMobileBanking.dll",
+            "HUB.Chat.dll",
+            "HUB.SmartEmployees.dll",
+            "KeepWateringCanFull.dll",
             "LethalLizard.ModManager.dll",
             "NoMoreTrashMono.dll",
+            "OverTheCounter-Loader.dll",
             "RecipeRandomizer.dll",
             "S1APILoader.MelonLoader.dll",
+            "SaveFileSharing.dll",
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",
-            "UniverseLib.ML.IL2CPP.Interop.dll"
+            "UniverseLib.ML.IL2CPP.Interop.dll",
+            "UnlimitedLaundering.dll"
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
@@ -304,7 +336,6 @@ public class FalsePositiveScanTests
         var allowedHighSeveritySamples = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Bannerlord.ButterLib.dll",
-            "BankApp.dll",
             "CustomTV.dll",
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
