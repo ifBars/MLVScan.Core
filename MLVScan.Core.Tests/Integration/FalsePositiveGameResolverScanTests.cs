@@ -37,6 +37,7 @@ public class FalsePositiveGameResolverScanTests
         var samples = new[]
         {
             "DeliveryCartPlus_v.1.0.dll",
+            "OverTheCounter-Loader.dll",
             "S1APILoader.MelonLoader.dll"
         };
 
@@ -86,6 +87,12 @@ public class FalsePositiveGameResolverScanTests
 
         s1ApiLoaderFindings.Should().NotContain(f => f.Severity >= Severity.High,
             "S1APILoader is a known false-positive sample and should not be blocked when resolver context is available");
+
+        findingsBySample.Should().ContainKey("OverTheCounter-Loader.dll");
+        var overTheCounterFindings = findingsBySample["OverTheCounter-Loader.dll"];
+
+        overTheCounterFindings.Should().NotContain(f => f.RuleId == "DllImportRule",
+            "OverTheCounter-Loader only uses user32 MessageBox for restart prompting and should not be treated as a suspicious native import");
     }
 
     private static string? FindFalsePositivesFolder()

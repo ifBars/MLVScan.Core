@@ -120,9 +120,9 @@ public class FalsePositiveScanTests
 
     /// <summary>
     /// S1APILoader uses AssemblyResolve for a legitimate Il2CppInterop fallback and reflection
-    /// to probe MelonLoader internal APIs. Neither pattern alone should trigger blocking findings.
-    /// AssemblyResolve with a safe handler (score &lt; 25) must not serve as a companion signal
-    /// that unlocks ReflectionRule or AssemblyDynamicLoadRule at High/Critical severity.
+    /// to probe MelonLoader internal APIs. A lookup-only resolver over already loaded assemblies
+    /// should not trigger AssemblyDynamicLoadRule at all, and it must not serve as a companion
+    /// signal that unlocks ReflectionRule or AssemblyDynamicLoadRule at higher severities.
     /// </summary>
     [SkippableFact]
     public void Scan_S1APILoader_ShouldNotProduceHighOrCriticalFindings()
@@ -140,6 +140,9 @@ public class FalsePositiveScanTests
 
         findings.Should().NotContain(f => f.RuleId == "ReflectionRule",
             "ReflectionRule should not trigger without a real companion (Low-severity AssemblyResolve is not a companion)");
+
+        findings.Should().NotContain(f => f.RuleId == "AssemblyDynamicLoadRule",
+            "S1APILoader only subscribes a lookup-only AssemblyResolve fallback over already loaded assemblies");
     }
 
     /// <summary>
