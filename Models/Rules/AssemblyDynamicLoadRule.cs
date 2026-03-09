@@ -213,6 +213,11 @@ namespace MLVScan.Models.Rules
 
                     if (handlerMethod != null)
                     {
+                        if (IsLookupOnlyResolveHandler(handlerMethod))
+                        {
+                            continue;
+                        }
+
                         // Analyze the handler body
                         handlerScore += AnalyzeResolveHandler(handlerMethod);
                     }
@@ -773,6 +778,64 @@ namespace MLVScan.Models.Rules
                 score = Math.Min(score, 10);
 
             return score;
+        }
+
+        private static bool IsLookupOnlyResolveHandler(MethodDefinition handler)
+        {
+            if (!handler.HasBody)
+                return false;
+
+            bool readsRequestedAssemblyName = false;
+            bool enumeratesLoadedAssemblies = false;
+
+            foreach (var instr in handler.Body.Instructions)
+            {
+                if ((instr.OpCode != OpCodes.Call && instr.OpCode != OpCodes.Callvirt &&
+                     instr.OpCode != OpCodes.Newobj) ||
+                    instr.Operand is not MethodReference calledMethod ||
+                    calledMethod.DeclaringType == null)
+                {
+                    continue;
+                }
+
+                var declType = calledMethod.DeclaringType.FullName;
+                var mName = calledMethod.Name;
+
+                if (declType == "System.ResolveEventArgs" && mName == "get_Name")
+                {
+                    readsRequestedAssemblyName = true;
+                    continue;
+                }
+
+                if ((declType == "System.AppDomain" && mName == "GetAssemblies") ||
+                    (declType.Contains("AssemblyLoadContext", StringComparison.Ordinal) && mName == "get_Assemblies"))
+                {
+                    enumeratesLoadedAssemblies = true;
+                    continue;
+                }
+
+                if (IsAssemblyLoadMethod(declType, mName) ||
+                    declType.StartsWith("System.IO.File", StringComparison.Ordinal) ||
+                    declType.StartsWith("System.IO.Directory", StringComparison.Ordinal) ||
+                    declType == "System.IO.Path" ||
+                    declType.StartsWith("System.Net", StringComparison.Ordinal) ||
+                    declType.Contains("HttpClient", StringComparison.Ordinal) ||
+                    declType.Contains("WebClient", StringComparison.Ordinal) ||
+                    declType.Contains("System.Security.Cryptography", StringComparison.Ordinal) ||
+                    (declType.Contains("Assembly", StringComparison.Ordinal) && mName == "GetManifestResourceStream") ||
+                    declType.Contains("GZipStream", StringComparison.Ordinal) ||
+                    declType.Contains("DeflateStream", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (!readsRequestedAssemblyName || !enumeratesLoadedAssemblies)
+            {
+                return false;
+            }
+
+            return !DetectReflectiveLoadInvocation(handler, handler.Body.Instructions, null).Any();
         }
 
         #endregion

@@ -109,6 +109,155 @@ public class AssemblyDynamicLoadRuleTests
     }
 
     [Fact]
+    public void AnalyzeInstructions_AssemblyResolveSubscriptionWithLookupOnlyHandler_IsSuppressed()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("ResolveLookupTest", new Version(1, 0, 0, 0)),
+            "ResolveLookupTest",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+
+        var type = new TypeDefinition("Test", "ResolveType", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var handler = new MethodDefinition("OnResolve", MethodAttributes.Private | MethodAttributes.Static, module.TypeSystem.Object)
+        {
+            Body = new MethodBody(null!)
+        };
+        handler.Body = new MethodBody(handler);
+        handler.Parameters.Add(new ParameterDefinition("sender", ParameterAttributes.None, module.TypeSystem.Object));
+        handler.Parameters.Add(new ParameterDefinition("args", ParameterAttributes.None,
+            new TypeReference("System", "ResolveEventArgs", module, module.TypeSystem.CoreLibrary)));
+        type.Methods.Add(handler);
+
+        var getName = new MethodReference("get_Name", module.TypeSystem.String,
+            new TypeReference("System", "ResolveEventArgs", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = true
+        };
+        var assemblyNameCtor = new MethodReference(".ctor", module.TypeSystem.Void,
+            new TypeReference("System.Reflection", "AssemblyName", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = true
+        };
+        assemblyNameCtor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var assemblyNameGetName = new MethodReference("get_Name", module.TypeSystem.String,
+            new TypeReference("System.Reflection", "AssemblyName", module, module.TypeSystem.CoreLibrary));
+        var appDomainType = new TypeReference("System", "AppDomain", module, module.TypeSystem.CoreLibrary);
+        var getCurrentDomain = new MethodReference("get_CurrentDomain", appDomainType, appDomainType);
+        var assemblyArrayType = new ArrayType(new TypeReference("System.Reflection", "Assembly", module, module.TypeSystem.CoreLibrary));
+        var getAssemblies = new MethodReference("GetAssemblies", assemblyArrayType, appDomainType)
+        {
+            HasThis = true
+        };
+
+        var hIl = handler.Body.GetILProcessor();
+        hIl.Append(hIl.Create(OpCodes.Ldarg_1));
+        hIl.Append(hIl.Create(OpCodes.Callvirt, getName));
+        hIl.Append(hIl.Create(OpCodes.Newobj, assemblyNameCtor));
+        hIl.Append(hIl.Create(OpCodes.Call, assemblyNameGetName));
+        hIl.Append(hIl.Create(OpCodes.Pop));
+        hIl.Append(hIl.Create(OpCodes.Call, getCurrentDomain));
+        hIl.Append(hIl.Create(OpCodes.Callvirt, getAssemblies));
+        hIl.Append(hIl.Create(OpCodes.Pop));
+        hIl.Append(hIl.Create(OpCodes.Ldnull));
+        hIl.Append(hIl.Create(OpCodes.Ret));
+
+        var subscriber = new MethodDefinition("Subscribe", MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void)
+        {
+            Body = new MethodBody(null!)
+        };
+        subscriber.Body = new MethodBody(subscriber);
+        type.Methods.Add(subscriber);
+
+        var addResolve = new MethodReference("add_AssemblyResolve", module.TypeSystem.Void, appDomainType) { HasThis = true };
+        addResolve.Parameters.Add(new ParameterDefinition(new TypeReference("System", "ResolveEventHandler", module, module.TypeSystem.CoreLibrary)));
+
+        var sIl = subscriber.Body.GetILProcessor();
+        sIl.Append(sIl.Create(OpCodes.Ldftn, handler));
+        sIl.Append(sIl.Create(OpCodes.Call, addResolve));
+        sIl.Append(sIl.Create(OpCodes.Ret));
+
+        var findings = _rule.AnalyzeInstructions(subscriber, subscriber.Body.Instructions, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_AssemblyResolveSubscriptionWithLookupAndLoadHandler_ProducesFinding()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("ResolveLoadTest", new Version(1, 0, 0, 0)),
+            "ResolveLoadTest",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+
+        var type = new TypeDefinition("Test", "ResolveType", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var handler = new MethodDefinition("OnResolve", MethodAttributes.Private | MethodAttributes.Static, module.TypeSystem.Object)
+        {
+            Body = new MethodBody(null!)
+        };
+        handler.Body = new MethodBody(handler);
+        handler.Parameters.Add(new ParameterDefinition("sender", ParameterAttributes.None, module.TypeSystem.Object));
+        handler.Parameters.Add(new ParameterDefinition("args", ParameterAttributes.None,
+            new TypeReference("System", "ResolveEventArgs", module, module.TypeSystem.CoreLibrary)));
+        type.Methods.Add(handler);
+
+        var getName = new MethodReference("get_Name", module.TypeSystem.String,
+            new TypeReference("System", "ResolveEventArgs", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = true
+        };
+        var appDomainType = new TypeReference("System", "AppDomain", module, module.TypeSystem.CoreLibrary);
+        var getCurrentDomain = new MethodReference("get_CurrentDomain", appDomainType, appDomainType);
+        var assemblyArrayType = new ArrayType(new TypeReference("System.Reflection", "Assembly", module, module.TypeSystem.CoreLibrary));
+        var getAssemblies = new MethodReference("GetAssemblies", assemblyArrayType, appDomainType)
+        {
+            HasThis = true
+        };
+        var loadFrom = new MethodReference("LoadFrom", module.TypeSystem.Object,
+            new TypeReference("System.Reflection", "Assembly", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = false
+        };
+        loadFrom.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var hIl = handler.Body.GetILProcessor();
+        hIl.Append(hIl.Create(OpCodes.Ldarg_1));
+        hIl.Append(hIl.Create(OpCodes.Callvirt, getName));
+        hIl.Append(hIl.Create(OpCodes.Pop));
+        hIl.Append(hIl.Create(OpCodes.Call, getCurrentDomain));
+        hIl.Append(hIl.Create(OpCodes.Callvirt, getAssemblies));
+        hIl.Append(hIl.Create(OpCodes.Pop));
+        hIl.Append(hIl.Create(OpCodes.Ldstr, "plugin.dll"));
+        hIl.Append(hIl.Create(OpCodes.Call, loadFrom));
+        hIl.Append(hIl.Create(OpCodes.Ret));
+
+        var subscriber = new MethodDefinition("Subscribe", MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void)
+        {
+            Body = new MethodBody(null!)
+        };
+        subscriber.Body = new MethodBody(subscriber);
+        type.Methods.Add(subscriber);
+
+        var addResolve = new MethodReference("add_AssemblyResolve", module.TypeSystem.Void, appDomainType) { HasThis = true };
+        addResolve.Parameters.Add(new ParameterDefinition(new TypeReference("System", "ResolveEventHandler", module, module.TypeSystem.CoreLibrary)));
+
+        var sIl = subscriber.Body.GetILProcessor();
+        sIl.Append(sIl.Create(OpCodes.Ldftn, handler));
+        sIl.Append(sIl.Create(OpCodes.Call, addResolve));
+        sIl.Append(sIl.Create(OpCodes.Ret));
+
+        var findings = _rule.AnalyzeInstructions(subscriber, subscriber.Body.Instructions, new MethodSignals()).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].Description.Should().Contain("AssemblyResolve/Resolving event subscription");
+    }
+
+    [Fact]
     public void AnalyzeInstructions_ReflectiveGetMethodPattern_ProducesMediumFinding()
     {
         var assembly = TestAssemblyBuilder.Create("ReflectiveLoadTest").Build();
