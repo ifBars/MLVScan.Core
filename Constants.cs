@@ -9,7 +9,7 @@ namespace MLVScan
         /// <summary>
         /// Core engine version - the scanning/analysis library version.
         /// </summary>
-        public const string CoreVersion = "1.2.6";
+        public const string CoreVersion = "1.2.7";
 
         /// <summary>
         /// Gets the full version string with prefix.
