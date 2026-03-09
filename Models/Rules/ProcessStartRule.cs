@@ -202,12 +202,18 @@ namespace MLVScan.Models.Rules
             var createNoWindow = hasCreateNoWin && createNoWin == true;
             var windowStyleHidden = hasWindowStyle && windowStyle == 1; // 1 = Hidden
             var workingDirectoryIsTemp = hasWorkingDir && workingDir != null && TempPathPattern.IsMatch(workingDir);
+            var hasUseShellExecuteIndicator = hasUseShell || HasProcessStartInfoSetter(instructions, instructionIndex, "set_UseShellExecute");
+            var hasCreateNoWindowIndicator = hasCreateNoWin || HasProcessStartInfoSetter(instructions, instructionIndex, "set_CreateNoWindow");
+            var hasWindowStyleIndicator = hasWindowStyle || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WindowStyle");
+            var hasWorkingDirectoryIndicator = hasWorkingDir || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WorkingDirectory");
 
             var targetLower = target.ToLowerInvariant().Trim('"');
             var argumentsLower = arguments.ToLowerInvariant();
 
             var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
                 useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp,
+                hasUseShellExecuteIndicator, hasCreateNoWindowIndicator, hasWindowStyleIndicator,
+                hasWorkingDirectoryIndicator,
                 methodSignals?.HasNetworkCall == true,
                 methodSignals?.HasFileWrite == true);
 
@@ -219,14 +225,9 @@ namespace MLVScan.Models.Rules
 
             // Add evasion indicators to description
             var evasionIndicators = new List<string>();
-            if (useShellExecute)
-                evasionIndicators.Add("UseShellExecute=true");
-            if (createNoWindow)
-                evasionIndicators.Add("CreateNoWindow=true");
-            if (windowStyleHidden)
-                evasionIndicators.Add("WindowStyle=Hidden");
-            if (workingDirectoryIsTemp)
-                evasionIndicators.Add("WorkingDirectory=Temp");
+            AddProcessStartInfoIndicators(evasionIndicators, useShellExecute, createNoWindow, windowStyleHidden,
+                workingDirectoryIsTemp, hasUseShellExecuteIndicator, hasCreateNoWindowIndicator,
+                hasWindowStyleIndicator, hasWorkingDirectoryIndicator);
 
             if (evasionIndicators.Count > 0)
             {
@@ -262,6 +263,10 @@ namespace MLVScan.Models.Rules
             bool createNoWindow = false,
             bool windowStyleHidden = false,
             bool workingDirectoryIsTemp = false,
+            bool hasUseShellExecuteIndicator = false,
+            bool hasCreateNoWindowIndicator = false,
+            bool hasWindowStyleIndicator = false,
+            bool hasWorkingDirectoryIndicator = false,
             bool hasNetworkCallSignal = false,
             bool hasFileWriteSignal = false)
         {
@@ -308,8 +313,14 @@ namespace MLVScan.Models.Rules
             bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
 
             // Check for evasion indicators first - these escalate severity
-            bool hasEvasionIndicators =
+            bool hasStrongEvasionIndicators =
                 useShellExecute || createNoWindow || windowStyleHidden || workingDirectoryIsTemp;
+
+            bool hasProcessStartInfoIndicators =
+                hasUseShellExecuteIndicator || hasCreateNoWindowIndicator || hasWindowStyleIndicator ||
+                hasWorkingDirectoryIndicator;
+
+            bool hasEvasionIndicators = hasStrongEvasionIndicators || hasProcessStartInfoIndicators;
 
             bool hasStagedLoaderChain =
                 hasDownloadUrl &&
@@ -319,9 +330,15 @@ namespace MLVScan.Models.Rules
 
             if (hasStagedLoaderChain)
             {
-                if (isLolBin || hasEvasionIndicators || hasFileWriteSignal || hasNetworkCallSignal)
+                if (isLolBin || hasStrongEvasionIndicators || hasFileWriteSignal || hasNetworkCallSignal)
                 {
                     return (Severity.Critical, "Staged loader chain (download -> temp drop -> execute)");
+                }
+
+                if (hasProcessStartInfoIndicators)
+                {
+                    return (Severity.Critical,
+                        "Staged loader chain with ProcessStartInfo execution indicators");
                 }
 
                 return (Severity.High, "Potential staged loader chain (download -> temp drop -> execute)");
@@ -348,7 +365,7 @@ namespace MLVScan.Models.Rules
                 return (Severity.Low, "Known external tool");
             }
 
-            if (hasEvasionIndicators && isLolBin)
+            if (hasStrongEvasionIndicators && isLolBin)
             {
                 var reasons = new List<string>();
                 if (useShellExecute)
@@ -362,22 +379,42 @@ namespace MLVScan.Models.Rules
                 return (Severity.Critical, $"LOLBin with hidden execution ({string.Join(", ", reasons)})");
             }
 
-            if (hasEvasionIndicators && hasSuspiciousArgs)
+            if (hasProcessStartInfoIndicators && isLolBin)
+            {
+                return (Severity.Critical, "LOLBin with ProcessStartInfo execution indicators");
+            }
+
+            if (hasStrongEvasionIndicators && hasSuspiciousArgs)
             {
                 return (Severity.Critical, "Process with evasion and suspicious arguments");
             }
 
-            if (hasEvasionIndicators && hasDownloadUrl)
+            if (hasProcessStartInfoIndicators && hasSuspiciousArgs)
+            {
+                return (Severity.Critical, "ProcessStartInfo execution with suspicious arguments");
+            }
+
+            if (hasStrongEvasionIndicators && hasDownloadUrl)
             {
                 return (Severity.Critical, "Process with evasion and download URL");
             }
 
-            if (hasEvasionIndicators && hasTempPath)
+            if (hasProcessStartInfoIndicators && hasDownloadUrl)
+            {
+                return (Severity.Critical, "ProcessStartInfo execution with download URL");
+            }
+
+            if (hasStrongEvasionIndicators && hasTempPath)
             {
                 return (Severity.Critical, "Process with evasion and temp path execution");
             }
 
-            if (hasEvasionIndicators)
+            if (hasProcessStartInfoIndicators && hasTempPath)
+            {
+                return (Severity.Critical, "ProcessStartInfo execution with temp path indicator");
+            }
+
+            if (hasStrongEvasionIndicators)
             {
                 var reasons = new List<string>();
                 if (useShellExecute)
@@ -389,6 +426,21 @@ namespace MLVScan.Models.Rules
                 if (workingDirectoryIsTemp)
                     reasons.Add("WorkingDirectory=Temp");
                 return (Severity.High, $"Hidden process execution ({string.Join(", ", reasons)})");
+            }
+
+            if (hasProcessStartInfoIndicators)
+            {
+                var reasons = new List<string>();
+                if (hasUseShellExecuteIndicator)
+                    reasons.Add("UseShellExecute");
+                if (hasCreateNoWindowIndicator)
+                    reasons.Add("CreateNoWindow");
+                if (hasWindowStyleIndicator)
+                    reasons.Add("WindowStyle");
+                if (hasWorkingDirectoryIndicator)
+                    reasons.Add("WorkingDirectory");
+                return (Severity.High,
+                    $"ProcessStartInfo execution indicators ({string.Join(", ", reasons)})");
             }
 
             if (isLolBin && hasSuspiciousArgs)
@@ -484,6 +536,10 @@ namespace MLVScan.Models.Rules
             var createNoWindow = hasCreateNoWin && createNoWin == true;
             var windowStyleHidden = hasWindowStyle && windowStyle == 1; // 1 = Hidden
             var workingDirectoryIsTemp = hasWorkingDir && workingDir != null && TempPathPattern.IsMatch(workingDir);
+            var hasUseShellExecuteIndicator = hasUseShell || HasProcessStartInfoSetter(instructions, instructionIndex, "set_UseShellExecute");
+            var hasCreateNoWindowIndicator = hasCreateNoWin || HasProcessStartInfoSetter(instructions, instructionIndex, "set_CreateNoWindow");
+            var hasWindowStyleIndicator = hasWindowStyle || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WindowStyle");
+            var hasWorkingDirectoryIndicator = hasWorkingDir || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WorkingDirectory");
 
             var description = $"{Description} Target: {target}. Arguments: {arguments}";
 
@@ -491,20 +547,17 @@ namespace MLVScan.Models.Rules
             var argumentsLower = arguments.ToLowerInvariant();
 
             var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
-                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp);
+                useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp,
+                hasUseShellExecuteIndicator, hasCreateNoWindowIndicator, hasWindowStyleIndicator,
+                hasWorkingDirectoryIndicator);
 
             _severity = severity ?? Severity.Medium;
 
             // Add evasion indicators to description
             var evasionIndicators = new List<string>();
-            if (useShellExecute)
-                evasionIndicators.Add("UseShellExecute=true");
-            if (createNoWindow)
-                evasionIndicators.Add("CreateNoWindow=true");
-            if (windowStyleHidden)
-                evasionIndicators.Add("WindowStyle=Hidden");
-            if (workingDirectoryIsTemp)
-                evasionIndicators.Add("WorkingDirectory=Temp");
+            AddProcessStartInfoIndicators(evasionIndicators, useShellExecute, createNoWindow, windowStyleHidden,
+                workingDirectoryIsTemp, hasUseShellExecuteIndicator, hasCreateNoWindowIndicator,
+                hasWindowStyleIndicator, hasWorkingDirectoryIndicator);
 
             if (evasionIndicators.Count > 0)
             {
@@ -722,6 +775,64 @@ namespace MLVScan.Models.Rules
             }
 
             return "<unknown/no-arguments>";
+        }
+
+        private static bool HasProcessStartInfoSetter(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            string setterName)
+        {
+            int searchStart = Math.Max(0, processStartIndex - 400);
+
+            for (int i = processStartIndex - 1; i >= searchStart; i--)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                    methodRef.Name == setterName)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void AddProcessStartInfoIndicators(
+            List<string> indicators,
+            bool useShellExecute,
+            bool createNoWindow,
+            bool windowStyleHidden,
+            bool workingDirectoryIsTemp,
+            bool hasUseShellExecuteIndicator,
+            bool hasCreateNoWindowIndicator,
+            bool hasWindowStyleIndicator,
+            bool hasWorkingDirectoryIndicator)
+        {
+            if (useShellExecute)
+                indicators.Add("UseShellExecute=true");
+            else if (hasUseShellExecuteIndicator)
+                indicators.Add("UseShellExecute set");
+
+            if (createNoWindow)
+                indicators.Add("CreateNoWindow=true");
+            else if (hasCreateNoWindowIndicator)
+                indicators.Add("CreateNoWindow set");
+
+            if (windowStyleHidden)
+                indicators.Add("WindowStyle=Hidden");
+            else if (hasWindowStyleIndicator)
+                indicators.Add("WindowStyle set");
+
+            if (workingDirectoryIsTemp)
+                indicators.Add("WorkingDirectory=Temp");
+            else if (hasWorkingDirectoryIndicator)
+                indicators.Add("WorkingDirectory set");
         }
     }
 }

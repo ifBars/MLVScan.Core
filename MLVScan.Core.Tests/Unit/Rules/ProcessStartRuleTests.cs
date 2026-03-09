@@ -23,6 +23,10 @@ public class ProcessStartRuleTests
         bool createNoWindow = false,
         bool windowStyleHidden = false,
         bool workingDirectoryIsTemp = false,
+        bool hasUseShellExecuteIndicator = false,
+        bool hasCreateNoWindowIndicator = false,
+        bool hasWindowStyleIndicator = false,
+        bool hasWorkingDirectoryIndicator = false,
         bool hasNetworkCallSignal = false,
         bool hasFileWriteSignal = false)
     {
@@ -36,6 +40,10 @@ public class ProcessStartRuleTests
             createNoWindow,
             windowStyleHidden,
             workingDirectoryIsTemp,
+            hasUseShellExecuteIndicator,
+            hasCreateNoWindowIndicator,
+            hasWindowStyleIndicator,
+            hasWorkingDirectoryIndicator,
             hasNetworkCallSignal,
             hasFileWriteSignal
         ]);
@@ -216,15 +224,64 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void GetFindingDescription_WithNonHiddenWindowStyleAndCreateNoWindowFalse_IncludesProcessStartInfoIndicators()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldstr, "cmd.exe");
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_CreateNoWindow", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_WindowStyle", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        int callIndex = instructions.Count - 1;
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
+
+        description.Should().Contain("CreateNoWindow set");
+        description.Should().Contain("WindowStyle set");
+    }
+
+    [Fact]
     public void DetermineSeverity_KnownSafeToolWithCreateNoWindowAndPlaceholderArgs_ReturnsMedium()
     {
         var result = InvokeDetermineSeverity(
             targetLower: "yt-dlp.exe",
             argumentsLower: "<arg 0><arg 0>",
-            createNoWindow: true);
+            createNoWindow: true,
+            hasCreateNoWindowIndicator: true);
 
         result.severity.Should().Be(Severity.Medium);
         result.reason.Should().Contain("Known external tool");
+    }
+
+    [Fact]
+    public void DetermineSeverity_WithWindowStyleIndicatorOnly_ReturnsHigh()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "<unknown/no-arguments>",
+            hasWindowStyleIndicator: true);
+
+        result.severity.Should().Be(Severity.High);
+        result.reason.Should().Contain("ProcessStartInfo execution indicators");
+    }
+
+    [Fact]
+    public void DetermineSeverity_WithCreateNoWindowIndicatorAndSuspiciousArgs_ReturnsCritical()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "-enc SQBFAFgA",
+            hasCreateNoWindowIndicator: true);
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().Contain("ProcessStartInfo execution with suspicious arguments");
     }
 
     [Fact]
