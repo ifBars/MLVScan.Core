@@ -141,6 +141,13 @@ namespace MLVScan.Models.Rules
             "minidumpwritedump"
         ];
 
+        // Specific UI-only imports that are common in legitimate software and do not
+        // meaningfully expand attack capability on their own.
+        private static readonly string[] BenignUserInteractionFunctions =
+        [
+            "messagebox"
+        ];
+
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)
@@ -192,6 +199,11 @@ namespace MLVScan.Models.Rules
                 _severity = Severity.High;
                 _description = $"Detected elevated-risk function {entryPoint} in DllImport from {dllName}";
                 return true;
+            }
+
+            if (IsBenignUserInteractionApi(methodDef, lowerDllName, entryPointLower))
+            {
+                return false;
             }
 
             // Low-risk audio/media DLLs are allowed unless they import suspicious functions (checked above)
@@ -273,22 +285,86 @@ namespace MLVScan.Models.Rules
         private static bool IsLowRiskAudioMediaDll(string lowerDllName)
         {
             // Normalize: remove .dll extension for comparison
-            var normalizedDllName = lowerDllName.EndsWith(".dll")
-                ? lowerDllName.Substring(0, lowerDllName.Length - 4)
-                : lowerDllName;
+            var normalizedDllName = NormalizeDllName(lowerDllName);
 
             foreach (var audioDll in LowRiskAudioMediaDlls)
             {
                 // Normalize the known audio DLL name too
-                var normalizedAudioDll = audioDll.EndsWith(".dll")
-                    ? audioDll.Substring(0, audioDll.Length - 4)
-                    : audioDll;
+                var normalizedAudioDll = NormalizeDllName(audioDll);
 
-                if (normalizedDllName == normalizedAudioDll.ToLower())
+                if (normalizedDllName == normalizedAudioDll)
                     return true;
             }
 
             return false;
+        }
+
+        private static bool IsBenignUserInteractionApi(MethodDefinition methodDef, string lowerDllName, string entryPointLower)
+        {
+            if (!NormalizeDllName(lowerDllName).Equals("user32", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!MatchesKnownApi(entryPointLower, BenignUserInteractionFunctions))
+            {
+                return false;
+            }
+
+            return HasStandardMessageBoxSignature(methodDef);
+        }
+
+        private static bool HasStandardMessageBoxSignature(MethodDefinition methodDef)
+        {
+            if (methodDef.ReturnType.MetadataType != MetadataType.Int32)
+            {
+                return false;
+            }
+
+            if (methodDef.Parameters.Count != 4)
+            {
+                return false;
+            }
+
+            if (methodDef.Parameters[0].ParameterType.MetadataType != MetadataType.IntPtr)
+            {
+                return false;
+            }
+
+            if (methodDef.Parameters[1].ParameterType.MetadataType != MetadataType.String ||
+                methodDef.Parameters[2].ParameterType.MetadataType != MetadataType.String)
+            {
+                return false;
+            }
+
+            return IsMessageBoxOptionsType(methodDef.Parameters[3].ParameterType);
+        }
+
+        private static bool IsMessageBoxOptionsType(TypeReference parameterType)
+        {
+            if (parameterType.MetadataType == MetadataType.Int32 ||
+                parameterType.MetadataType == MetadataType.UInt32)
+            {
+                return true;
+            }
+
+            if (parameterType.Resolve() is not { IsEnum: true } enumType)
+            {
+                return false;
+            }
+
+            var underlyingField = enumType.Fields.FirstOrDefault(field => field.Name == "value__");
+            return underlyingField?.FieldType.MetadataType == MetadataType.Int32 ||
+                   underlyingField?.FieldType.MetadataType == MetadataType.UInt32;
+        }
+
+        private static string NormalizeDllName(string dllName)
+        {
+            var normalizedDllName = dllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? dllName.Substring(0, dllName.Length - 4)
+                : dllName;
+
+            return normalizedDllName.ToLowerInvariant();
         }
     }
 }

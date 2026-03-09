@@ -187,6 +187,93 @@ public class DllImportScannerTests
     }
 
     [Fact]
+    public void ScanForDllImports_WithUser32MessageBoxPInvoke_ReturnsEmpty()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("MessageBox",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Int32);
+        method.Parameters.Add(new ParameterDefinition("hwnd", ParameterAttributes.None, assembly.MainModule.TypeSystem.IntPtr));
+        method.Parameters.Add(new ParameterDefinition("text", ParameterAttributes.None, assembly.MainModule.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition("caption", ParameterAttributes.None, assembly.MainModule.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition("type", ParameterAttributes.None, assembly.MainModule.TypeSystem.UInt32));
+
+        var moduleRef = new ModuleReference("user32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "MessageBoxW", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ScanForDllImports_WithMethodNamedMessageBoxButDifferentEntryPoint_ReturnsFinding()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("MessageBox",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.IntPtr);
+
+        var moduleRef = new ModuleReference("user32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetForegroundWindow", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].Description.Should().Contain("GetForegroundWindow");
+    }
+
+    [Fact]
+    public void ScanForDllImports_WithUser32MessageBoxWrongSignature_ReturnsFinding()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("MessageBox",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.IntPtr);
+        method.Parameters.Add(new ParameterDefinition("hwnd", ParameterAttributes.None, assembly.MainModule.TypeSystem.IntPtr));
+
+        var moduleRef = new ModuleReference("user32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "MessageBoxW", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].Description.Should().Contain("MessageBoxW");
+    }
+
+    [Fact]
     public void ScanForDllImports_WithCallGraphBuilder_RegistersButReturnsEmpty()
     {
         var rules = new List<IScanRule> { new DllImportRule() };
@@ -340,17 +427,14 @@ public class DllImportScannerTests
         var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
         assembly.MainModule.Types.Add(type);
 
-        var method = new MethodDefinition("MessageBox",
+        var method = new MethodDefinition("GetForegroundWindow",
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
-            assembly.MainModule.TypeSystem.Int32);
+            assembly.MainModule.TypeSystem.IntPtr);
 
         // Add some parameters to test snippet generation
-        method.Parameters.Add(new ParameterDefinition("hwnd", ParameterAttributes.None, assembly.MainModule.TypeSystem.IntPtr));
-        method.Parameters.Add(new ParameterDefinition("text", ParameterAttributes.None, assembly.MainModule.TypeSystem.String));
-
         var moduleRef = new ModuleReference("user32.dll");
         assembly.MainModule.ModuleReferences.Add(moduleRef);
-        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "MessageBoxA", moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetForegroundWindow", moduleRef);
         type.Methods.Add(method);
 
         var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
@@ -358,6 +442,6 @@ public class DllImportScannerTests
         findings.Should().HaveCount(1);
         findings[0].CodeSnippet.Should().Contain("[DllImport(");
         findings[0].CodeSnippet.Should().Contain("user32.dll");
-        findings[0].CodeSnippet.Should().Contain("MessageBoxA");
+        findings[0].CodeSnippet.Should().Contain("GetForegroundWindow");
     }
 }
