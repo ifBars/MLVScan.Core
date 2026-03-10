@@ -145,7 +145,8 @@ namespace MLVScan.Models.Rules
         // meaningfully expand attack capability on their own.
         private static readonly string[] BenignUserInteractionFunctions =
         [
-            "messagebox"
+            "messagebox",
+            "getasynckeystate"
         ];
 
         public bool IsSuspicious(MethodReference method)
@@ -311,7 +312,17 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            return HasStandardMessageBoxSignature(methodDef);
+            if (MatchesKnownApi(entryPointLower, new[] { "messagebox" }))
+            {
+                return HasStandardMessageBoxSignature(methodDef);
+            }
+
+            if (MatchesKnownApi(entryPointLower, new[] { "getasynckeystate" }))
+            {
+                return HasStandardGetAsyncKeyStateSignature(methodDef);
+            }
+
+            return false;
         }
 
         private static bool HasStandardMessageBoxSignature(MethodDefinition methodDef)
@@ -338,6 +349,21 @@ namespace MLVScan.Models.Rules
             }
 
             return IsMessageBoxOptionsType(methodDef.Parameters[3].ParameterType);
+        }
+
+        private static bool HasStandardGetAsyncKeyStateSignature(MethodDefinition methodDef)
+        {
+            if (methodDef.ReturnType.MetadataType != MetadataType.Int16)
+            {
+                return false;
+            }
+
+            if (methodDef.Parameters.Count != 1)
+            {
+                return false;
+            }
+
+            return methodDef.Parameters[0].ParameterType.MetadataType == MetadataType.Int32;
         }
 
         private static bool IsMessageBoxOptionsType(TypeReference parameterType)

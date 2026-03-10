@@ -27,6 +27,9 @@ public class ProcessStartRuleTests
         bool hasCreateNoWindowIndicator = false,
         bool hasWindowStyleIndicator = false,
         bool hasWorkingDirectoryIndicator = false,
+        bool hasRedirectStandardInputIndicator = false,
+        bool hasRedirectStandardOutputIndicator = false,
+        bool hasRedirectStandardErrorIndicator = false,
         bool hasNetworkCallSignal = false,
         bool hasFileWriteSignal = false)
     {
@@ -44,6 +47,9 @@ public class ProcessStartRuleTests
             hasCreateNoWindowIndicator,
             hasWindowStyleIndicator,
             hasWorkingDirectoryIndicator,
+            hasRedirectStandardInputIndicator,
+            hasRedirectStandardOutputIndicator,
+            hasRedirectStandardErrorIndicator,
             hasNetworkCallSignal,
             hasFileWriteSignal
         ]);
@@ -285,6 +291,22 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void DetermineSeverity_ControlledChildProcessWithRedirectedIo_ReturnsMedium()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "translator.exe",
+            argumentsLower: "<arg 0>",
+            createNoWindow: true,
+            hasCreateNoWindowIndicator: true,
+            hasRedirectStandardInputIndicator: true,
+            hasRedirectStandardOutputIndicator: true,
+            hasRedirectStandardErrorIndicator: true);
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Contain("redirected I/O");
+    }
+
+    [Fact]
     public void DetermineSeverity_LolBinWithHiddenDownloadTempExecution_ReturnsCritical()
     {
         var result = InvokeDetermineSeverity(
@@ -438,6 +460,32 @@ public class ProcessStartRuleTests
         var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
 
         // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ShellFolderLaunch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+
+        processor.Emit(OpCodes.Ldarg_0);
+        processor.Emit(OpCodes.Call, new MethodReference("Exists", new TypeReference("", "Boolean", null, null), new TypeReference("System.IO", "Directory", null, null)));
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldarg_0);
+        processor.Emit(OpCodes.Call, new MethodReference("CreateDirectory", new TypeReference("", "DirectoryInfo", null, null), new TypeReference("System.IO", "Directory", null, null)));
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldarg_0);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Ldc_I4_1);
+        processor.Emit(OpCodes.Callvirt, new MethodReference("set_UseShellExecute", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+
+        var instructions = method.Body.Instructions;
+        var callIndex = instructions.Count - 1;
+
+        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
+
         result.Should().BeTrue();
     }
 

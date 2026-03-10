@@ -5,10 +5,14 @@ namespace MLVScan.Models.Rules
 {
     public class RegistryRule : IScanRule
     {
-        public string Description =>
+        private Severity _severity = Severity.Critical;
+        private string _description =
             "Detected Windows Registry manipulation, which is suspicious for a game mod. Registry access could be used to persist malware or modify system settings.";
 
-        public Severity Severity => Severity.Critical;
+        public string Description =>
+            _description;
+
+        public Severity Severity => _severity;
         public string RuleId => "RegistryRule";
         public bool RequiresCompanionFinding => false;
 
@@ -54,23 +58,68 @@ namespace MLVScan.Models.Rules
             "regnotifychangekeyvalue"
         ];
 
+        private static readonly string[] RegistryWriteFunctions =
+        [
+            "regcreatekeyex",
+            "regcreatekey",
+            "regsetvalue",
+            "regsetvaluea",
+            "regsetvaluew",
+            "regsetvalueex",
+            "regsetvalueexa",
+            "regsetvalueexw",
+            "regdeletekey",
+            "regdeletevalue",
+            "regsetkeysecurity",
+            "regloadkey",
+            "regsavekey",
+            "regnotifychangekeyvalue"
+        ];
+
+        private static readonly string[] RegistryReadFunctions =
+        [
+            "regopenkey",
+            "regopenkeya",
+            "regopenkeyex",
+            "regopenkeyexa",
+            "regopenkeyexw",
+            "reggetvalue",
+            "reggetvaluea",
+            "reggetvaluew",
+            "regenumkey",
+            "regenumvalue",
+            "regqueryvalue",
+            "regqueryvalueex"
+        ];
+
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)
                 return false;
 
             var typeName = method.DeclaringType.FullName;
-            var methodName = method.Name.ToLower();
+            var methodName = method.Name.ToLowerInvariant();
 
-            if (typeName.Contains("Microsoft.Win32.Registry") ||
-                typeName.Contains("RegistryKey") ||
-                typeName.Contains("RegistryHive"))
+            if (typeName.Contains("Microsoft.Win32.Registry", StringComparison.Ordinal) ||
+                typeName.Contains("RegistryKey", StringComparison.Ordinal) ||
+                typeName.Contains("RegistryHive", StringComparison.Ordinal))
             {
+                return ClassifyManagedRegistryCall(methodName);
+            }
+
+            if (RegistryWriteFunctions.Any(regFunction => methodName.Contains(regFunction, StringComparison.Ordinal)))
+            {
+                _severity = Severity.Critical;
+                _description =
+                    "Detected Windows Registry write operation, which could be used for persistence or system tampering.";
                 return true;
             }
 
-            if (RegistryFunctions.Any(regFunction => methodName.Contains(regFunction)))
+            if (RegistryReadFunctions.Any(regFunction => methodName.Contains(regFunction, StringComparison.Ordinal)))
             {
+                _severity = Severity.Low;
+                _description =
+                    "Detected Windows Registry read access. This can be legitimate for configuration discovery, but should not be used to modify the system.";
                 return true;
             }
 
@@ -88,18 +137,67 @@ namespace MLVScan.Models.Rules
             var entryPoint = methodDef.PInvokeInfo.EntryPoint ?? method.Name;
 
             // Check if it's advapi32.dll (registry DLL)
-            if (!dllName.ToLower().Contains("advapi32"))
+            if (!dllName.ToLowerInvariant().Contains("advapi32"))
                 return false;
 
-            // Check method name or entry point for registry functions
-            if (RegistryFunctions.Any(func => methodName.Contains(func)))
+            if (RegistryWriteFunctions.Any(func => methodName.Contains(func, StringComparison.Ordinal)))
+            {
+                _severity = Severity.Critical;
+                _description =
+                    $"Detected native Windows Registry write API {entryPoint} from {dllName}, which could be used for persistence or system tampering.";
                 return true;
+            }
 
-            var entryPointLower = entryPoint.ToLower();
-            if (RegistryFunctions.Any(func => entryPointLower.Contains(func)))
+            var entryPointLower = entryPoint.ToLowerInvariant();
+            if (RegistryWriteFunctions.Any(func => entryPointLower.Contains(func, StringComparison.Ordinal)))
+            {
+                _severity = Severity.Critical;
+                _description =
+                    $"Detected native Windows Registry write API {entryPoint} from {dllName}, which could be used for persistence or system tampering.";
                 return true;
+            }
+
+            if (RegistryReadFunctions.Any(func => methodName.Contains(func, StringComparison.Ordinal)) ||
+                RegistryReadFunctions.Any(func => entryPointLower.Contains(func, StringComparison.Ordinal)))
+            {
+                _severity = Severity.Low;
+                _description =
+                    $"Detected native Windows Registry read API {entryPoint} from {dllName}. This can be legitimate for configuration discovery, but should not modify the system.";
+                return true;
+            }
 
             return false;
+        }
+
+        private bool ClassifyManagedRegistryCall(string methodName)
+        {
+            if (methodName.Contains("setvalue", StringComparison.Ordinal) ||
+                methodName.Contains("create", StringComparison.Ordinal) ||
+                methodName.Contains("delete", StringComparison.Ordinal) ||
+                methodName.Contains("save", StringComparison.Ordinal) ||
+                methodName.Contains("flush", StringComparison.Ordinal))
+            {
+                _severity = Severity.Critical;
+                _description =
+                    "Detected Windows Registry write operation, which could be used for persistence or system tampering.";
+                return true;
+            }
+
+            if (methodName.Contains("getvalue", StringComparison.Ordinal) ||
+                methodName.Contains("open", StringComparison.Ordinal) ||
+                methodName.Contains("query", StringComparison.Ordinal) ||
+                methodName.Contains("enum", StringComparison.Ordinal))
+            {
+                _severity = Severity.Low;
+                _description =
+                    "Detected Windows Registry read access. This can be legitimate for configuration discovery, but should not be used to modify the system.";
+                return true;
+            }
+
+            _severity = Severity.Medium;
+            _description =
+                "Detected Windows Registry access. Registry interaction is uncommon in mods and should be reviewed carefully.";
+            return true;
         }
     }
 }

@@ -23,6 +23,30 @@ public class RegistryRuleTests
     }
 
     [Fact]
+    public void IsSuspicious_RegistryGetValue_IsLowSeverity()
+    {
+        var methodRef = MethodReferenceFactory.Create("Microsoft.Win32.Registry", "GetValue");
+
+        var result = _rule.IsSuspicious(methodRef);
+
+        result.Should().BeTrue();
+        _rule.Severity.Should().Be(Severity.Low);
+        _rule.Description.Should().Contain("read access");
+    }
+
+    [Fact]
+    public void IsSuspicious_RegistrySetValue_IsCriticalSeverity()
+    {
+        var methodRef = MethodReferenceFactory.Create("Microsoft.Win32.RegistryKey", "SetValue");
+
+        var result = _rule.IsSuspicious(methodRef);
+
+        result.Should().BeTrue();
+        _rule.Severity.Should().Be(Severity.Critical);
+        _rule.Description.Should().Contain("write operation");
+    }
+
+    [Fact]
     public void RequiresCompanionFinding_ReturnsFalse()
     {
         _rule.RequiresCompanionFinding.Should().BeFalse();

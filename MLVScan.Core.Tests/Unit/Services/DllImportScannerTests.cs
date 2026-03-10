@@ -274,6 +274,62 @@ public class DllImportScannerTests
     }
 
     [Fact]
+    public void ScanForDllImports_WithStandardGetAsyncKeyState_ReturnsEmpty()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("GetAsyncKeyState",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Int16);
+        method.Parameters.Add(new ParameterDefinition("vKey", ParameterAttributes.None, assembly.MainModule.TypeSystem.Int32));
+
+        var moduleRef = new ModuleReference("user32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetAsyncKeyState", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ScanForDllImports_WithGetAsyncKeyStateWrongSignature_ReturnsFinding()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("GetAsyncKeyState",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Int32);
+        method.Parameters.Add(new ParameterDefinition("vKey", ParameterAttributes.None, assembly.MainModule.TypeSystem.Int32));
+
+        var moduleRef = new ModuleReference("user32.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "GetAsyncKeyState", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].Description.Should().Contain("GetAsyncKeyState");
+    }
+
+    [Fact]
     public void ScanForDllImports_WithCallGraphBuilder_RegistersButReturnsEmpty()
     {
         var rules = new List<IScanRule> { new DllImportRule() };

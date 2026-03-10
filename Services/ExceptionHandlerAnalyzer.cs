@@ -90,6 +90,14 @@ namespace MLVScan.Services
                             if (rule.IsSuspicious(calledMethod))
                             {
                                 var instructionIndex = allInstructions.IndexOf(instruction);
+                                if (instructionIndex >= 0 &&
+                                    methodSignals != null &&
+                                    rule.ShouldSuppressFinding(calledMethod, allInstructions, instructionIndex,
+                                        methodSignals))
+                                {
+                                    continue;
+                                }
+
                                 var snippet = _snippetBuilder.BuildSnippet(allInstructions, instructionIndex, 2);
 
                                 var handlerTypeDesc = GetHandlerTypeDescription(handler);

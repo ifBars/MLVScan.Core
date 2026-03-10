@@ -190,6 +190,20 @@ public class FalsePositiveScanTests
     }
 
     [SkippableFact]
+    public void Scan_HubTheVeil_ShouldNotProduceDllImportFindingsForGetAsyncKeyState()
+    {
+        var path = GetSamplePath("HUB.TheVeil.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "HUB.TheVeil.dll");
+
+        findings.Should().NotContain(f => f.RuleId == "DllImportRule",
+            "polling left mouse state through the standard GetAsyncKeyState signature should be treated like other benign user interaction imports");
+    }
+
+    [SkippableFact]
     public void Scan_ModsAppBinSample_ShouldNotProduceAssemblyLoadOrReflectionFindings()
     {
         Skip.If(_falsePositivesFolder == null,
@@ -212,6 +226,66 @@ public class FalsePositiveScanTests
 
         findings.Should().NotContain(f => f.RuleId == "ReflectionRule",
             "helper reflection should not be escalated when no real staging signal exists");
+    }
+
+    [SkippableFact]
+    public void Scan_RegistryLookupLibraries_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        foreach (var sample in new[] { "ExIni.dll", "ezTransXP.dll", "LecPowerTranslator15.dll" })
+        {
+            var path = GetSamplePath(sample);
+            var findings = scanner.Scan(path).ToList();
+            LogFindings(findings, sample);
+
+            findings.Should().NotContain(f => f.Severity >= Severity.High,
+                $"{sample} only reads registry values to discover installed application paths");
+        }
+    }
+
+    [SkippableFact]
+    public void Scan_XUnityAutoTranslator_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("XUnity.AutoTranslator.Plugin.Core.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "XUnity.AutoTranslator.Plugin.Core.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "XUnity AutoTranslator loads translator plugins and may launch a controlled helper process, but it should not look like a staged loader or payload launcher");
+    }
+
+    [SkippableFact]
+    public void Scan_Musicfy_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var path = GetSamplePath("Musicfy.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "Musicfy.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "Musicfy only opens a local folder with shell execute and should not resemble payload execution");
+    }
+
+    [SkippableFact]
+    public void Scan_NAudioLibraries_ShouldNotProduceHighOrCriticalFindings()
+    {
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        foreach (var sample in new[] { "NAudio.Asio.dll", "NAudio.Core.dll", "AudioImportLib.dll" })
+        {
+            var path = GetSamplePath(sample);
+            var findings = scanner.Scan(path).ToList();
+            LogFindings(findings, sample);
+
+            findings.Should().NotContain(f => f.Severity >= Severity.High,
+                $"{sample} is a media/audio library and should not be escalated into blocking severity");
+        }
     }
 
     /// <summary>
@@ -289,17 +363,25 @@ public class FalsePositiveScanTests
             "CustomTV.dll",
             "DeliveryCartPlus_v.1.0.dll",
             "eMployee.dll",
+            "ExIni.dll",
             "FGMONOMobileBanking.dll",
             "HUB.Chat.dll",
             "HUB.SmartEmployees.dll",
+            "HUB.TheVeil.dll",
             "KeepWateringCanFull.dll",
+            "LecPowerTranslator15.dll",
             "LethalLizard.ModManager.dll",
+            "Musicfy.dll",
+            "NAudio.Asio.dll",
+            "NAudio.Core.dll",
             "NoMoreTrashMono.dll",
             "OverTheCounter-Loader.dll",
             "RecipeRandomizer.dll",
             "S1APILoader.MelonLoader.dll",
             "SaveFileSharing.dll",
             "SimpleSingleplayerRespawn.dll",
+            "XUnity.AutoTranslator.Plugin.Core.dll",
+            "ezTransXP.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",
             "UniverseLib.ML.IL2CPP.Interop.dll",

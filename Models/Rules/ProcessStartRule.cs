@@ -206,6 +206,12 @@ namespace MLVScan.Models.Rules
             var hasCreateNoWindowIndicator = hasCreateNoWin || HasProcessStartInfoSetter(instructions, instructionIndex, "set_CreateNoWindow");
             var hasWindowStyleIndicator = hasWindowStyle || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WindowStyle");
             var hasWorkingDirectoryIndicator = hasWorkingDir || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WorkingDirectory");
+            var hasRedirectStandardInputIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardInput");
+            var hasRedirectStandardOutputIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardOutput");
+            var hasRedirectStandardErrorIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardError");
 
             var targetLower = target.ToLowerInvariant().Trim('"');
             var argumentsLower = arguments.ToLowerInvariant();
@@ -213,7 +219,8 @@ namespace MLVScan.Models.Rules
             var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
                 useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp,
                 hasUseShellExecuteIndicator, hasCreateNoWindowIndicator, hasWindowStyleIndicator,
-                hasWorkingDirectoryIndicator,
+                hasWorkingDirectoryIndicator, hasRedirectStandardInputIndicator,
+                hasRedirectStandardOutputIndicator, hasRedirectStandardErrorIndicator,
                 methodSignals?.HasNetworkCall == true,
                 methodSignals?.HasFileWrite == true);
 
@@ -267,6 +274,9 @@ namespace MLVScan.Models.Rules
             bool hasCreateNoWindowIndicator = false,
             bool hasWindowStyleIndicator = false,
             bool hasWorkingDirectoryIndicator = false,
+            bool hasRedirectStandardInputIndicator = false,
+            bool hasRedirectStandardOutputIndicator = false,
+            bool hasRedirectStandardErrorIndicator = false,
             bool hasNetworkCallSignal = false,
             bool hasFileWriteSignal = false)
         {
@@ -321,6 +331,22 @@ namespace MLVScan.Models.Rules
                 hasWorkingDirectoryIndicator;
 
             bool hasEvasionIndicators = hasStrongEvasionIndicators || hasProcessStartInfoIndicators;
+            bool hasRedirectedStandardIo =
+                hasRedirectStandardInputIndicator || hasRedirectStandardOutputIndicator ||
+                hasRedirectStandardErrorIndicator;
+            bool isControlledChildProcess =
+                !isLolBin &&
+                !hasSuspiciousArgs &&
+                !hasDownloadUrl &&
+                !hasTempPath &&
+                !hasScriptDropExtension &&
+                !hasStagedDownloadCommand &&
+                !hasStagedLoaderPivot &&
+                !hasNetworkCallSignal &&
+                !hasFileWriteSignal &&
+                !useShellExecute &&
+                createNoWindow &&
+                hasRedirectedStandardIo;
 
             bool hasStagedLoaderChain =
                 hasDownloadUrl &&
@@ -363,6 +389,11 @@ namespace MLVScan.Models.Rules
                 }
 
                 return (Severity.Low, "Known external tool");
+            }
+
+            if (isControlledChildProcess)
+            {
+                return (Severity.Medium, "Controlled child process with redirected I/O");
             }
 
             if (hasStrongEvasionIndicators && isLolBin)
@@ -540,6 +571,12 @@ namespace MLVScan.Models.Rules
             var hasCreateNoWindowIndicator = hasCreateNoWin || HasProcessStartInfoSetter(instructions, instructionIndex, "set_CreateNoWindow");
             var hasWindowStyleIndicator = hasWindowStyle || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WindowStyle");
             var hasWorkingDirectoryIndicator = hasWorkingDir || HasProcessStartInfoSetter(instructions, instructionIndex, "set_WorkingDirectory");
+            var hasRedirectStandardInputIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardInput");
+            var hasRedirectStandardOutputIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardOutput");
+            var hasRedirectStandardErrorIndicator =
+                HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardError");
 
             var description = $"{Description} Target: {target}. Arguments: {arguments}";
 
@@ -549,7 +586,8 @@ namespace MLVScan.Models.Rules
             var (severity, riskReason) = DetermineSeverity(targetLower, argumentsLower, target, arguments,
                 useShellExecute, createNoWindow, windowStyleHidden, workingDirectoryIsTemp,
                 hasUseShellExecuteIndicator, hasCreateNoWindowIndicator, hasWindowStyleIndicator,
-                hasWorkingDirectoryIndicator);
+                hasWorkingDirectoryIndicator, hasRedirectStandardInputIndicator,
+                hasRedirectStandardOutputIndicator, hasRedirectStandardErrorIndicator);
 
             _severity = severity ?? Severity.Medium;
 
@@ -596,6 +634,11 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
+            if (IsSafeShellFolderLaunch(instructions, instructionIndex))
+            {
+                return true;
+            }
+
             if (IsCurrentProcessRestart(instructions, instructionIndex))
             {
                 return true;
@@ -632,6 +675,55 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static bool IsSafeShellFolderLaunch(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int processStartIndex)
+        {
+            var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(null, instructions, processStartIndex,
+                out var useShell);
+
+            if (!hasUseShell || useShell != true)
+            {
+                return false;
+            }
+
+            bool touchesDirectoryApis = false;
+            bool setsFileName = false;
+            bool setsArguments = false;
+            int searchStart = Math.Max(0, processStartIndex - 40);
+            for (int i = searchStart; i < processStartIndex; i++)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference methodRef)
+                {
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName == "System.IO.Directory" &&
+                    (methodRef.Name == "Exists" || methodRef.Name == "CreateDirectory"))
+                {
+                    touchesDirectoryApis = true;
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                    methodRef.Name == "set_FileName")
+                {
+                    setsFileName = true;
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                    methodRef.Name == "set_Arguments")
+                {
+                    setsArguments = true;
+                }
+            }
+
+            return touchesDirectoryApis && setsFileName && !setsArguments;
         }
 
         private static bool HasPathManipulation(
