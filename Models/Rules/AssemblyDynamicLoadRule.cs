@@ -131,6 +131,9 @@ namespace MLVScan.Models.Rules
             // Type-level correlation from MethodSignals
             int correlationScore = ComputeCorrelationScore(methodSignals);
 
+            if (!ShouldReportDirectLoad(overload, provenance, postLoadScore, correlationScore))
+                yield break;
+
             int totalScore = baseScore + provenanceScore + postLoadScore + evasionScore + resolveScore +
                              correlationScore;
 
@@ -271,11 +274,23 @@ namespace MLVScan.Models.Rules
             var overload = ClassifyOverload(method);
             if (overload != LoadOverload.LoadString && overload != LoadOverload.LoadAssemblyName)
             {
-                return false;
+                if (!IsPathBasedDirectLoad(overload))
+                    return false;
             }
 
             var argName = ExtractStringArgument(instructions, instructionIndex);
-            return argName != null && IsSafeAssemblyName(argName);
+            if ((overload == LoadOverload.LoadString || overload == LoadOverload.LoadAssemblyName) &&
+                argName != null && IsSafeAssemblyName(argName))
+                return true;
+
+            var provenance = AnalyzeProvenance(instructions, instructionIndex);
+            int postLoadScore = AnalyzePostLoadBehavior(instructions, instructionIndex);
+            int correlationScore = ComputeCorrelationScore(methodSignals);
+
+            if (typeSignals != null)
+                correlationScore = Math.Max(correlationScore, ComputeCorrelationScore(typeSignals));
+
+            return !ShouldReportDirectLoad(overload, provenance, postLoadScore, correlationScore);
         }
 
         public IEnumerable<ScanFinding> PostAnalysisRefine(
@@ -394,6 +409,13 @@ namespace MLVScan.Models.Rules
             _ => 20
         };
 
+        private static bool IsPathBasedDirectLoad(LoadOverload overload)
+        {
+            return overload == LoadOverload.LoadFrom ||
+                   overload == LoadOverload.LoadFile ||
+                   overload == LoadOverload.ALCLoadFromPath;
+        }
+
         #endregion
 
         #region Safe Assembly Name Check
@@ -417,6 +439,35 @@ namespace MLVScan.Models.Rules
             // If it's a simple name without suspicious characteristics, treat as likely safe
             // (still emits Low finding in caller for audit)
             return name.Length < 200 && !name.Contains("://") && !name.Contains("\\") && !name.Contains("/");
+        }
+
+        private static bool ShouldReportDirectLoad(
+            LoadOverload overload,
+            ProvenanceResult provenance,
+            int postLoadScore,
+            int correlationScore)
+        {
+            if (overload == LoadOverload.LoadBytes ||
+                overload == LoadOverload.LoadBytesWithPdb ||
+                overload == LoadOverload.ALCLoadFromStream ||
+                overload == LoadOverload.ALCLoadFromStreamPdb)
+            {
+                return true;
+            }
+
+            if (provenance.HasNetworkSource ||
+                provenance.HasBase64 ||
+                provenance.HasCrypto ||
+                provenance.HasCompression ||
+                provenance.HasResourceSource ||
+                provenance.HasTempPath ||
+                provenance.HasSensitivePath ||
+                provenance.HasWriteThenLoad)
+            {
+                return true;
+            }
+
+            return postLoadScore > 0 || correlationScore > 0;
         }
 
         #endregion

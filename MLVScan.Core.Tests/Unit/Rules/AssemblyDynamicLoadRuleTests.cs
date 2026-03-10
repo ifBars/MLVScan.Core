@@ -532,7 +532,7 @@ public class AssemblyDynamicLoadRuleTests
     }
 
     [Fact]
-    public void ShouldSuppressFinding_LoadFromPath_ReturnsFalse()
+    public void ShouldSuppressFinding_LoadFromPathWithoutStagingSignals_ReturnsTrue()
     {
         var methodRef = CreateAssemblyLoadMethod("System.String");
         methodRef.Name = "LoadFrom";
@@ -543,6 +543,33 @@ public class AssemblyDynamicLoadRuleTests
         };
 
         var shouldSuppress = _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals());
+
+        shouldSuppress.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_LoadFromPathWithNetworkSignal_ReturnsFalse()
+    {
+        var methodRef = CreateAssemblyLoadMethod("System.String");
+        methodRef.Name = "LoadFrom";
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("LoadFromNetworkSignal", new Version(1, 0, 0, 0)),
+            "LoadFromNetworkSignal",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var downloadRef = new MethodReference("DownloadData", module.TypeSystem.Void,
+            new TypeReference("System.Net", "WebClient", module, module.TypeSystem.CoreLibrary));
+        downloadRef.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "https://cdn.example.com/payload.dll"),
+            Instruction.Create(OpCodes.Callvirt, downloadRef),
+            Instruction.Create(OpCodes.Ldstr, "plugin.dll"),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var shouldSuppress = _rule.ShouldSuppressFinding(methodRef, instructions, 3, new MethodSignals());
 
         shouldSuppress.Should().BeFalse();
     }

@@ -189,6 +189,31 @@ public class FalsePositiveScanTests
             "recipe seed decoding plus catalog networking should not trigger high-risk multi-signal detection on its own");
     }
 
+    [SkippableFact]
+    public void Scan_ModsAppBinSample_ShouldNotProduceAssemblyLoadOrReflectionFindings()
+    {
+        Skip.If(_falsePositivesFolder == null,
+            "FALSE_POSITIVES folder not found. This test requires samples which are not available in CI.");
+
+        var path = Path.Combine(_falsePositivesFolder!, "s1-modsapp", "bin", "Debug Mono", "netstandard2.1",
+            "ModsApp.dll");
+        Skip.IfNot(File.Exists(path), "ModsApp bin sample not found in FALSE_POSITIVES folder.");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "s1-modsapp/bin/Debug Mono/netstandard2.1/ModsApp.dll");
+
+        findings.Should().NotContain(f => f.Severity >= Severity.High,
+            "ModsApp only performs benign dependency probing and helper reflection, not staged loader behavior");
+
+        findings.Should().NotContain(f => f.RuleId == "AssemblyDynamicLoadRule",
+            "simple third-party assembly probing should not be treated as a staged loader");
+
+        findings.Should().NotContain(f => f.RuleId == "ReflectionRule",
+            "helper reflection should not be escalated when no real staging signal exists");
+    }
+
     /// <summary>
     /// Bannerlord ButterLib is a popular Bannerlord modding library.
     /// Currently disabled due to false positive findings being detected.
