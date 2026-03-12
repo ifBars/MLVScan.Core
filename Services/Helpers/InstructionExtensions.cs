@@ -234,6 +234,11 @@ namespace MLVScan.Services.Helpers
                    instruction.OpCode == OpCodes.Newobj;
         }
 
+        public static bool IsCallOrCallvirt(this Instruction instruction)
+        {
+            return instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt;
+        }
+
         /// <summary>
         /// Gets the method reference from a call instruction, or null if not a method call.
         /// </summary>
@@ -276,6 +281,24 @@ namespace MLVScan.Services.Helpers
                    instruction.OpCode.Code == Code.Ble_Un_S ||
                    instruction.OpCode.Code == Code.Blt_Un ||
                    instruction.OpCode.Code == Code.Blt_Un_S;
+        }
+
+        public static bool IsArgumentLoad(this Instruction instruction)
+        {
+            return instruction.OpCode == OpCodes.Ldarg_0 ||
+                   instruction.OpCode == OpCodes.Ldarg_1 ||
+                   instruction.OpCode == OpCodes.Ldarg_2 ||
+                   instruction.OpCode == OpCodes.Ldarg_3 ||
+                   instruction.OpCode == OpCodes.Ldarg_S ||
+                   instruction.OpCode == OpCodes.Ldarg;
+        }
+
+        public static bool IsSimpleConstantLoad(this Instruction instruction)
+        {
+            return instruction.OpCode == OpCodes.Ldstr ||
+                   instruction.OpCode == OpCodes.Ldc_I4 ||
+                   instruction.OpCode == OpCodes.Ldc_I4_S ||
+                   instruction.OpCode == OpCodes.Ldnull;
         }
     }
 }
