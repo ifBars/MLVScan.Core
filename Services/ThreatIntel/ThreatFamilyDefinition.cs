@@ -19,7 +19,7 @@ internal sealed class ThreatFamilyVariantDefinition
     public string DisplayName { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public double Confidence { get; set; }
-    public Func<IReadOnlyList<ScanFinding>, ThreatFamilyVariantMatch?> Matcher { get; set; } = _ => null;
+    public Func<ThreatFamilyAnalysisContext, ThreatFamilyVariantMatch?> Matcher { get; set; } = _ => null;
 }
 
 internal sealed class ThreatFamilyVariantMatch

@@ -28,8 +28,18 @@ public static class ScanResultMapper
         ScanResultOptions options)
     {
         var findingsList = findings.ToList();
+        var callChains = findingsList
+            .Where(f => f.HasCallChain)
+            .Select(f => f.CallChain!)
+            .Distinct()
+            .ToList();
+        var dataFlows = findingsList
+            .Where(f => f.HasDataFlow)
+            .Select(f => f.DataFlowChain!)
+            .Distinct()
+            .ToList();
         var sha256Hash = ComputeSha256(assemblyBytes);
-        var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, sha256Hash);
+        var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, callChains, dataFlows, sha256Hash);
         var result = new ScanResultDto
         {
             SchemaVersion = options.SchemaVersion,
@@ -58,12 +68,9 @@ public static class ScanResultMapper
         // Add call chains if present and enabled
         if (options.IncludeCallChains)
         {
-            var findingsWithCallChains = findingsList.Where(f => f.HasCallChain).ToList();
-            if (findingsWithCallChains.Any())
+            if (callChains.Any())
             {
-                result.CallChains = findingsWithCallChains
-                    .Select(f => f.CallChain!)
-                    .Distinct()
+                result.CallChains = callChains
                     .Select(ToCallChainDto)
                     .ToList();
             }
@@ -72,12 +79,9 @@ public static class ScanResultMapper
         // Add data flows if present and enabled
         if (options.IncludeDataFlows)
         {
-            var findingsWithDataFlows = findingsList.Where(f => f.HasDataFlow).ToList();
-            if (findingsWithDataFlows.Any())
+            if (dataFlows.Any())
             {
-                result.DataFlows = findingsWithDataFlows
-                    .Select(f => f.DataFlowChain!)
-                    .Distinct()
+                result.DataFlows = dataFlows
                     .Select(ToDataFlowChainDto)
                     .ToList();
             }
@@ -243,7 +247,14 @@ public static class ScanResultMapper
             Evidence = match.Evidence.Select(e => new ThreatFamilyEvidenceDto
             {
                 Kind = e.Kind,
-                Value = e.Value
+                Value = e.Value,
+                RuleId = e.RuleId,
+                Location = e.Location,
+                CallChainId = e.CallChainId,
+                DataFlowChainId = e.DataFlowChainId,
+                Pattern = e.Pattern,
+                MethodLocation = e.MethodLocation,
+                Confidence = e.Confidence
             }).ToList()
         };
     }

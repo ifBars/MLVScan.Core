@@ -5,8 +5,6 @@ namespace MLVScan.Services.ThreatIntel;
 
 internal static class ThreatFamilyCatalog
 {
-    private static readonly StringComparer Comparer = StringComparer.OrdinalIgnoreCase;
-
     public static IReadOnlyList<ThreatFamilyDefinition> Families { get; } =
     [
         new ThreatFamilyDefinition
@@ -105,48 +103,81 @@ internal static class ThreatFamilyCatalog
         }
     ];
 
-    private static ThreatFamilyVariantMatch? MatchEmbeddedShellExecuteTempCmd(IReadOnlyList<ScanFinding> findings)
+    private static ThreatFamilyVariantMatch? MatchEmbeddedShellExecuteTempCmd(ThreatFamilyAnalysisContext context)
     {
-        var dllImportFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "DllImportRule") &&
-            ContainsAll(f.Description, "ShellExecuteEx", ".cmd", "%TEMP%", "embedded resource"));
+        var dataFlow = context.FindDataFlow(DataFlowPattern.EmbeddedResourceDropAndExecute);
+        var shellExecuteFinding = context.FindFinding("DllImportRule", "ShellExecuteEx");
+        var shellExecuteChain = context.FindCallChain("DllImportRule", "ShellExecuteEx");
 
-        if (dllImportFinding == null)
+        if (dataFlow == null && shellExecuteFinding == null)
+        {
+            return null;
+        }
+
+        var hasCmdStaging = (dataFlow != null && context.AnyDataFlowContainsAll(".cmd")) ||
+                            context.AnyFindingContainsAll(".cmd") ||
+                            context.AnyCallChainContainsAll(".cmd");
+
+        if (dataFlow == null && !hasCmdStaging)
         {
             return null;
         }
 
         return new ThreatFamilyVariantMatch
         {
-            MatchedRules = ["DllImportRule"],
+            MatchedRules = context.BuildMatchedRules("DataFlowAnalysis", "DllImportRule"),
             Evidence =
             [
-                Evidence("rule", "DllImportRule"),
-                Evidence("api", "ShellExecuteEx"),
-                Evidence("staging", "embedded resource -> %TEMP%/<guid>.cmd"),
-                Evidence("execution", "hidden shell execution")
+                context.CreateDataFlowEvidence("pattern", DataFlowPattern.EmbeddedResourceDropAndExecute.ToString(), dataFlow),
+                context.CreateDataFlowEvidence("data-flow-chain", dataFlow?.ChainId ?? "not-available", dataFlow),
+                context.CreateRuleEvidence("api", "ShellExecuteEx", shellExecuteFinding),
+                context.CreateCallChainEvidence("call-chain", shellExecuteChain?.ChainId ?? "not-available", shellExecuteChain),
+                Evidence("staging", hasCmdStaging ? "embedded resource -> temp .cmd" : "embedded resource -> executable staging"),
+                Evidence("execution", "native shell execution")
             ]
         };
     }
 
-    private static ThreatFamilyVariantMatch? MatchPowerShellIwrDlBat(IReadOnlyList<ScanFinding> findings)
+    private static ThreatFamilyVariantMatch? MatchPowerShellIwrDlBat(ThreatFamilyAnalysisContext context)
     {
-        var processFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "ProcessStartRule") &&
-            ContainsAll(f.Description, "powershell.exe", "iwr", "dl.bat", "Start-Sleep", "Remove-Item"));
+        var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);
+        var processFinding = context.FindFinding("ProcessStartRule", "powershell.exe");
 
         if (processFinding == null)
         {
             return null;
         }
 
+        var hasDownloaderMarkers = context.AnyContextContainsAll("iwr") ||
+                                   context.AnyContextContainsAll("Invoke-WebRequest");
+        var hasTempBatchMarkers = context.AnyContextContainsAll("dl.bat") ||
+                                  context.AnyContextContainsAll("%TEMP%", ".bat");
+        var hasCleanupMarkers = context.AnyContextContainsAll("Start-Sleep") ||
+                                context.AnyContextContainsAll("Remove-Item");
+
+        if (!hasDownloaderMarkers || !hasTempBatchMarkers || !hasCleanupMarkers)
+        {
+            return null;
+        }
+
+        var hasBehavioralContext = dataFlow != null ||
+                                   context.FindCallChain("ProcessStartRule", "powershell.exe") != null ||
+                                   context.AnyFindingContainsAll("powershell.exe", "iwr", "dl.bat", "Start-Sleep", "Remove-Item");
+
+        if (!hasBehavioralContext)
+        {
+            return null;
+        }
+
         return new ThreatFamilyVariantMatch
         {
-            MatchedRules = ["ProcessStartRule"],
+            MatchedRules = context.BuildMatchedRules("DataFlowAnalysis", "ProcessStartRule"),
             Evidence =
             [
-                Evidence("rule", "ProcessStartRule"),
-                Evidence("launcher", "powershell.exe"),
+                context.CreateDataFlowEvidence("pattern", dataFlow?.Pattern.ToString() ?? "standalone-process-chain", dataFlow),
+                context.CreateDataFlowEvidence("data-flow-chain", dataFlow?.ChainId ?? "not-available", dataFlow),
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                context.CreateRuleEvidence("launcher", "powershell.exe", processFinding),
                 Evidence("download", "Invoke-WebRequest / iwr"),
                 Evidence("staging", "%TEMP%/dl.bat"),
                 Evidence("cleanup", "sleep then remove temp batch")
@@ -154,45 +185,42 @@ internal static class ThreatFamilyCatalog
         };
     }
 
-    private static ThreatFamilyVariantMatch? MatchWebClientStageExecute(IReadOnlyList<ScanFinding> findings)
+    private static ThreatFamilyVariantMatch? MatchWebClientStageExecute(ThreatFamilyAnalysisContext context)
     {
-        var networkFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "DataInfiltrationRule") &&
-            ContainsAny(f.Description, "DownloadFileTaskAsync", "malicious domain", "payload delivery"));
-        var executionFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "ProcessStartRule") &&
-            (ContainsAll(f.Description, "Downloads data from network", "executes as a program") ||
-             ContainsAll(f.Description, "cmd.exe", "%TEMP%/d.bat") ||
-             ContainsAny(f.Description, "WorkingDirectory=Temp", "UseShellExecute=true")));
+        var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);
+        var executionFinding = context.FindFinding("ProcessStartRule");
+        var hasWebClientSource = context.AnyDataFlowContainsAll("DownloadFileTaskAsync") ||
+                                 context.AnyDataFlowContainsAll("WebClient") ||
+                                 context.AnyFindingContainsAll("DownloadFileTaskAsync") ||
+                                 context.AnyCallChainContainsAll("WebClient");
 
-        if (networkFinding == null || executionFinding == null)
+        if (dataFlow == null || executionFinding == null || !hasWebClientSource)
         {
             return null;
         }
 
         return new ThreatFamilyVariantMatch
         {
-            MatchedRules = new[] { "DataInfiltrationRule", "ProcessStartRule" },
+            MatchedRules = context.BuildMatchedRules("DataFlowAnalysis", "DataInfiltrationRule", "ProcessStartRule"),
             Evidence =
             [
-                Evidence("rule", "DataInfiltrationRule"),
-                Evidence("rule", "ProcessStartRule"),
-                Evidence("download", "WebClient download to TEMP"),
+                context.CreateDataFlowEvidence("pattern", DataFlowPattern.DownloadAndExecute.ToString(), dataFlow),
+                context.CreateDataFlowEvidence("data-flow-chain", dataFlow.ChainId, dataFlow),
+                context.CreateDataFlowEvidence("source", "WebClient download", dataFlow),
+                context.CreateRuleEvidence("rule", "ProcessStartRule", executionFinding),
+                Evidence("download", "network download to TEMP"),
                 Evidence("execution", "staged payload execution from TEMP")
             ]
         };
     }
 
-    private static ThreatFamilyVariantMatch? MatchObfuscatedMetadataLoader(IReadOnlyList<ScanFinding> findings)
+    private static ThreatFamilyVariantMatch? MatchObfuscatedMetadataLoader(ThreatFamilyAnalysisContext context)
     {
-        var encodedLiteral = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "EncodedStringLiteralRule") &&
-            ContainsAll(f.Description, "ProcessStartInfo", "powershell.exe", "Invoke-WebRequest"));
-        var reflectionFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "ReflectionRule") &&
-            ContainsAll(f.Description, "AssemblyMetadataAttribute"));
-        var pipelineFinding = findings.FirstOrDefault(f =>
-            Comparer.Equals(f.RuleId, "EncodedStringPipelineRule"));
+        var encodedLiteral = context.FindFinding("EncodedStringLiteralRule");
+        var reflectionFinding = context.FindFinding("ReflectionRule", "AssemblyMetadataAttribute");
+        var reflectionChain = context.FindCallChain("ReflectionRule", "AssemblyMetadataAttribute");
+        var pipelineFinding = context.FindFinding("EncodedStringPipelineRule");
+        var dynamicLoadFlow = context.FindDataFlow(DataFlowPattern.DynamicCodeLoading);
 
         if (encodedLiteral == null || reflectionFinding == null || pipelineFinding == null)
         {
@@ -201,12 +229,18 @@ internal static class ThreatFamilyCatalog
 
         return new ThreatFamilyVariantMatch
         {
-            MatchedRules = new[] { "EncodedStringLiteralRule", "EncodedStringPipelineRule", "ReflectionRule" },
+            MatchedRules = context.BuildMatchedRules(
+                "EncodedStringLiteralRule",
+                "EncodedStringPipelineRule",
+                "ReflectionRule",
+                dynamicLoadFlow != null ? "DataFlowAnalysis" : string.Empty),
             Evidence =
             [
-                Evidence("rule", "EncodedStringLiteralRule"),
-                Evidence("rule", "EncodedStringPipelineRule"),
-                Evidence("rule", "ReflectionRule"),
+                context.CreateRuleEvidence("rule", "EncodedStringLiteralRule", encodedLiteral),
+                context.CreateRuleEvidence("rule", "EncodedStringPipelineRule", pipelineFinding),
+                context.CreateRuleEvidence("rule", "ReflectionRule", reflectionFinding),
+                context.CreateCallChainEvidence("call-chain", reflectionChain?.ChainId ?? "not-available", reflectionChain),
+                context.CreateDataFlowEvidence("data-flow-pattern", dynamicLoadFlow?.Pattern.ToString() ?? "not-available", dynamicLoadFlow),
                 Evidence("obfuscation", "numeric string decode pipeline"),
                 Evidence("payload-source", "assembly metadata value"),
                 Evidence("execution", "hidden cmd.exe / powershell.exe loader")
@@ -219,13 +253,16 @@ internal static class ThreatFamilyCatalog
         return new ThreatFamilyEvidence { Kind = kind, Value = value };
     }
 
-    private static bool ContainsAll(string value, params string[] needles)
+    private static ThreatFamilyEvidence Evidence(string kind, string value, string? pattern, string? methodLocation, double? confidence)
     {
-        return needles.All(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+        return new ThreatFamilyEvidence
+        {
+            Kind = kind,
+            Value = value,
+            Pattern = pattern,
+            MethodLocation = methodLocation,
+            Confidence = confidence
+        };
     }
 
-    private static bool ContainsAny(string value, params string[] needles)
-    {
-        return needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
-    }
 }

@@ -13,6 +13,39 @@ namespace MLVScan.Core.Tests.Integration;
 /// </summary>
 public class FalsePositiveScanTests
 {
+    private static readonly HashSet<string> TrackedTopLevelFalsePositiveSamples = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AudioImportLib.dll",
+        "Bannerlord.ButterLib.dll",
+        "BankApp.dll",
+        "CustomTV.dll",
+        "DeliveryCartPlus_v.1.0.dll",
+        "eMployee.dll",
+        "ExIni.dll",
+        "ezTransXP.dll",
+        "FGMONOMobileBanking.dll",
+        "HUB.Chat.dll",
+        "HUB.SmartEmployees.dll",
+        "HUB.TheVeil.dll",
+        "KeepWateringCanFull.dll",
+        "LecPowerTranslator15.dll",
+        "LethalLizard.ModManager.dll",
+        "ModsApp.dll",
+        "Musicfy.dll",
+        "NAudio.Asio.dll",
+        "NAudio.Core.dll",
+        "OverTheCounter-Loader.dll",
+        "S1APILoader.MelonLoader.dll",
+        "SaveFileSharing.dll",
+        "SimpleSingleplayerRespawn.dll",
+        "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
+        "UnityExplorer.ML.Mono.dll",
+        "UniverseLib.ML.IL2CPP.Interop.dll",
+        "UnlimitedLaundering.dll",
+        "UpdateTraduccionScheduleI.dll",
+        "XUnity.AutoTranslator.Plugin.Core.dll"
+    };
+
     private readonly ITestOutputHelper _output;
     private readonly string? _falsePositivesFolder;
 
@@ -72,6 +105,29 @@ public class FalsePositiveScanTests
         }
     }
 
+    private static bool IsAssemblySampleFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".winmd", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyList<string> GetTopLevelFalsePositiveSampleNames()
+    {
+        Skip.If(_falsePositivesFolder == null,
+            "FALSE_POSITIVES folder not found. This test requires samples which are not available in CI.");
+
+        return Directory
+            .EnumerateFiles(_falsePositivesFolder!, "*", SearchOption.TopDirectoryOnly)
+            .Where(IsAssemblySampleFile)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     #region False Positive Sample Tests
 
     [SkippableTheory]
@@ -85,8 +141,7 @@ public class FalsePositiveScanTests
     [InlineData("SaveFileSharing.dll")]
     [InlineData("SimpleSingleplayerRespawn.dll")]
     [InlineData("UnlimitedLaundering.dll")]
-    [InlineData("NoMoreTrashMono.dll")]
-    [InlineData("RecipeRandomizer.dll")]
+    [InlineData("UpdateTraduccionScheduleI.dll")]
     public void Scan_FalsePositiveSample_ShouldNotProduceFindings(string filename)
     {
         var path = GetSamplePath(filename);
@@ -350,50 +405,25 @@ public class FalsePositiveScanTests
     #region Summary Report
 
     [SkippableFact]
+    public void Scan_AllTopLevelFalsePositiveSamples_AreTrackedByFalsePositiveTests()
+    {
+        var actualSamples = GetTopLevelFalsePositiveSampleNames();
+
+        actualSamples.Should().BeEquivalentTo(TrackedTopLevelFalsePositiveSamples,
+            "every top-level assembly in FALSE_POSITIVES should be covered by the false-positive test suite");
+    }
+
+    [SkippableFact]
     public void Scan_AllFalsePositiveSamples_SummaryReport()
     {
-        Skip.If(_falsePositivesFolder == null,
-            "FALSE_POSITIVES folder not found. This test requires samples which are not available in CI.");
-
-        var samples = new[]
-        {
-            "AudioImportLib.dll",
-            "Bannerlord.ButterLib.dll",
-            "BankApp.dll",
-            "CustomTV.dll",
-            "DeliveryCartPlus_v.1.0.dll",
-            "eMployee.dll",
-            "ExIni.dll",
-            "FGMONOMobileBanking.dll",
-            "HUB.Chat.dll",
-            "HUB.SmartEmployees.dll",
-            "HUB.TheVeil.dll",
-            "KeepWateringCanFull.dll",
-            "LecPowerTranslator15.dll",
-            "LethalLizard.ModManager.dll",
-            "Musicfy.dll",
-            "NAudio.Asio.dll",
-            "NAudio.Core.dll",
-            "NoMoreTrashMono.dll",
-            "OverTheCounter-Loader.dll",
-            "RecipeRandomizer.dll",
-            "S1APILoader.MelonLoader.dll",
-            "SaveFileSharing.dll",
-            "SimpleSingleplayerRespawn.dll",
-            "XUnity.AutoTranslator.Plugin.Core.dll",
-            "ezTransXP.dll",
-            "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
-            "UnityExplorer.ML.Mono.dll",
-            "UniverseLib.ML.IL2CPP.Interop.dll",
-            "UnlimitedLaundering.dll"
-        };
+        var samples = GetTopLevelFalsePositiveSampleNames();
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         var results = new List<(string Sample, int TotalFindings, int HighSeverity, int LowSeverity, List<string> RulesTriggered)>();
 
         foreach (var sample in samples)
         {
-            var path = Path.Combine(_falsePositivesFolder, sample);
+            var path = Path.Combine(_falsePositivesFolder!, sample);
             if (!File.Exists(path))
             {
                 _output.WriteLine($"SKIP: {sample} not found");

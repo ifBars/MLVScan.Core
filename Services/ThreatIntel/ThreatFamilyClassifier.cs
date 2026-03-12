@@ -13,7 +13,19 @@ public sealed class ThreatFamilyClassifier
     /// </summary>
     public IReadOnlyList<ThreatFamilyMatch> Classify(IEnumerable<ScanFinding> findings, string? sha256Hash)
     {
-        var findingsList = findings.ToList();
+        return Classify(findings, callChains: null, dataFlows: null, sha256Hash);
+    }
+
+    /// <summary>
+    /// Matches a scan against the built-in malware family catalog using structured call-chain and data-flow context.
+    /// </summary>
+    public IReadOnlyList<ThreatFamilyMatch> Classify(
+        IEnumerable<ScanFinding> findings,
+        IEnumerable<CallChain>? callChains,
+        IEnumerable<DataFlowChain>? dataFlows,
+        string? sha256Hash)
+    {
+        var context = new ThreatFamilyAnalysisContext(findings, callChains, dataFlows);
         var matches = new List<ThreatFamilyMatch>();
 
         foreach (var family in ThreatFamilyCatalog.Families)
@@ -30,7 +42,7 @@ public sealed class ThreatFamilyClassifier
                     Confidence = 1.0,
                     ExactHashMatch = true,
                     AdvisorySlugs = family.AdvisorySlugs.ToList(),
-                    MatchedRules = findingsList
+                    MatchedRules = context.Findings
                         .Select(f => f.RuleId)
                         .Where(ruleId => !string.IsNullOrWhiteSpace(ruleId))
                         .Distinct(StringComparer.Ordinal)
@@ -40,7 +52,12 @@ public sealed class ThreatFamilyClassifier
                     Evidence =
                     [
                         new ThreatFamilyEvidence { Kind = "hash", Value = sha256Hash },
-                        new ThreatFamilyEvidence { Kind = "match", Value = "Exact sample hash match" }
+                        new ThreatFamilyEvidence
+                        {
+                            Kind = "match",
+                            Value = "Exact sample hash match",
+                            Confidence = 1.0
+                        }
                     ]
                 });
                 continue;
@@ -48,7 +65,7 @@ public sealed class ThreatFamilyClassifier
 
             foreach (var variant in family.Variants)
             {
-                var variantMatch = variant.Matcher(findingsList);
+                var variantMatch = variant.Matcher(context);
                 if (variantMatch == null)
                 {
                     continue;

@@ -333,6 +333,56 @@ public class ScanResultMapperTests
         result.ThreatFamilies!.Should().ContainSingle();
         result.ThreatFamilies[0].FamilyId.Should().Be("family-powershell-iwr-dlbat-v1");
         result.ThreatFamilies[0].MatchKind.Should().Be("BehaviorVariant");
+        result.ThreatFamilies[0].Evidence.Should().Contain(e =>
+            e.Kind == "rule" &&
+            e.RuleId == "ProcessStartRule" &&
+            e.Location == "Test.Mod.Init:52");
+    }
+
+    [Fact]
+    public void ToDto_WithThreatFamilyStructuredEvidence_MapsEvidenceContextFields()
+    {
+        var callChain = new CallChain("cc-resource-shell32", "DllImportRule", Severity.Critical, "ShellExecute chain");
+        callChain.AppendNode(new CallChainNode("Malware.Loader.Init", "Entry point", CallChainNodeType.EntryPoint));
+        callChain.AppendNode(new CallChainNode(
+            "Malware.Loader.ExtractPayload",
+            "P/Invoke declaration for shell32.dll ShellExecuteEx",
+            CallChainNodeType.SuspiciousDeclaration));
+
+        var dataFlow = new DataFlowChain(
+            "df-resource-shell32",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            0.95,
+            "Embedded resource extracted to temp cmd and executed",
+            "Malware.Loader.ExtractPayload");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Malware.Loader.ExtractPayload:41",
+            "PInvoke.ShellExecuteEx",
+            DataFlowNodeType.Sink,
+            "execute temp cmd",
+            41));
+
+        var finding = new ScanFinding("Malware.Loader.ExtractPayload", "Native shell execution detected", Severity.Critical)
+        {
+            RuleId = "DllImportRule",
+            CallChain = callChain,
+            DataFlowChain = dataFlow
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
+
+        result.ThreatFamilies.Should().NotBeNullOrEmpty();
+        var family = result.ThreatFamilies!.First(match => match.FamilyId == "family-resource-shell32-tempcmd-v1");
+        family.Evidence.Should().Contain(e =>
+            e.Kind == "call-chain" &&
+            e.CallChainId == "cc-resource-shell32");
+        family.Evidence.Should().Contain(e =>
+            e.Kind == "data-flow-chain" &&
+            e.DataFlowChainId == "df-resource-shell32" &&
+            e.Pattern == "EmbeddedResourceDropAndExecute" &&
+            e.MethodLocation == "Malware.Loader.ExtractPayload" &&
+            e.Confidence == 0.95);
     }
 
     [Fact]
