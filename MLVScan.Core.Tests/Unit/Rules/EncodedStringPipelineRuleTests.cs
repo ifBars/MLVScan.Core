@@ -6,613 +6,324 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Xunit;
 
-namespace MLVScan.Core.Tests.Unit.Rules
+namespace MLVScan.Core.Tests.Unit.Rules;
+
+public class EncodedStringPipelineRuleTests
 {
-    public class EncodedStringPipelineRuleTests
+    private readonly EncodedStringPipelineRule _rule = new();
+
+    [Fact]
+    public void RuleMetadata_IsExpected()
     {
-        private readonly EncodedStringPipelineRule _rule;
+        _rule.RuleId.Should().Be("EncodedStringPipelineRule");
+        _rule.Description.Should().Be("Detected encoded string to char decoding pipeline (ASCII number parsing pattern).");
+        _rule.Severity.Should().Be(Severity.High);
+        _rule.RequiresCompanionFinding.Should().BeFalse();
+    }
 
-        public EncodedStringPipelineRuleTests()
+    [Fact]
+    public void IsSuspicious_AlwaysReturnsFalse()
+    {
+        _rule.IsSuspicious(MethodReferenceFactory.Create("TestClass", "TestMethod")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DetectsSelectStringCharAndConcatCharPattern()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().HaveCount(1);
+        findings[0].Location.Should().Be("TestNamespace.TestClass.TestMethod");
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("encoded string to char decoding pipeline");
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DetectsFullPatternWithInt32ParseAndConvU2()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Ldstr, "123");
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Conv_U2);
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().HaveCount(1);
+        findings[0].Location.Should().Be("TestNamespace.TestClass.TestMethod");
+        findings[0].CodeSnippet.Should().Contain("call");
+        findings[0].CodeSnippet.Should().Contain("conv.u2");
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, true)]
+    public void AnalyzeInstructions_DetectsOnlyWhenSelectAndConcatMatch(bool includeSelect, bool includeConcat, bool expectedFinding)
+    {
+        var context = CreateContext();
+
+        if (includeSelect)
         {
-            _rule = new EncodedStringPipelineRule();
+            context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
         }
 
-        [Fact]
-        public void RuleId_ReturnsExpectedValue()
+        if (includeConcat)
         {
-            _rule.RuleId.Should().Be("EncodedStringPipelineRule");
+            context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
         }
 
-        [Fact]
-        public void Description_ReturnsExpectedValue()
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        if (expectedFinding)
         {
-            _rule.Description.Should().Be("Detected encoded string to char decoding pipeline (ASCII number parsing pattern).");
-        }
-
-        [Fact]
-        public void Severity_ReturnsHigh()
-        {
-            _rule.Severity.Should().Be(Severity.High);
-        }
-
-        [Fact]
-        public void RequiresCompanionFinding_ReturnsFalse()
-        {
-            _rule.RequiresCompanionFinding.Should().BeFalse();
-        }
-
-        [Fact]
-        public void IsSuspicious_AlwaysReturnsFalse()
-        {
-            // This rule analyzes IL patterns, not method references
-            var method = MethodReferenceFactory.Create("TestClass", "TestMethod");
-            _rule.IsSuspicious(method).Should().BeFalse();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DetectsSelectStringCharAndConcatCharPattern()
-        {
-            // Arrange: Create a method with Select<String,Char> → Concat<Char> pattern
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            // Create Select<String,Char> method
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            // Create Concat<Char> method
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-            findings[0].Location.Should().Be("TestNamespace.TestClass.TestMethod");
-            findings[0].Severity.Should().Be(Severity.High);
-            findings[0].Description.Should().Contain("encoded string to char decoding pipeline");
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DetectsFullPatternWithInt32ParseAndConvU2()
-        {
-            // Arrange: Create method with Int32::Parse → conv.u2 → Select<String,Char> → Concat<Char>
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            // Create Int32.Parse(String) method
-            var int32Type = new TypeReference("System", "Int32", module, module.TypeSystem.CoreLibrary);
-            var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-
-            // Create Select<String,Char> method
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            // Create Concat<Char> method
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "123"));
-            processor.Append(processor.Create(OpCodes.Call, parseMethod));
-            processor.Append(processor.Create(OpCodes.Conv_U2)); // convert to char
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-            findings[0].Location.Should().Be("TestNamespace.TestClass.TestMethod");
-            findings[0].CodeSnippet.Should().Contain("call");
-            findings[0].CodeSnippet.Should().Contain("conv.u2");
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenOnlySelectPresent()
-        {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenOnlyConcatPresent()
-        {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenSelectNotStringCharGeneric()
-        {
-            // Arrange: Select<int, string> instead of Select<String, Char>
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Int32);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenConcatNotCharGeneric()
-        {
-            // Arrange: Concat<String> instead of Concat<Char>
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.String);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenSelectAfterConcat()
-        {
-            // Arrange: Wrong order - Concat before Select
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_DetectsInt32Parse_WithCorrectSignature()
-        {
-            // Arrange: Int32.Parse with String parameter
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var int32Type = new TypeReference("System", "Int32", module, module.TypeSystem.CoreLibrary);
-            var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, parseMethod));
-            processor.Append(processor.Create(OpCodes.Conv_U2));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
             findings.Should().HaveCount(1);
         }
-
-        [Fact]
-        public void AnalyzeInstructions_DoesNotDetect_WhenInt32ParseHasWrongSignature()
+        else
         {
-            // Arrange: Int32.Parse with multiple parameters (different overload)
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var int32Type = new TypeReference("System", "Int32", module, module.TypeSystem.CoreLibrary);
-            var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32)); // Wrong signature
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, parseMethod));
-            processor.Append(processor.Create(OpCodes.Conv_U2));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert - Still detects because Select+Concat is present, but won't highlight Parse in >>> markers
-            findings.Should().HaveCount(1);
-            // The snippet contains "Parse" text but it's not highlighted with >>> since it has wrong signature
-            var highlightedLines = findings[0].CodeSnippet!.Split('\n').Where(l => l.TrimStart().StartsWith(">>>"));
-            highlightedLines.Should().NotContain(line => line.Contains("Parse"));
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_ChecksConvU2ProximityToParse()
-        {
-            // Arrange: conv.u2 must be within 3 instructions after Parse
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var int32Type = new TypeReference("System", "Int32", module, module.TypeSystem.CoreLibrary);
-            var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, parseMethod));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Conv_U2)); // At index parseIndex+3 (still within range)
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-            findings[0].CodeSnippet.Should().Contain("conv.u2");
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_IncludesContextInCodeSnippet()
-        {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "context"));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Pop));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-            findings[0].CodeSnippet.Should().Contain(">>>");
-            findings[0].CodeSnippet.Should().Contain("nop");
-        }
-
-        [Fact]
-        public void AnalyzeInstructions_HandlesEmptyInstructions()
-        {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
-
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
             findings.Should().BeEmpty();
         }
+    }
 
-        [Fact]
-        public void AnalyzeInstructions_HandlesExceptionGracefully()
+    [Fact]
+    public void AnalyzeInstructions_DoesNotDetect_WhenSelectNotStringCharGeneric()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.Int32, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        Analyze(context.Method).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DoesNotDetect_WhenConcatNotCharGeneric()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Ret);
+
+        Analyze(context.Method).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DoesNotDetect_WhenSelectAfterConcat()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        Analyze(context.Method).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DetectsInt32Parse_WithCorrectSignature()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Conv_U2);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        Analyze(context.Method).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_DoesNotHighlightParse_WhenInt32ParseHasWrongSignature()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Int32));
+        context.Emit(OpCodes.Conv_U2);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().HaveCount(1);
+        findings[0].CodeSnippet!
+            .Split('\n')
+            .Where(static line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal))
+            .Should()
+            .NotContain(line => line.Contains("Parse", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_ChecksConvU2ProximityToParse()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Conv_U2);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().HaveCount(1);
+        findings[0].CodeSnippet.Should().Contain("conv.u2");
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_IncludesContextInCodeSnippet()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Ldstr, "context");
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Pop);
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().HaveCount(1);
+        findings[0].CodeSnippet.Should().Contain(">>>");
+        findings[0].CodeSnippet.Should().Contain("nop");
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_HandlesEmptyInstructions()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Ret);
+
+        Analyze(context.Method).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_HandlesExceptionGracefully()
+    {
+        var context = CreateContext();
+        var malformedMethod = new MethodReference("TestMethod", context.Module.TypeSystem.Void)
         {
-            // Arrange: Method with malformed instruction that might cause NullReferenceException
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
+            DeclaringType = null!
+        };
 
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
+        context.Emit(OpCodes.Call, malformedMethod);
+        context.Emit(OpCodes.Ret);
 
-            // Create a valid method reference but with null DeclaringType
-            var methodRef = new MethodReference("TestMethod", module.TypeSystem.Void);
-            methodRef.DeclaringType = null!; // This will cause NullReferenceException when accessing DeclaringType.FullName
+        Analyze(context.Method).Should().BeEmpty();
+    }
 
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Call, methodRef));
-            processor.Append(processor.Create(OpCodes.Ret));
+    [Fact]
+    public void AnalyzeInstructions_CodeSnippetHighlightsKeyInstructions()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Ldstr, "123");
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Conv_U2);
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));
+        context.Emit(OpCodes.Ret);
 
-            var signals = new MethodSignals();
+        var snippet = Analyze(context.Method).Single().CodeSnippet!;
+        var lines = snippet.Split('\n');
 
-            // Act - should not throw, rule has try-catch
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
+        lines.Should().Contain(line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal) && line.Contains("Parse", StringComparison.Ordinal));
+        lines.Should().Contain(line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal) && line.Contains("conv.u2", StringComparison.Ordinal));
+        lines.Should().Contain(line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal) && line.Contains("Select", StringComparison.Ordinal));
+        lines.Should().Contain(line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal) && line.Contains("Concat", StringComparison.Ordinal));
+    }
 
-            // Assert
-            findings.Should().BeEmpty();
+    private List<ScanFinding> Analyze(MethodDefinition method)
+    {
+        return _rule.AnalyzeInstructions(method, method.Body.Instructions, new MethodSignals()).ToList();
+    }
+
+    private static PipelineContext CreateContext()
+    {
+        var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void)
+        {
+            Body = new MethodBody(null!)
+        };
+
+        method.Body = new MethodBody(method);
+        type.Methods.Add(method);
+
+        return new PipelineContext(module, method, method.Body.GetILProcessor());
+    }
+
+    private static MethodReference CreateSelectMethod(ModuleDefinition module, TypeReference sourceType, TypeReference resultType)
+    {
+        var enumerableType = CreateTypeReference(module, "System.Linq.Enumerable");
+        var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
+        var genericMethod = new GenericInstanceMethod(selectMethod);
+        genericMethod.GenericArguments.Add(sourceType);
+        genericMethod.GenericArguments.Add(resultType);
+        return genericMethod;
+    }
+
+    private static MethodReference CreateConcatMethod(ModuleDefinition module, TypeReference elementType)
+    {
+        var stringType = CreateTypeReference(module, "System.String");
+        var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
+        var genericMethod = new GenericInstanceMethod(concatMethod);
+        genericMethod.GenericArguments.Add(elementType);
+        return genericMethod;
+    }
+
+    private static MethodReference CreateParseMethod(ModuleDefinition module, params TypeReference[] parameterTypes)
+    {
+        var int32Type = CreateTypeReference(module, "System.Int32");
+        var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
+        foreach (var parameterType in parameterTypes)
+        {
+            parseMethod.Parameters.Add(new ParameterDefinition(parameterType));
         }
 
-        [Fact]
-        public void AnalyzeInstructions_CodeSnippetHighlightsKeyInstructions()
+        return parseMethod;
+    }
+
+    private static TypeReference CreateTypeReference(ModuleDefinition module, string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        var ns = lastDot > 0 ? fullName[..lastDot] : string.Empty;
+        var name = lastDot > 0 ? fullName[(lastDot + 1)..] : fullName;
+        return new TypeReference(ns, name, module, module.TypeSystem.CoreLibrary);
+    }
+
+    private sealed record PipelineContext(ModuleDefinition Module, MethodDefinition Method, ILProcessor Processor)
+    {
+        public void Emit(OpCode opCode)
         {
-            // Arrange
-            var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
-            var module = assembly.MainModule;
-            var testType = new TypeDefinition("TestNamespace", "TestClass", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
-            module.Types.Add(testType);
+            Processor.Append(Processor.Create(opCode));
+        }
 
-            var method = new MethodDefinition("TestMethod", MethodAttributes.Public, module.TypeSystem.Void);
-            testType.Methods.Add(method);
-            method.Body = new MethodBody(method);
+        public void Emit(OpCode opCode, string value)
+        {
+            Processor.Append(Processor.Create(opCode, value));
+        }
 
-            var int32Type = new TypeReference("System", "Int32", module, module.TypeSystem.CoreLibrary);
-            var parseMethod = new MethodReference("Parse", module.TypeSystem.Int32, int32Type);
-            parseMethod.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
-
-            var enumerableType = new TypeReference("System.Linq", "Enumerable", module, module.TypeSystem.CoreLibrary);
-            var selectMethod = new MethodReference("Select", module.TypeSystem.Object, enumerableType);
-            var genericSelect = new GenericInstanceMethod(selectMethod);
-            genericSelect.GenericArguments.Add(module.TypeSystem.String);
-            genericSelect.GenericArguments.Add(module.TypeSystem.Char);
-
-            var stringType = new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary);
-            var concatMethod = new MethodReference("Concat", module.TypeSystem.String, stringType);
-            var genericConcat = new GenericInstanceMethod(concatMethod);
-            genericConcat.GenericArguments.Add(module.TypeSystem.Char);
-
-            var processor = method.Body.GetILProcessor();
-            processor.Append(processor.Create(OpCodes.Ldstr, "123"));
-            processor.Append(processor.Create(OpCodes.Call, parseMethod));
-            processor.Append(processor.Create(OpCodes.Conv_U2));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericSelect));
-            processor.Append(processor.Create(OpCodes.Nop));
-            processor.Append(processor.Create(OpCodes.Call, genericConcat));
-            processor.Append(processor.Create(OpCodes.Ret));
-
-            var signals = new MethodSignals();
-
-            // Act
-            var findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, signals).ToList();
-
-            // Assert
-            findings.Should().HaveCount(1);
-            var snippet = findings[0].CodeSnippet;
-            snippet.Should().NotBeNull();
-            var lines = snippet!.Split('\n');
-
-            // Check that key instructions are highlighted with ">>>"
-            lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("Parse"));
-            lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("conv.u2"));
-            lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("Select"));
-            lines.Should().Contain(line => line.TrimStart().StartsWith(">>>") && line.Contains("Concat"));
+        public void Emit(OpCode opCode, MethodReference method)
+        {
+            Processor.Append(Processor.Create(opCode, method));
         }
     }
 }
