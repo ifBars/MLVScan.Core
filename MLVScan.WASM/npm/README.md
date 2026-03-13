@@ -104,7 +104,7 @@ const result = await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
 | `isMockScanner()` | `boolean` | True when running in mock mode. |
 | `getScannerStatus()` | `ScannerStatus` | Full status snapshot — ready, mock, explicit mock, and init error. |
 | `getScannerVersion()` | `Promise<string>` | Scanner engine version (e.g. `"1.1.7"`). Returns `"1.0.0-mock"` in mock mode. |
-| `getSchemaVersion()` | `Promise<string>` | Result schema version (e.g. `"1.0.0"`). |
+| `getSchemaVersion()` | `Promise<string>` | Result schema version (e.g. `"1.1.0"`). |
 | `getInitError()` | `Error \| null` | The error that caused WASM fallback, or null if healthy. |
 
 ## Scan Modes
@@ -145,13 +145,14 @@ The root object returned by all scan functions.
 ```ts
 interface ScanResult {
   schemaVersion: string
-  metadata: ScanMetadata       // Scanner version, timestamp, scan mode, platform
+  metadata: ScanMetadata       // Core/platform/scanner versions, timestamp, scan mode, platform
   input: ScanInput             // File name, size, optional SHA-256
   summary: ScanSummary         // Total findings and counts by severity
   findings: Finding[]          // Individual security findings
   callChains?: CallChain[]     // Detailed mode: execution paths
   dataFlows?: DataFlowChain[]  // Developer mode: source-to-sink data flows
   developerGuidance?: DeveloperGuidance[] // Developer mode: remediation suggestions
+  threatFamilies?: ThreatFamily[] // Optional malware family classification matches
 }
 ```
 
@@ -159,11 +160,18 @@ interface ScanResult {
 
 ```ts
 interface Finding {
+  id?: string
   ruleId?: string
   description: string
   severity: 'Low' | 'Medium' | 'High' | 'Critical'
   location: string       // Type/method name or file:line
   codeSnippet?: string
+  riskScore?: number
+  callChainId?: string
+  dataFlowChainId?: string
+  developerGuidance?: DeveloperGuidance
+  callChain?: CallChain
+  dataFlowChain?: DataFlowChain
 }
 ```
 

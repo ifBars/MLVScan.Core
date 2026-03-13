@@ -1,0 +1,763 @@
+{
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "$ref": "#/$defs/SchemaVersion"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ScanMetadata"
+    },
+    "input": {
+      "$ref": "#/$defs/ScanInput"
+    },
+    "summary": {
+      "$ref": "#/$defs/ScanSummary"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "callChains": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CallChain"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dataFlows": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DataFlowChain"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "developerGuidance": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeveloperGuidance"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threatFamilies": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ThreatFamily"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "metadata",
+    "input",
+    "summary",
+    "findings"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlvscan.com/schemas/scan-result/1.1.0/schema.json",
+  "title": "MLVScan Scan Result",
+  "description": "Generated from MLVScan.Core DTOs. Schema version 1.1.0.",
+  "$defs": {
+    "CallChainNodeType": {
+      "type": "string",
+      "enum": [
+        "EntryPoint",
+        "IntermediateCall",
+        "SuspiciousDeclaration"
+      ]
+    },
+    "DataFlowNodeType": {
+      "type": "string",
+      "enum": [
+        "Source",
+        "Transform",
+        "Sink",
+        "Intermediate"
+      ]
+    },
+    "DataFlowPattern": {
+      "type": "string",
+      "enum": [
+        "Legitimate",
+        "DownloadAndExecute",
+        "DataExfiltration",
+        "DynamicCodeLoading",
+        "CredentialTheft",
+        "RemoteConfigLoad",
+        "ObfuscatedPersistence",
+        "EmbeddedResourceDropAndExecute",
+        "Unknown"
+      ]
+    },
+    "ScanMode": {
+      "type": "string",
+      "enum": [
+        "summary",
+        "detailed",
+        "developer"
+      ]
+    },
+    "ScanPlatform": {
+      "type": "string",
+      "enum": [
+        "core",
+        "wasm",
+        "cli",
+        "server",
+        "desktop",
+        "mcp"
+      ]
+    },
+    "SchemaVersion": {
+      "type": "string",
+      "const": "1.1.0"
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ]
+    },
+    "ThreatMatchKind": {
+      "type": "string",
+      "enum": [
+        "ExactSampleHash",
+        "BehaviorVariant"
+      ]
+    },
+    "CallChain": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CallChainNode"
+          }
+        }
+      },
+      "required": [
+        "description",
+        "severity",
+        "nodes"
+      ]
+    },
+    "CallChainNode": {
+      "type": "object",
+      "properties": {
+        "nodeType": {
+          "$ref": "#/$defs/CallChainNodeType"
+        },
+        "location": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "codeSnippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "nodeType",
+        "location",
+        "description"
+      ]
+    },
+    "DataFlowChain": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "pattern": {
+          "$ref": "#/$defs/DataFlowPattern"
+        },
+        "sourceVariable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "methodLocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isCrossMethod": {
+          "type": "boolean"
+        },
+        "isSuspicious": {
+          "type": "boolean"
+        },
+        "callDepth": {
+          "type": "integer"
+        },
+        "involvedMethods": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DataFlowNode"
+          }
+        }
+      },
+      "required": [
+        "description",
+        "severity",
+        "pattern",
+        "isCrossMethod",
+        "isSuspicious",
+        "callDepth",
+        "nodes"
+      ]
+    },
+    "DataFlowNode": {
+      "type": "object",
+      "properties": {
+        "nodeType": {
+          "$ref": "#/$defs/DataFlowNodeType"
+        },
+        "location": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "dataDescription": {
+          "type": "string"
+        },
+        "instructionOffset": {
+          "type": "integer"
+        },
+        "methodKey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isMethodBoundary": {
+          "type": "boolean"
+        },
+        "targetMethodKey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "codeSnippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "nodeType",
+        "location",
+        "operation",
+        "dataDescription",
+        "instructionOffset",
+        "isMethodBoundary"
+      ]
+    },
+    "DeveloperGuidance": {
+      "type": "object",
+      "properties": {
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ruleIds": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remediation": {
+          "type": "string"
+        },
+        "documentationUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alternativeApis": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isRemediable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "remediation",
+        "isRemediable"
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "location": {
+          "type": "string"
+        },
+        "codeSnippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskScore": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "callChainId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dataFlowChainId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "developerGuidance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeveloperGuidance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "callChain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CallChain"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dataFlowChain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataFlowChain"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "description",
+        "severity",
+        "location"
+      ]
+    },
+    "ScanInput": {
+      "type": "object",
+      "properties": {
+        "fileName": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer"
+        },
+        "sha256Hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "fileName",
+        "sizeBytes"
+      ]
+    },
+    "ScanMetadata": {
+      "type": "object",
+      "properties": {
+        "coreVersion": {
+          "type": "string"
+        },
+        "platformVersion": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "scanMode": {
+          "$ref": "#/$defs/ScanMode"
+        },
+        "platform": {
+          "$ref": "#/$defs/ScanPlatform"
+        },
+        "scannerVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "coreVersion",
+        "platformVersion",
+        "timestamp",
+        "scanMode",
+        "platform",
+        "scannerVersion"
+      ]
+    },
+    "ScanSummary": {
+      "type": "object",
+      "properties": {
+        "totalFindings": {
+          "type": "integer"
+        },
+        "countBySeverity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "triggeredRules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "totalFindings",
+        "countBySeverity",
+        "triggeredRules"
+      ]
+    },
+    "ThreatFamily": {
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string"
+        },
+        "variantId": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "matchKind": {
+          "$ref": "#/$defs/ThreatMatchKind"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "exactHashMatch": {
+          "type": "boolean"
+        },
+        "matchedRules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "advisorySlugs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ThreatFamilyEvidence"
+          }
+        }
+      },
+      "required": [
+        "familyId",
+        "variantId",
+        "displayName",
+        "summary",
+        "matchKind",
+        "confidence",
+        "exactHashMatch",
+        "matchedRules",
+        "advisorySlugs",
+        "evidence"
+      ]
+    },
+    "ThreatFamilyEvidence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "callChainId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dataFlowChainId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "methodLocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ]
+    }
+  }
+}

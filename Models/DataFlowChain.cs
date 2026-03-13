@@ -137,11 +137,6 @@ namespace MLVScan.Models
         public Severity Severity { get; set; }
 
         /// <summary>
-        /// Confidence score (0.0 - 1.0) in the pattern detection.
-        /// </summary>
-        public double Confidence { get; set; }
-
-        /// <summary>
         /// Human-readable summary of the data flow.
         /// </summary>
         public string Summary { get; set; }
@@ -171,13 +166,12 @@ namespace MLVScan.Models
         /// </summary>
         public int CallDepth => InvolvedMethods.Count > 0 ? InvolvedMethods.Count : 1;
 
-        public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, double confidence,
-            string summary, string methodLocation)
+        public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, string summary,
+            string methodLocation)
         {
             ChainId = chainId;
             Pattern = pattern;
             Severity = severity;
-            Confidence = confidence;
             Summary = summary;
             MethodLocation = methodLocation;
         }
@@ -206,7 +200,7 @@ namespace MLVScan.Models
             if (Nodes.Count == 0)
                 return Summary;
 
-            var lines = new List<string> { Summary, "", $"Data Flow Chain (Confidence: {Confidence * 100:F0}%):" };
+            var lines = new List<string> { Summary, "", "Data Flow Chain:" };
 
             for (int i = 0; i < Nodes.Count; i++)
             {

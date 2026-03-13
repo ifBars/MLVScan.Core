@@ -11,6 +11,11 @@ public class DeveloperGuidanceDto
     public string? RuleId { get; set; }
 
     /// <summary>
+    /// Rule IDs this guidance applies to when aggregated across multiple findings.
+    /// </summary>
+    public List<string>? RuleIds { get; set; }
+
+    /// <summary>
     /// Remediation advice.
     /// </summary>
     public string Remediation { get; set; } = string.Empty;

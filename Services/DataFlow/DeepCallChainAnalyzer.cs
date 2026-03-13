@@ -144,7 +144,6 @@ namespace MLVScan.Services.DataFlow
                 $"deep:{string.Join("->", involvedMethods)}",
                 pattern,
                 _patternEvaluator.DetermineSeverity(pattern),
-                CalculateDeepChainConfidence(pattern, combinedOperations, involvedMethods.Count),
                 BuildDeepChainSummary(pattern, involvedMethods),
                 rootNode.MethodInfo.MethodKey)
             {
@@ -223,21 +222,6 @@ namespace MLVScan.Services.DataFlow
             {
                 CollectChainOperations(child, sources, sinks, transforms, callSites);
             }
-        }
-
-        private double CalculateDeepChainConfidence(
-            DataFlowPattern pattern,
-            IReadOnlyList<DataFlowInterestingOperation> operations,
-            int chainLength)
-        {
-            var confidence = _patternEvaluator.CalculateConfidence(pattern, operations) + 0.05;
-
-            if (chainLength > 2)
-            {
-                confidence -= 0.05 * (chainLength - 2);
-            }
-
-            return Math.Max(0.2, Math.Min(confidence, 1.0));
         }
 
         private static string BuildDeepChainSummary(DataFlowPattern pattern, IReadOnlyList<string> involvedMethods)

@@ -57,7 +57,7 @@ public static class ScanResultMapper
                 FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = sha256Hash
             },
             Summary = BuildSummary(findingsList),
-            Findings = findingsList.Select(ToFindingDto).ToList()
+            Findings = findingsList.Select(finding => ToFindingDto(finding, options)).ToList()
         };
 
         if (threatFamilies.Count > 0)
@@ -92,9 +92,7 @@ public static class ScanResultMapper
         {
             var guidances = findingsList
                 .Where(f => f.DeveloperGuidance != null)
-                .Select(f => f.DeveloperGuidance!)
-                .GroupBy(g => g.Remediation)
-                .Select(g => g.First())
+                .GroupBy(f => f.DeveloperGuidance!.Remediation, StringComparer.Ordinal)
                 .Select(ToDeveloperGuidanceDto)
                 .ToList();
 
@@ -146,7 +144,7 @@ public static class ScanResultMapper
         return summary;
     }
 
-    private static FindingDto ToFindingDto(ScanFinding finding)
+    private static FindingDto ToFindingDto(ScanFinding finding, ScanResultOptions options)
     {
         var dto = new FindingDto
         {
@@ -155,8 +153,20 @@ public static class ScanResultMapper
             Description = finding.Description,
             Severity = finding.Severity.ToString(),
             Location = finding.Location,
-            CodeSnippet = finding.CodeSnippet
+            CodeSnippet = finding.CodeSnippet,
+            RiskScore = finding.RiskScore,
+            CallChainId = finding.CallChain?.ChainId,
+            DataFlowChainId = finding.DataFlowChain?.ChainId
         };
+
+        if (options.IncludeDeveloperGuidance && finding.DeveloperGuidance != null)
+        {
+            dto.DeveloperGuidance = ToDeveloperGuidanceDto(
+                finding.DeveloperGuidance,
+                string.IsNullOrWhiteSpace(finding.RuleId)
+                    ? null
+                    : new List<string> { finding.RuleId! });
+        }
 
         // Embed call chain if present
         if (finding.HasCallChain)
@@ -199,10 +209,11 @@ public static class ScanResultMapper
             Description = dataFlow.Summary,
             Severity = dataFlow.Severity.ToString(),
             Pattern = dataFlow.Pattern.ToString(),
-            Confidence = dataFlow.Confidence,
             SourceVariable = dataFlow.SourceVariable,
             MethodLocation = dataFlow.MethodLocation,
             IsCrossMethod = dataFlow.IsCrossMethod,
+            IsSuspicious = dataFlow.IsSuspicious,
+            CallDepth = dataFlow.CallDepth,
             InvolvedMethods = dataFlow.InvolvedMethods.Count > 0 ? dataFlow.InvolvedMethods : null,
             Nodes = dataFlow.Nodes.Select(node => new DataFlowNodeDto
             {
@@ -219,11 +230,44 @@ public static class ScanResultMapper
         };
     }
 
-    private static DeveloperGuidanceDto ToDeveloperGuidanceDto(IDeveloperGuidance guidance)
+    private static DeveloperGuidanceDto ToDeveloperGuidanceDto(IGrouping<string, ScanFinding> guidanceGroup)
+    {
+        var primaryGuidance = guidanceGroup.First().DeveloperGuidance!;
+        var ruleIds = guidanceGroup
+            .Select(f => f.RuleId)
+            .Where(static ruleId => !string.IsNullOrWhiteSpace(ruleId))
+            .Select(static ruleId => ruleId!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static ruleId => ruleId, StringComparer.Ordinal)
+            .ToList();
+        var documentationUrl = guidanceGroup
+            .Select(f => f.DeveloperGuidance!.DocumentationUrl)
+            .FirstOrDefault(static url => !string.IsNullOrWhiteSpace(url));
+        var alternativeApis = guidanceGroup
+            .SelectMany(f => f.DeveloperGuidance!.AlternativeApis ?? Array.Empty<string>())
+            .Where(static api => !string.IsNullOrWhiteSpace(api))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return new DeveloperGuidanceDto
+        {
+            RuleId = ruleIds.Count == 1 ? ruleIds[0] : null,
+            RuleIds = ruleIds.Count > 0 ? ruleIds : null,
+            Remediation = primaryGuidance.Remediation,
+            DocumentationUrl = documentationUrl,
+            AlternativeApis = alternativeApis.Length > 0 ? alternativeApis : null,
+            IsRemediable = guidanceGroup.All(f => f.DeveloperGuidance!.IsRemediable)
+        };
+    }
+
+    private static DeveloperGuidanceDto ToDeveloperGuidanceDto(
+        IDeveloperGuidance guidance,
+        List<string>? ruleIds)
     {
         return new DeveloperGuidanceDto
         {
-            RuleId = null, // Set by caller if needed
+            RuleId = ruleIds is { Count: 1 } ? ruleIds[0] : null,
+            RuleIds = ruleIds is { Count: > 0 } ? ruleIds : null,
             Remediation = guidance.Remediation,
             DocumentationUrl = guidance.DocumentationUrl,
             AlternativeApis = guidance.AlternativeApis,

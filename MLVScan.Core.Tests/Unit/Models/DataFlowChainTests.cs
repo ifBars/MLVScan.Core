@@ -103,7 +103,6 @@ namespace MLVScan.Core.Tests.Unit.Models
                     "chain-123",
                     DataFlowPattern.DownloadAndExecute,
                     Severity.High,
-                    0.85,
                     "Test summary",
                     "Namespace.Type.Method"
                 );
@@ -111,7 +110,6 @@ namespace MLVScan.Core.Tests.Unit.Models
                 chain.ChainId.Should().Be("chain-123");
                 chain.Pattern.Should().Be(DataFlowPattern.DownloadAndExecute);
                 chain.Severity.Should().Be(Severity.High);
-                chain.Confidence.Should().Be(0.85);
                 chain.Summary.Should().Be("Test summary");
                 chain.MethodLocation.Should().Be("Namespace.Type.Method");
                 chain.SourceVariable.Should().BeNull();
@@ -127,7 +125,6 @@ namespace MLVScan.Core.Tests.Unit.Models
                     "chain-1",
                     DataFlowPattern.Legitimate,
                     Severity.Low,
-                    1.0,
                     "Summary",
                     "Method"
                 );
@@ -142,7 +139,6 @@ namespace MLVScan.Core.Tests.Unit.Models
                     "chain-1",
                     DataFlowPattern.Unknown,
                     Severity.Low,
-                    1.0,
                     "Summary",
                     "Method"
                 );
@@ -164,7 +160,6 @@ namespace MLVScan.Core.Tests.Unit.Models
                     "chain-1",
                     pattern,
                     Severity.High,
-                    1.0,
                     "Summary",
                     "Method"
                 );
@@ -175,7 +170,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void CallDepth_SingleMethod_ReturnsOne()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
 
                 chain.CallDepth.Should().Be(1);
             }
@@ -183,7 +178,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void CallDepth_MultipleMethods_ReturnsCount()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.InvolvedMethods.Add("Method1");
                 chain.InvolvedMethods.Add("Method2");
                 chain.InvolvedMethods.Add("Method3");
@@ -194,7 +189,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void AppendNode_ShouldAddToEnd()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 var node1 = new DataFlowNode("Loc1", "Op1", DataFlowNodeType.Source, "Data1", 10);
                 var node2 = new DataFlowNode("Loc2", "Op2", DataFlowNodeType.Transform, "Data2", 20);
 
@@ -209,7 +204,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void PrependNode_ShouldAddToBeginning()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 var node1 = new DataFlowNode("Loc1", "Op1", DataFlowNodeType.Source, "Data1", 10);
                 var node2 = new DataFlowNode("Loc2", "Op2", DataFlowNodeType.Transform, "Data2", 20);
 
@@ -224,7 +219,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToDetailedDescription_WithNoNodes_ShouldReturnSummary()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 0.75, "Test summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Test summary", "Method");
 
                 var result = chain.ToDetailedDescription();
 
@@ -234,7 +229,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToDetailedDescription_WithNodes_ShouldFormatCorrectly()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 0.75, "Attack pattern", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Attack pattern", "Method");
                 var node1 = new DataFlowNode("Loc1", "Download", DataFlowNodeType.Source, "bytes", 10);
                 var node2 = new DataFlowNode("Loc2", "Decode", DataFlowNodeType.Transform, "payload", 20);
                 var node3 = new DataFlowNode("Loc3", "Execute", DataFlowNodeType.Sink, "process", 30);
@@ -246,7 +241,8 @@ namespace MLVScan.Core.Tests.Unit.Models
                 var result = chain.ToDetailedDescription();
 
                 result.Should().Contain("Attack pattern");
-                result.Should().Contain("Data Flow Chain (Confidence: 75%):");
+                result.Should().Contain("Data Flow Chain:");
+                result.Should().NotContain("Confidence:");
                 result.Should().Contain("[SOURCE] Download → bytes");
                 result.Should().Contain("[TRANSFORM] Decode → payload");
                 result.Should().Contain("[SINK] Execute → process");
@@ -255,7 +251,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToDetailedDescription_ShouldIncludeLocations()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 0.5, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Method1:10", "Op1", DataFlowNodeType.Source, "Data", 10));
                 chain.AppendNode(new DataFlowNode("Method2:20", "Op2", DataFlowNodeType.Sink, "Data", 20));
 
@@ -268,7 +264,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToCombinedCodeSnippet_WithNoNodes_ShouldReturnNull()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
 
                 var result = chain.ToCombinedCodeSnippet();
 
@@ -278,7 +274,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToCombinedCodeSnippet_WithNodesNoCode_ShouldReturnNull()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Loc1", "Op1", DataFlowNodeType.Source, "Data", 10));
                 chain.AppendNode(new DataFlowNode("Loc2", "Op2", DataFlowNodeType.Sink, "Data", 20));
 
@@ -290,7 +286,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void ToCombinedCodeSnippet_WithCode_ShouldCombineWithSeparation()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Loc1", "Op1", DataFlowNodeType.Source, "Data", 10, "code1"));
                 chain.AppendNode(new DataFlowNode("Loc2", "Op2", DataFlowNodeType.Sink, "Data", 20, "code2"));
 
@@ -306,7 +302,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetSource_WithSourceNode_ShouldReturnSource()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 var source = new DataFlowNode("Loc1", "Read", DataFlowNodeType.Source, "Data", 10);
                 chain.AppendNode(source);
                 chain.AppendNode(new DataFlowNode("Loc2", "Process", DataFlowNodeType.Sink, "Data", 20));
@@ -320,7 +316,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetSource_WithoutSourceNode_ShouldReturnNull()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Loc1", "Pass", DataFlowNodeType.Intermediate, "Data", 10));
                 chain.AppendNode(new DataFlowNode("Loc2", "Process", DataFlowNodeType.Sink, "Data", 20));
 
@@ -332,7 +328,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetSinks_WithMultipleSinks_ShouldReturnAll()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 var sink1 = new DataFlowNode("Loc1", "Write", DataFlowNodeType.Sink, "Data", 10);
                 var sink2 = new DataFlowNode("Loc2", "Send", DataFlowNodeType.Sink, "Data", 20);
                 chain.AppendNode(new DataFlowNode("Loc0", "Read", DataFlowNodeType.Source, "Data", 5));
@@ -349,7 +345,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetSinks_WithNoSinks_ShouldReturnEmpty()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Loc1", "Read", DataFlowNodeType.Source, "Data", 10));
 
                 var result = chain.GetSinks();
@@ -360,7 +356,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetTransforms_WithMultipleTransforms_ShouldReturnAll()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 var transform1 = new DataFlowNode("Loc1", "Decode", DataFlowNodeType.Transform, "Data", 10);
                 var transform2 = new DataFlowNode("Loc2", "Decrypt", DataFlowNodeType.Transform, "Data", 20);
                 chain.AppendNode(transform1);
@@ -376,7 +372,7 @@ namespace MLVScan.Core.Tests.Unit.Models
             [Fact]
             public void GetTransforms_WithNoTransforms_ShouldReturnEmpty()
             {
-                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, 1.0, "Summary", "Method");
+                var chain = new DataFlowChain("chain-1", DataFlowPattern.Unknown, Severity.Low, "Summary", "Method");
                 chain.AppendNode(new DataFlowNode("Loc1", "Read", DataFlowNodeType.Source, "Data", 10));
 
                 var result = chain.GetTransforms();

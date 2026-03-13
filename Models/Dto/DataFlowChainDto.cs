@@ -26,11 +26,6 @@ public class DataFlowChainDto
     public string Pattern { get; set; } = "Unknown";
 
     /// <summary>
-    /// Confidence score (0.0 - 1.0) in the pattern detection.
-    /// </summary>
-    public double Confidence { get; set; }
-
-    /// <summary>
     /// The IL variable or stack slot being tracked (for debugging).
     /// </summary>
     public string? SourceVariable { get; set; }
@@ -44,6 +39,16 @@ public class DataFlowChainDto
     /// True if this data flow spans multiple methods.
     /// </summary>
     public bool IsCrossMethod { get; set; }
+
+    /// <summary>
+    /// True when this flow matches a suspicious pattern.
+    /// </summary>
+    public bool IsSuspicious { get; set; }
+
+    /// <summary>
+    /// Number of methods traversed by this flow.
+    /// </summary>
+    public int CallDepth { get; set; }
 
     /// <summary>
     /// All methods involved in this data flow (for cross-method flows).

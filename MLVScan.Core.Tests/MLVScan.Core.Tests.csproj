@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MLVScan.Core.csproj" />
+    <ProjectReference Include="..\Tools\MLVScan.SchemaGen\MLVScan.SchemaGen.csproj" />
   </ItemGroup>
 
 

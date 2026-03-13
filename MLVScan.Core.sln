@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MLVScan.Core.Tests", "MLVSc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MLVScan.WASM", "MLVScan.WASM\MLVScan.WASM.csproj", "{32F38894-0AC1-4AB2-B558-C6158DD02BE6}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{07C2787E-EAC7-C090-1BA3-A61EC2A24D84}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MLVScan.SchemaGen", "Tools\MLVScan.SchemaGen\MLVScan.SchemaGen.csproj", "{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,9 +59,24 @@ Global
 		{32F38894-0AC1-4AB2-B558-C6158DD02BE6}.Release|x64.Build.0 = Release|Any CPU
 		{32F38894-0AC1-4AB2-B558-C6158DD02BE6}.Release|x86.ActiveCfg = Release|Any CPU
 		{32F38894-0AC1-4AB2-B558-C6158DD02BE6}.Release|x86.Build.0 = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|x64.Build.0 = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Debug|x86.Build.0 = Debug|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|x64.ActiveCfg = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|x64.Build.0 = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|x86.ActiveCfg = Release|Any CPU
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D2380802-B25E-42A2-9DB6-EC5E8C8BC633} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3479E128-7EFE-4A73-86AC-7F11707A1875}

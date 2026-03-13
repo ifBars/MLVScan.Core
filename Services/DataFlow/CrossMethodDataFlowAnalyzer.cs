@@ -96,7 +96,6 @@ namespace MLVScan.Services.DataFlow
                 $"cross:{callerInfo.MethodKey}->{calleeInfo.MethodKey}",
                 pattern,
                 _patternEvaluator.DetermineSeverity(pattern),
-                CalculateCrossMethodConfidence(pattern, combinedOperations, callerInfo, calleeInfo),
                 BuildCrossMethodSummary(pattern, callerInfo, calleeInfo),
                 callerInfo.MethodKey)
             {
@@ -167,7 +166,6 @@ namespace MLVScan.Services.DataFlow
                 $"return:{calleeInfo.MethodKey}->{callerInfo.MethodKey}",
                 pattern,
                 _patternEvaluator.DetermineSeverity(pattern),
-                CalculateReturnValueConfidence(pattern, combinedOperations, calleeInfo),
                 BuildReturnValueSummary(pattern, callerInfo, calleeInfo),
                 calleeInfo.MethodKey)
             {
@@ -207,24 +205,6 @@ namespace MLVScan.Services.DataFlow
             return chain;
         }
 
-        private double CalculateCrossMethodConfidence(
-            DataFlowPattern pattern,
-            IReadOnlyList<DataFlowInterestingOperation> operations,
-            DataFlowMethodFlowInfo callerInfo,
-            DataFlowMethodFlowInfo calleeInfo)
-        {
-            var confidence = _patternEvaluator.CalculateConfidence(pattern, operations) - 0.1;
-
-            if (callerInfo.OutgoingCalls.Any(call =>
-                    call.TargetMethodKey == calleeInfo.MethodKey &&
-                    call.ParameterMapping.Count > 0))
-            {
-                confidence += 0.1;
-            }
-
-            return Math.Max(0.3, Math.Min(confidence, 1.0));
-        }
-
         private static string BuildCrossMethodSummary(
             DataFlowPattern pattern,
             DataFlowMethodFlowInfo callerInfo,
@@ -242,21 +222,6 @@ namespace MLVScan.Services.DataFlow
             };
 
             return $"Cross-method {description}: {callerInfo.DisplayName} -> {calleeInfo.DisplayName}";
-        }
-
-        private double CalculateReturnValueConfidence(
-            DataFlowPattern pattern,
-            IReadOnlyList<DataFlowInterestingOperation> operations,
-            DataFlowMethodFlowInfo calleeInfo)
-        {
-            var confidence = _patternEvaluator.CalculateConfidence(pattern, operations) + 0.05;
-
-            if (!string.IsNullOrEmpty(calleeInfo.ReturnTypeName))
-            {
-                confidence += 0.05;
-            }
-
-            return Math.Max(0.3, Math.Min(confidence, 1.0));
         }
 
         private static string BuildReturnValueSummary(

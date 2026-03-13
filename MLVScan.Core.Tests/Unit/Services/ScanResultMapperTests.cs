@@ -104,6 +104,7 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, options);
 
         result.Findings[0].CallChain.Should().NotBeNull();
+        result.Findings[0].CallChainId.Should().Be("test-chain");
         result.Findings[0].CallChain!.Id.Should().Be("test-chain");
         result.CallChains.Should().NotBeNull();
         result.CallChains!.Should().HaveCount(1);
@@ -127,7 +128,9 @@ public class ScanResultMapperTests
     [Fact]
     public void ToDto_WithDataFlow_IncludesDataFlowInFinding()
     {
-        var dataFlow = new DataFlowChain("df-chain", DataFlowPattern.DynamicCodeLoading, Severity.High, 0.9, "Flow", "method");
+        var dataFlow = new DataFlowChain("df-chain", DataFlowPattern.DynamicCodeLoading, Severity.High, "Flow", "method");
+        dataFlow.IsCrossMethod = true;
+        dataFlow.InvolvedMethods = new List<string> { "method1", "method2" };
         dataFlow.AppendNode(new DataFlowNode("Location1", "Load", DataFlowNodeType.Source, "Data", 0, "snippet1", "method1"));
 
         var finding = new ScanFinding("Test.Method", "Test", Severity.High, "code");
@@ -139,8 +142,13 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, options);
 
         result.Findings[0].DataFlowChain.Should().NotBeNull();
+        result.Findings[0].DataFlowChainId.Should().Be("df-chain");
+        result.Findings[0].DataFlowChain!.IsSuspicious.Should().BeTrue();
+        result.Findings[0].DataFlowChain!.CallDepth.Should().Be(2);
         result.DataFlows.Should().NotBeNull();
         result.DataFlows!.Should().HaveCount(1);
+        result.DataFlows[0].IsSuspicious.Should().BeTrue();
+        result.DataFlows[0].CallDepth.Should().Be(2);
     }
 
     [Fact]
@@ -148,6 +156,7 @@ public class ScanResultMapperTests
     {
         var guidance = new DeveloperGuidance("Fix this", "http://docs.example.com", new[] { "Alt1", "Alt2" }, true);
         var finding = new ScanFinding("Test.Method", "Test", Severity.High, "code");
+        finding.RuleId = "TestRule";
         finding.DeveloperGuidance = guidance;
 
         var findings = new List<ScanFinding> { finding };
@@ -157,7 +166,11 @@ public class ScanResultMapperTests
 
         result.DeveloperGuidance.Should().NotBeNull();
         result.DeveloperGuidance!.Should().HaveCount(1);
+        result.DeveloperGuidance[0].RuleId.Should().Be("TestRule");
+        result.DeveloperGuidance[0].RuleIds.Should().Equal("TestRule");
         result.DeveloperGuidance![0].Remediation.Should().Be("Fix this");
+        result.Findings[0].DeveloperGuidance.Should().NotBeNull();
+        result.Findings[0].DeveloperGuidance!.RuleIds.Should().Equal("TestRule");
     }
 
     [Fact]
@@ -173,6 +186,20 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, options);
 
         result.DeveloperGuidance.Should().BeNull();
+        result.Findings[0].DeveloperGuidance.Should().BeNull();
+    }
+
+    [Fact]
+    public void ToDto_WithRiskScore_IncludesRiskScore()
+    {
+        var finding = new ScanFinding("Test.Method", "Test", Severity.High, "code")
+        {
+            RiskScore = 82
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
+
+        result.Findings[0].RiskScore.Should().Be(82);
     }
 
     [Fact]
@@ -276,7 +303,7 @@ public class ScanResultMapperTests
     [Fact]
     public void ToDto_WithDuplicateDataFlows_DeduplicatesCorrectly()
     {
-        var dataFlow = new DataFlowChain("df-1", DataFlowPattern.DynamicCodeLoading, Severity.High, 0.9, "Flow", "method");
+        var dataFlow = new DataFlowChain("df-1", DataFlowPattern.DynamicCodeLoading, Severity.High, "Flow", "method");
         dataFlow.AppendNode(new DataFlowNode("Location1", "Load", DataFlowNodeType.Source, "Data", 0)); // Add a node so HasDataFlow returns true
 
         var finding1 = new ScanFinding("Test.M1", "F1", Severity.High, "c1");
@@ -301,9 +328,11 @@ public class ScanResultMapperTests
         var guidance2 = new DeveloperGuidance("Same fix", "url2", null, true);
 
         var finding1 = new ScanFinding("Test.M1", "F1", Severity.High, "c1");
+        finding1.RuleId = "Rule1";
         finding1.DeveloperGuidance = guidance1;
 
         var finding2 = new ScanFinding("Test.M2", "F2", Severity.High, "c2");
+        finding2.RuleId = "Rule2";
         finding2.DeveloperGuidance = guidance2;
 
         var findings = new List<ScanFinding> { finding1, finding2 };
@@ -312,6 +341,8 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, options);
 
         result.DeveloperGuidance.Should().HaveCount(1); // Deduplicated by Remediation
+        result.DeveloperGuidance![0].RuleId.Should().BeNull();
+        result.DeveloperGuidance[0].RuleIds.Should().BeEquivalentTo(new[] { "Rule1", "Rule2" });
     }
 
     [Fact]
@@ -353,7 +384,6 @@ public class ScanResultMapperTests
             "df-resource-shell32",
             DataFlowPattern.EmbeddedResourceDropAndExecute,
             Severity.Critical,
-            0.95,
             "Embedded resource extracted to temp cmd and executed",
             "Malware.Loader.ExtractPayload");
         dataFlow.AppendNode(new DataFlowNode(
@@ -381,8 +411,7 @@ public class ScanResultMapperTests
             e.Kind == "data-flow-chain" &&
             e.DataFlowChainId == "df-resource-shell32" &&
             e.Pattern == "EmbeddedResourceDropAndExecute" &&
-            e.MethodLocation == "Malware.Loader.ExtractPayload" &&
-            e.Confidence == 0.95);
+            e.MethodLocation == "Malware.Loader.ExtractPayload");
     }
 
     [Fact]

@@ -19,7 +19,11 @@
  * ```
  */
 
-import type { ScanConfigInput, ScanResult } from './types'
+import {
+  MLVSCAN_SCHEMA_VERSION,
+  type ScanConfigInput,
+  type ScanResult,
+} from './types'
 
 let scannerExports: any = null
 let scannerLoaded = false
@@ -31,8 +35,10 @@ let initError: Error | null = null
 let mockRequestedExplicitly = false
 
 const mockScanResult: ScanResult = {
-  schemaVersion: '1.0.0',
+  schemaVersion: MLVSCAN_SCHEMA_VERSION,
   metadata: {
+    coreVersion: '1.0.0-mock',
+    platformVersion: '1.0.0-mock',
     scannerVersion: '1.0.0-mock',
     timestamp: new Date().toISOString(),
     scanMode: 'summary',
@@ -332,8 +338,8 @@ export async function getScannerVersion(): Promise<string> {
 }
 
 /**
- * Returns the scan result schema version (e.g. `"1.0.0"`). In mock mode returns
- * `"1.0.0"`. Initializes the scanner if not yet initialized.
+ * Returns the scan result schema version (e.g. `"1.1.0"`). In mock mode returns
+ * the generated schema version constant. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the schema version call fails.
  */
@@ -343,7 +349,7 @@ export async function getSchemaVersion(): Promise<string> {
   }
 
   if (useMockScanner || !scannerExports?.MLVScan?.WASM?.ScannerExports) {
-    return '1.0.0'
+    return MLVSCAN_SCHEMA_VERSION
   }
 
   try {

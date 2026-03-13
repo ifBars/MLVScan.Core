@@ -75,7 +75,6 @@ public class DataFlowQuarantineTests
             if (finding.HasDataFlow)
             {
                 _output.WriteLine($"  Data Flow Pattern: {finding.DataFlowChain!.Pattern}");
-                _output.WriteLine($"  Confidence: {finding.DataFlowChain.Confidence:P0}");
                 _output.WriteLine($"  Operations in chain: {finding.DataFlowChain.Nodes.Count}");
 
                 foreach (var node in finding.DataFlowChain.Nodes)
@@ -133,7 +132,7 @@ public class DataFlowQuarantineTests
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
-        var results = new List<(string Sample, int TotalFindings, int DataFlowFindings, List<DataFlowPattern> Patterns, double AvgConfidence)>();
+        var results = new List<(string Sample, int TotalFindings, int DataFlowFindings, List<DataFlowPattern> Patterns)>();
 
         foreach (var sample in samples)
         {
@@ -152,34 +151,27 @@ public class DataFlowQuarantineTests
                 .Distinct()
                 .ToList();
 
-            var avgConfidence = dataFlowFindings
-                .Where(f => f.HasDataFlow)
-                .Select(f => f.DataFlowChain!.Confidence)
-                .DefaultIfEmpty(0)
-                .Average();
-
             results.Add((
                 sample,
                 findings.Count,
                 dataFlowFindings.Count,
-                patterns,
-                avgConfidence
+                patterns
             ));
         }
 
         // Output summary
         _output.WriteLine("=== DATA FLOW ANALYSIS SUMMARY ===");
         _output.WriteLine("");
-        _output.WriteLine("| Sample | Total Findings | Data Flow Findings | Patterns Detected | Avg Confidence |");
-        _output.WriteLine("|--------|----------------|---------------------|-------------------|----------------|");
+        _output.WriteLine("| Sample | Total Findings | Data Flow Findings | Patterns Detected |");
+        _output.WriteLine("|--------|----------------|---------------------|-------------------|");
 
-        foreach (var (sample, total, dataFlow, patterns, confidence) in results)
+        foreach (var (sample, total, dataFlow, patterns) in results)
         {
             var patternsStr = patterns.Count > 0
                 ? string.Join(", ", patterns.Take(2)) + (patterns.Count > 2 ? $" (+{patterns.Count - 2})" : "")
                 : "None";
 
-            _output.WriteLine($"| {sample,-30} | {total,14} | {dataFlow,19} | {patternsStr,-17} | {confidence,13:P0} |");
+            _output.WriteLine($"| {sample,-30} | {total,14} | {dataFlow,19} | {patternsStr,-17} |");
         }
 
         _output.WriteLine("");
@@ -204,7 +196,7 @@ public class DataFlowQuarantineTests
     [InlineData("RealRadio.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
-    public void Scan_QuarantineSample_ConfidenceScoresAreReasonable(string filename)
+    public void Scan_QuarantineSample_DataFlowChainsArePresentWhenDetected(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
         var path = GetSamplePath(filename);
@@ -216,10 +208,10 @@ public class DataFlowQuarantineTests
         var findings = scanner.Scan(path).ToList();
         var dataFlowFindings = findings.Where(f => f.HasDataFlow).ToList();
 
-        // Assert - All confidence scores should be between 0 and 1
+        // Assert - All data flow findings should carry a chain
         foreach (var finding in dataFlowFindings)
         {
-            finding.DataFlowChain!.Confidence.Should().BeInRange(0.0, 1.0);
+            finding.DataFlowChain.Should().NotBeNull();
         }
     }
 

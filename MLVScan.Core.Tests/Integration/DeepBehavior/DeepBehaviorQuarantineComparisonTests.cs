@@ -130,7 +130,6 @@ public class DeepBehaviorQuarantineComparisonTests
         {
             _output.WriteLine("--- Data Flow Chain ---");
             _output.WriteLine($"  Pattern: {finding.DataFlowChain.Pattern}");
-            _output.WriteLine($"  Confidence: {finding.DataFlowChain.Confidence * 100:F0}%");
             _output.WriteLine($"  Summary: {finding.DataFlowChain.Summary}");
             _output.WriteLine("  Flow:");
             foreach (var node in finding.DataFlowChain.Nodes)

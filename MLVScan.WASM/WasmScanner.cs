@@ -32,7 +32,7 @@ public class WasmScanner
     /// </summary>
     /// <param name="assemblyBytes">Raw bytes of the .dll file.</param>
     /// <param name="fileName">Original file name (for reporting).</param>
-    /// <returns>JSON string containing the scan results following schema v1.</returns>
+    /// <returns>JSON string containing the scan results following the shared schema.</returns>
     public string ScanAssembly(byte[] assemblyBytes, string fileName)
     {
         if (assemblyBytes == null || assemblyBytes.Length == 0)

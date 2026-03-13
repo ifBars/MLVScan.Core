@@ -70,7 +70,6 @@ public class ThreatFamilyClassifierTests
             "df-resource-shell32",
             DataFlowPattern.EmbeddedResourceDropAndExecute,
             Severity.Critical,
-            0.95,
             "Embedded resource extracted to %TEMP%/payload.cmd and executed",
             "Malware.Loader.ExtractPayload")
         {
@@ -115,7 +114,6 @@ public class ThreatFamilyClassifierTests
             "df-webclient-stage",
             DataFlowPattern.DownloadAndExecute,
             Severity.Critical,
-            0.92,
             "Downloads payload with WebClient and executes it from TEMP",
             "Malware.Loader.Stage")
         {
@@ -173,7 +171,6 @@ public class ThreatFamilyClassifierTests
             "df-metadata-loader",
             DataFlowPattern.DynamicCodeLoading,
             Severity.Critical,
-            0.91,
             "Decoded metadata-backed payload is loaded dynamically",
             "Malware.Loader.Metadata")
         {
@@ -221,7 +218,7 @@ public class ThreatFamilyClassifierTests
         matches[0].Evidence.Should().Contain(e =>
             e.Kind == "data-flow-pattern" &&
             e.DataFlowChainId == "df-metadata-loader" &&
-            e.Confidence == 0.91);
+            e.Pattern == DataFlowPattern.DynamicCodeLoading.ToString());
     }
 
     [Fact]

@@ -208,14 +208,12 @@ namespace MLVScan.Services.DataFlow
         {
             var pattern = _patternEvaluator.RecognizePattern(operations);
             var severity = _patternEvaluator.DetermineSeverity(pattern);
-            var confidence = _patternEvaluator.CalculateConfidence(pattern, operations);
             var methodLocation = method.GetMethodLocation();
             var chainId = $"{methodLocation}:{string.Join("-", operations.Select(static operation => operation.Instruction.Offset))}";
             var chain = new DataFlowChain(
                 chainId,
                 pattern,
                 severity,
-                confidence,
                 _patternEvaluator.BuildSummary(pattern, operations.Count),
                 methodLocation);
 

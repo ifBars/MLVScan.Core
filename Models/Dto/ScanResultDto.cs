@@ -1,7 +1,7 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Root scan result DTO that matches the shared JSON schema v1.
+/// Root scan result DTO that matches the shared JSON schema.
 /// This is the primary output format for all MLVScan implementations (CLI, WASM, Server, Desktop).
 /// </summary>
 public class ScanResultDto

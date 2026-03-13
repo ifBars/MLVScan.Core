@@ -113,7 +113,6 @@ internal sealed class ThreatFamilyAnalysisContext
             DataFlowChainId = flow?.ChainId,
             Pattern = flow?.Pattern.ToString(),
             MethodLocation = flow?.MethodLocation,
-            Confidence = flow?.Confidence,
             Location = flow?.Nodes.LastOrDefault()?.Location
         };
     }

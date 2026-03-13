@@ -23,7 +23,10 @@ jobs:
 
     - name: Restore dependencies
       run: dotnet restore MLVScan.Core.sln
-    
+
+    - name: Verify schema artifacts
+      run: dotnet run --project Tools/MLVScan.SchemaGen/MLVScan.SchemaGen.csproj -- --verify
+     
     - name: Build
       run: dotnet build MLVScan.Core.sln --no-restore
     

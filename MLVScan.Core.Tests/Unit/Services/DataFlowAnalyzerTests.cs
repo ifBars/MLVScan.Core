@@ -435,7 +435,6 @@ public class DataFlowAnalyzerTests
             "test-chain",
             DataFlowPattern.DataExfiltration,
             Severity.Critical,
-            0.85,
             "Test cross-method exfiltration",
             "TestClass.SourceMethod")
         {
@@ -461,7 +460,6 @@ public class DataFlowAnalyzerTests
             "deep-chain",
             DataFlowPattern.DownloadAndExecute,
             Severity.Critical,
-            0.90,
             "Deep call chain",
             "A.Method1")
         {
@@ -489,7 +487,6 @@ public class DataFlowAnalyzerTests
             "single-chain",
             DataFlowPattern.DynamicCodeLoading,
             Severity.High,
-            0.75,
             "Single method flow",
             "TestClass.Method");
 
@@ -686,7 +683,6 @@ public class DataFlowAnalyzerTests
             "test-chain",
             DataFlowPattern.DownloadAndExecute,
             Severity.Critical,
-            0.95,
             "Test chain",
             "TestClass.Method");
 
@@ -701,7 +697,6 @@ public class DataFlowAnalyzerTests
             "test-chain",
             DataFlowPattern.DataExfiltration,
             Severity.Critical,
-            0.90,
             "Data exfiltration detected",
             "TestClass.Method");
 
@@ -714,7 +709,7 @@ public class DataFlowAnalyzerTests
         // The description should contain the summary and chain info when nodes are present
         description.Should().Contain("Data exfiltration detected");
         description.Should().Contain("Data Flow Chain");
-        description.Should().Contain("Confidence: 90%");
+        description.Should().NotContain("Confidence:");
     }
 
     [Fact]
@@ -724,7 +719,6 @@ public class DataFlowAnalyzerTests
             "test-chain",
             DataFlowPattern.DynamicCodeLoading,
             Severity.High,
-            0.85,
             "Dynamic loading",
             "TestClass.Method");
 

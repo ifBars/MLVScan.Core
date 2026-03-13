@@ -36,6 +36,26 @@ public class FindingDto
     public string? CodeSnippet { get; set; }
 
     /// <summary>
+    /// Optional numeric risk score emitted by scoring-based rules.
+    /// </summary>
+    public int? RiskScore { get; set; }
+
+    /// <summary>
+    /// Optional identifier of the related call chain.
+    /// </summary>
+    public string? CallChainId { get; set; }
+
+    /// <summary>
+    /// Optional identifier of the related data flow chain.
+    /// </summary>
+    public string? DataFlowChainId { get; set; }
+
+    /// <summary>
+    /// Optional developer guidance attached directly to this finding.
+    /// </summary>
+    public DeveloperGuidanceDto? DeveloperGuidance { get; set; }
+
+    /// <summary>
     /// Optional call chain reference (ID or inline).
     /// </summary>
     public CallChainDto? CallChain { get; set; }

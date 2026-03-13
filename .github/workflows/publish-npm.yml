@@ -45,6 +45,9 @@ jobs:
     - name: Install WASM workload
       run: dotnet workload install wasm-tools-net8 --skip-manifest-update
 
+    - name: Generate schema artifacts
+      run: dotnet run --project Tools/MLVScan.SchemaGen/MLVScan.SchemaGen.csproj
+
     - name: Publish WASM
       run: dotnet publish MLVScan.WASM/MLVScan.WASM.csproj -c Release
 

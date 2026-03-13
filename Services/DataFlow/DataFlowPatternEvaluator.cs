@@ -60,37 +60,6 @@ namespace MLVScan.Services.DataFlow
             };
         }
 
-        public double CalculateConfidence(DataFlowPattern pattern, IReadOnlyList<DataFlowInterestingOperation> operations)
-        {
-            if (pattern == DataFlowPattern.Legitimate || pattern == DataFlowPattern.Unknown)
-            {
-                return 0.5;
-            }
-
-            var confidence = 0.7;
-
-            if (operations.Count >= 3)
-            {
-                confidence += 0.1;
-            }
-
-            if (operations.Count >= 4)
-            {
-                confidence += 0.1;
-            }
-
-            var hasAllTypes = operations.Any(static operation => operation.NodeType == DataFlowNodeType.Source) &&
-                              operations.Any(static operation => operation.NodeType == DataFlowNodeType.Transform) &&
-                              operations.Any(static operation => operation.NodeType == DataFlowNodeType.Sink);
-
-            if (hasAllTypes)
-            {
-                confidence += 0.1;
-            }
-
-            return Math.Min(confidence, 1.0);
-        }
-
         public string BuildSummary(DataFlowPattern pattern, int operationCount)
         {
             var summary = pattern switch
