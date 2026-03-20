@@ -53,4 +53,9 @@ public class ScanResultDto
     /// Optional: Known malware family matches derived from threat-intel classification.
     /// </summary>
     public List<ThreatFamilyDto>? ThreatFamilies { get; set; }
+
+    /// <summary>
+    /// Optional: Primary file disposition derived from threat families and correlated unknown behavior.
+    /// </summary>
+    public ThreatDispositionDto? Disposition { get; set; }
 }

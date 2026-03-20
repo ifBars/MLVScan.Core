@@ -364,6 +364,10 @@ public class ScanResultMapperTests
         result.ThreatFamilies!.Should().ContainSingle();
         result.ThreatFamilies[0].FamilyId.Should().Be("family-powershell-iwr-dlbat-v1");
         result.ThreatFamilies[0].MatchKind.Should().Be("BehaviorVariant");
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("KnownThreat");
+        result.Findings[0].Visibility.Should().Be("Default");
+        result.Disposition.RelatedFindingIds.Should().Contain(result.Findings[0].Id);
         result.ThreatFamilies[0].Evidence.Should().Contain(e =>
             e.Kind == "rule" &&
             e.RuleId == "ProcessStartRule" &&
@@ -428,5 +432,45 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, false);
 
         result.ThreatFamilies.Should().BeNull();
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("Clean");
+        result.Findings[0].Visibility.Should().Be("Advanced");
+    }
+
+    [Fact]
+    public void ToDto_WithSuspiciousDataFlow_MapsSuspiciousDisposition()
+    {
+        var dataFlow = new DataFlowChain(
+            "df-suspicious",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.High,
+            "Downloads and executes a staged payload",
+            "Suspicious.Mod.Loader");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:12",
+            "DownloadFile",
+            DataFlowNodeType.Source,
+            "Remote payload",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:27",
+            "Process.Start",
+            DataFlowNodeType.Sink,
+            "Execute payload",
+            27));
+
+        var finding = new ScanFinding("Suspicious.Mod.Loader", "Suspicious staged payload execution detected", Severity.High, "invoke")
+        {
+            RuleId = "DataFlowAnalysis",
+            DataFlowChain = dataFlow
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "suspicious.dll", _testAssemblyBytes, false);
+
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("Suspicious");
+        result.Findings.Should().ContainSingle();
+        result.Findings[0].Visibility.Should().Be("Default");
+        result.Disposition.RelatedFindingIds.Should().Contain(result.Findings[0].Id);
     }
 }

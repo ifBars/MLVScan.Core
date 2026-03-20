@@ -64,4 +64,9 @@ public class FindingDto
     /// Optional data flow chain reference.
     /// </summary>
     public DataFlowChainDto? DataFlowChain { get; set; }
+
+    /// <summary>
+    /// Controls whether this finding should appear in the default view or advanced diagnostics only.
+    /// </summary>
+    public string? Visibility { get; set; }
 }

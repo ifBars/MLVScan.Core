@@ -10,6 +10,20 @@ namespace MLVScan.Core.Tests.Integration;
 
 public class ThreatFamilyQuarantineTests
 {
+    private static readonly HashSet<string> TrackedQuarantineSamples = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CustomTV_IL2CPP.dll.di",
+        "EndlessGraffiti.dll.di",
+        "FasterGrowth.dll.di",
+        "MelonLoaderMod55.dll.di",
+        "MoreTrees.dll.di",
+        "NoMoreTrash.dll.di",
+        "NoPolice.dll.di",
+        "RealRadio.dll.di",
+        "S1API.Il2Cpp.MelonLoader.dll.di",
+        "ScheduleIMoreNpcs.dll.di"
+    };
+
     private readonly ITestOutputHelper _output;
     private readonly string? _quarantineFolder;
 
@@ -28,7 +42,8 @@ public class ThreatFamilyQuarantineTests
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("MoreTrees.dll.di", "family-webclient-stage-exec-v1")]
     [InlineData("MelonLoaderMod55.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("ScheduleIMoreNpcs.dll", "family-obfuscated-metadata-loader-v1")]
+    [InlineData("NoPolice.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v1")]
     public void Scan_QuarantineSample_ShouldEmitExpectedThreatFamily(string filename, string expectedFamilyId)
     {
         var path = GetSamplePath(filename);
@@ -40,6 +55,8 @@ public class ThreatFamilyQuarantineTests
 
         dto.ThreatFamilies.Should().NotBeNullOrEmpty();
         dto.ThreatFamilies!.Should().Contain(match => match.FamilyId == expectedFamilyId);
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("KnownThreat");
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
     }
@@ -58,11 +75,24 @@ public class ThreatFamilyQuarantineTests
         realRadioDto.Input.Sha256Hash.Should().Be(s1ApiDto.Input.Sha256Hash);
         realRadioDto.ThreatFamilies.Should().NotBeNullOrEmpty();
         s1ApiDto.ThreatFamilies.Should().NotBeNullOrEmpty();
+        realRadioDto.Disposition.Should().NotBeNull();
+        s1ApiDto.Disposition.Should().NotBeNull();
+        realRadioDto.Disposition!.Classification.Should().Be("KnownThreat");
+        s1ApiDto.Disposition!.Classification.Should().Be("KnownThreat");
         realRadioDto.ThreatFamilies!.First().ExactHashMatch.Should().BeTrue();
         s1ApiDto.ThreatFamilies!.First().ExactHashMatch.Should().BeTrue();
 
         WriteThreatFamilyLog("RealRadio.dll.di", realRadioDto.ThreatFamilies!, realRadioDto.Findings);
         WriteThreatFamilyLog("S1API.Il2Cpp.MelonLoader.dll.di", s1ApiDto.ThreatFamilies!, s1ApiDto.Findings);
+    }
+
+    [SkippableFact]
+    public void Scan_AllTopLevelQuarantineSamples_AreTrackedByThreatFamilyTests()
+    {
+        var actualSamples = GetTopLevelQuarantineSampleNames();
+
+        actualSamples.Should().BeEquivalentTo(TrackedQuarantineSamples,
+            "every top-level quarantine assembly should be covered by the threat-family quarantine suite");
     }
 
     private void WriteThreatFamilyLog(string filename, IReadOnlyList<ThreatFamilyDto> families, IReadOnlyList<FindingDto> findings)
@@ -120,6 +150,27 @@ public class ThreatFamilyQuarantineTests
         var path = Path.Combine(_quarantineFolder!, filename);
         Skip.IfNot(File.Exists(path), $"Sample {filename} not found in QUARANTINE folder.");
         return path;
+    }
+
+    private IReadOnlyList<string> GetTopLevelQuarantineSampleNames()
+    {
+        Skip.If(_quarantineFolder == null,
+            "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
+
+        return Directory
+            .EnumerateFiles(_quarantineFolder!, "*", SearchOption.TopDirectoryOnly)
+            .Where(path =>
+                path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".dll.di", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".exe.di", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".winmd", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".winmd.di", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static string? FindQuarantineFolder()

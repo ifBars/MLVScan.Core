@@ -7,14 +7,18 @@ export type DataFlowNodeType = 'Source' | 'Transform' | 'Sink' | 'Intermediate'
 
 export type DataFlowPattern = 'Legitimate' | 'DownloadAndExecute' | 'DataExfiltration' | 'DynamicCodeLoading' | 'CredentialTheft' | 'RemoteConfigLoad' | 'ObfuscatedPersistence' | 'EmbeddedResourceDropAndExecute' | 'Unknown'
 
+export type FindingVisibility = 'Default' | 'Advanced'
+
 export type ScanMode = 'summary' | 'detailed' | 'developer'
 
 export type ScanPlatform = 'core' | 'wasm' | 'cli' | 'server' | 'desktop' | 'mcp'
 
-export const MLVSCAN_SCHEMA_VERSION = '1.1.0' as const
+export const MLVSCAN_SCHEMA_VERSION = '1.2.0' as const
 export type SchemaVersion = typeof MLVSCAN_SCHEMA_VERSION
 
 export type Severity = 'Low' | 'Medium' | 'High' | 'Critical'
+
+export type ThreatDispositionClassification = 'Clean' | 'Suspicious' | 'KnownThreat'
 
 export type ThreatMatchKind = 'ExactSampleHash' | 'BehaviorVariant'
 
@@ -28,6 +32,7 @@ export interface ScanResult {
   dataFlows?: DataFlowChain[] | null
   developerGuidance?: DeveloperGuidance[] | null
   threatFamilies?: ThreatFamily[] | null
+  disposition?: ThreatDisposition | null
 }
 
 export interface CallChain {
@@ -93,6 +98,7 @@ export interface Finding {
   developerGuidance?: DeveloperGuidance | null
   callChain?: CallChain | null
   dataFlowChain?: DataFlowChain | null
+  visibility?: FindingVisibility | null
 }
 
 export interface ScanInput {
@@ -114,6 +120,15 @@ export interface ScanSummary {
   totalFindings: number
   countBySeverity: Record<string, number>
   triggeredRules: string[]
+}
+
+export interface ThreatDisposition {
+  classification: ThreatDispositionClassification
+  headline: string
+  summary: string
+  blockingRecommended: boolean
+  primaryThreatFamilyId?: string | null
+  relatedFindingIds: string[]
 }
 
 export interface ThreatFamily {

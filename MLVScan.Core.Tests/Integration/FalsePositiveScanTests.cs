@@ -27,10 +27,13 @@ public class FalsePositiveScanTests
         "HUB.Chat.dll",
         "HUB.SmartEmployees.dll",
         "HUB.TheVeil.dll",
+        "IllegalRave.dll",
         "KeepWateringCanFull.dll",
+        "LabFusion.dll",
         "LecPowerTranslator15.dll",
         "LethalLizard.ModManager.dll",
         "ModsApp.dll",
+        "Muse_Dash.dll",
         "Musicfy.dll",
         "NAudio.Asio.dll",
         "NAudio.Core.dll",
@@ -128,6 +131,18 @@ public class FalsePositiveScanTests
             .ToList();
     }
 
+    private IReadOnlyList<string> GetAllFalsePositiveAssemblyPaths()
+    {
+        Skip.If(_falsePositivesFolder == null,
+            "FALSE_POSITIVES folder not found. This test requires samples which are not available in CI.");
+
+        return Directory
+            .EnumerateFiles(_falsePositivesFolder!, "*", SearchOption.AllDirectories)
+            .Where(IsAssemblySampleFile)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     #region False Positive Sample Tests
 
     [SkippableTheory]
@@ -152,6 +167,12 @@ public class FalsePositiveScanTests
         LogFindings(findings, filename);
 
         findings.Should().BeEmpty($"{filename} is a known false positive and should not trigger findings");
+
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.ThreatFamilies.Should().BeNull();
+        dto.Findings.Should().BeEmpty();
     }
 
     /// <summary>
@@ -179,6 +200,12 @@ public class FalsePositiveScanTests
 
         findings.Should().BeEmpty(
             "LethalLizard.ModManager.dll should not emit standalone findings when only supporting signals are present");
+
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.ThreatFamilies.Should().BeNull();
+        dto.Findings.Should().NotContain(finding => finding.Visibility == "Default");
     }
 
     /// <summary>
@@ -474,6 +501,9 @@ public class FalsePositiveScanTests
         {
             "Bannerlord.ButterLib.dll",
             "CustomTV.dll",
+            "IllegalRave.dll",
+            "LabFusion.dll",
+            "Muse_Dash.dll",
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",
@@ -494,6 +524,35 @@ public class FalsePositiveScanTests
             lethalLizardResult.TotalFindings.Should().Be(0,
                 "LethalLizard.ModManager.dll should have no standalone findings when only supporting signals are present");
         }
+    }
+
+    [SkippableFact]
+    public void Scan_AllFalsePositiveAssemblies_ShouldRemainCleanUnderThreatDisposition()
+    {
+        var assemblyPaths = GetAllFalsePositiveAssemblyPaths();
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var violations = new List<string>();
+
+        foreach (var path in assemblyPaths)
+        {
+            var findings = scanner.Scan(path).ToList();
+            var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+            var familyIds = dto.ThreatFamilies?.Select(match => match.FamilyId).ToList() ?? new List<string>();
+            var classification = dto.Disposition?.Classification ?? "<missing>";
+
+            _output.WriteLine(
+                $"{Path.GetRelativePath(_falsePositivesFolder!, path)} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
+
+            if (!string.Equals(classification, "Clean", StringComparison.Ordinal) || familyIds.Count > 0)
+            {
+                violations.Add(
+                    $"{Path.GetRelativePath(_falsePositivesFolder!, path)} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}");
+            }
+        }
+
+        violations.Should().BeEmpty(
+            "FALSE_POSITIVES assemblies should not produce threat-family matches or non-clean dispositions.\n" +
+            string.Join(Environment.NewLine, violations));
     }
 
     #endregion

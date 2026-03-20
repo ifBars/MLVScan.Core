@@ -19,6 +19,8 @@ internal static class SchemaTypeConventions
             [new(typeof(ScanMetadataDto), nameof(ScanMetadataDto.Platform))] =
                 StringUnionSpec.CreateUnion("ScanPlatform", "core", "wasm", "cli", "server", "desktop", "mcp"),
             [new(typeof(FindingDto), nameof(FindingDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),
+            [new(typeof(FindingDto), nameof(FindingDto.Visibility))] =
+                StringUnionSpec.CreateEnum<FindingVisibility>("FindingVisibility"),
             [new(typeof(CallChainDto), nameof(CallChainDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),
             [new(typeof(DataFlowChainDto), nameof(DataFlowChainDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),
             [new(typeof(CallChainNodeDto), nameof(CallChainNodeDto.NodeType))] =
@@ -28,7 +30,9 @@ internal static class SchemaTypeConventions
             [new(typeof(DataFlowNodeDto), nameof(DataFlowNodeDto.NodeType))] =
                 StringUnionSpec.CreateEnum<DataFlowNodeType>("DataFlowNodeType"),
             [new(typeof(ThreatFamilyDto), nameof(ThreatFamilyDto.MatchKind))] =
-                StringUnionSpec.CreateEnum<ThreatMatchKind>("ThreatMatchKind")
+                StringUnionSpec.CreateEnum<ThreatMatchKind>("ThreatMatchKind"),
+            [new(typeof(ThreatDispositionDto), nameof(ThreatDispositionDto.Classification))] =
+                StringUnionSpec.CreateEnum<ThreatDispositionClassification>("ThreatDispositionClassification")
         };
 
     public static IReadOnlyList<PropertyInfo> GetSchemaProperties(Type type)

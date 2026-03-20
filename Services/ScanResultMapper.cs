@@ -13,6 +13,7 @@ namespace MLVScan.Services;
 public static class ScanResultMapper
 {
     private static readonly ThreatFamilyClassifier ThreatFamilyClassifier = new();
+    private static readonly ThreatDispositionClassifier ThreatDispositionClassifier = new();
 
     /// <summary>
     /// Converts a collection of ScanFinding to a complete ScanResultDto.
@@ -40,6 +41,18 @@ public static class ScanResultMapper
             .ToList();
         var sha256Hash = ComputeSha256(assemblyBytes);
         var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, callChains, dataFlows, sha256Hash);
+        var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies);
+        var relatedFindings = disposition.RelatedFindings.ToHashSet();
+        var findingDtos = findingsList
+            .Select(finding => ToFindingDto(
+                finding,
+                options,
+                relatedFindings.Contains(finding) ? FindingVisibility.Default : FindingVisibility.Advanced))
+            .ToList();
+        var findingIdsByReference = findingsList
+            .Zip(findingDtos, static (finding, dto) => new { finding, dto.Id })
+            .Where(static item => !string.IsNullOrWhiteSpace(item.Id))
+            .ToDictionary(static item => item.finding, static item => item.Id!, ReferenceEqualityComparer.Instance);
         var result = new ScanResultDto
         {
             SchemaVersion = options.SchemaVersion,
@@ -57,7 +70,8 @@ public static class ScanResultMapper
                 FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = sha256Hash
             },
             Summary = BuildSummary(findingsList),
-            Findings = findingsList.Select(finding => ToFindingDto(finding, options)).ToList()
+            Findings = findingDtos,
+            Disposition = ToThreatDispositionDto(disposition, findingIdsByReference)
         };
 
         if (threatFamilies.Count > 0)
@@ -144,7 +158,10 @@ public static class ScanResultMapper
         return summary;
     }
 
-    private static FindingDto ToFindingDto(ScanFinding finding, ScanResultOptions options)
+    private static FindingDto ToFindingDto(
+        ScanFinding finding,
+        ScanResultOptions options,
+        FindingVisibility visibility)
     {
         var dto = new FindingDto
         {
@@ -156,7 +173,8 @@ public static class ScanResultMapper
             CodeSnippet = finding.CodeSnippet,
             RiskScore = finding.RiskScore,
             CallChainId = finding.CallChain?.ChainId,
-            DataFlowChainId = finding.DataFlowChain?.ChainId
+            DataFlowChainId = finding.DataFlowChain?.ChainId,
+            Visibility = visibility.ToString()
         };
 
         if (options.IncludeDeveloperGuidance && finding.DeveloperGuidance != null)
@@ -303,10 +321,44 @@ public static class ScanResultMapper
         };
     }
 
+    private static ThreatDispositionDto ToThreatDispositionDto(
+        ThreatDispositionResult disposition,
+        IReadOnlyDictionary<ScanFinding, string> findingIdsByReference)
+    {
+        return new ThreatDispositionDto
+        {
+            Classification = disposition.Classification.ToString(),
+            Headline = disposition.Headline,
+            Summary = disposition.Summary,
+            BlockingRecommended = disposition.BlockingRecommended,
+            PrimaryThreatFamilyId = disposition.PrimaryThreatFamilyId,
+            RelatedFindingIds = disposition.RelatedFindings
+                .Where(findingIdsByReference.ContainsKey)
+                .Select(finding => findingIdsByReference[finding])
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+        };
+    }
+
     private static string ComputeSha256(byte[] data)
     {
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(data);
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+    }
+
+    private sealed class ReferenceEqualityComparer : IEqualityComparer<ScanFinding>
+    {
+        public static ReferenceEqualityComparer Instance { get; } = new();
+
+        public bool Equals(ScanFinding? x, ScanFinding? y)
+        {
+            return ReferenceEquals(x, y);
+        }
+
+        public int GetHashCode(ScanFinding obj)
+        {
+            return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
     }
 }

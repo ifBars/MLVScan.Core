@@ -54,9 +54,9 @@ public class MLVScanVersionsTests
     }
 
     [Fact]
-    public void GetSchemaVersion_Returns_1_1_0()
+    public void GetSchemaVersion_Returns_1_2_0()
     {
-        MLVScanVersions.GetSchemaVersion().Should().Be("1.1.0");
+        MLVScanVersions.GetSchemaVersion().Should().Be("1.2.0");
     }
 
     [Fact]

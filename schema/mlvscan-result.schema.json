@@ -70,6 +70,16 @@
           "type": "null"
         }
       ]
+    },
+    "disposition": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ThreatDisposition"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -80,9 +90,9 @@
     "findings"
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mlvscan.com/schemas/scan-result/1.1.0/schema.json",
+  "$id": "https://mlvscan.com/schemas/scan-result/1.2.0/schema.json",
   "title": "MLVScan Scan Result",
-  "description": "Generated from MLVScan.Core DTOs. Schema version 1.1.0.",
+  "description": "Generated from MLVScan.Core DTOs. Schema version 1.2.0.",
   "$defs": {
     "CallChainNodeType": {
       "type": "string",
@@ -115,6 +125,13 @@
         "Unknown"
       ]
     },
+    "FindingVisibility": {
+      "type": "string",
+      "enum": [
+        "Default",
+        "Advanced"
+      ]
+    },
     "ScanMode": {
       "type": "string",
       "enum": [
@@ -136,7 +153,7 @@
     },
     "SchemaVersion": {
       "type": "string",
-      "const": "1.1.0"
+      "const": "1.2.0"
     },
     "Severity": {
       "type": "string",
@@ -145,6 +162,14 @@
         "Medium",
         "High",
         "Critical"
+      ]
+    },
+    "ThreatDispositionClassification": {
+      "type": "string",
+      "enum": [
+        "Clean",
+        "Suspicious",
+        "KnownThreat"
       ]
     },
     "ThreatMatchKind": {
@@ -529,6 +554,16 @@
               "type": "null"
             }
           ]
+        },
+        "visibility": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FindingVisibility"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -616,6 +651,46 @@
         "totalFindings",
         "countBySeverity",
         "triggeredRules"
+      ]
+    },
+    "ThreatDisposition": {
+      "type": "object",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/ThreatDispositionClassification"
+        },
+        "headline": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "blockingRecommended": {
+          "type": "boolean"
+        },
+        "primaryThreatFamilyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relatedFindingIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "classification",
+        "headline",
+        "summary",
+        "blockingRecommended",
+        "relatedFindingIds"
       ]
     },
     "ThreatFamily": {
