@@ -1,9 +1,12 @@
+using System.ComponentModel;
+
 namespace MLVScan.Abstractions
 {
     /// <summary>
     /// A simple console-based logger implementation.
     /// Useful for debugging, CLI tools, or web scenarios where console output is acceptable.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class ConsoleScanLogger : IScanLogger
     {
         /// <summary>

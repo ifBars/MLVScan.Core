@@ -2,9 +2,12 @@ using MLVScan.Models;
 using MLVScan.Models.Rules;
 using MLVScan.Services.DataFlow;
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use ScanConfig to control data flow behavior. DataFlowAnalyzerConfig is an internal pipeline detail and will be removed in v2.0.")]
     public class DataFlowAnalyzerConfig
     {
         public bool EnableCrossMethodAnalysis { get; set; } = true;
@@ -14,6 +17,7 @@ namespace MLVScan.Services
         public bool EnableReturnValueTracking { get; set; } = true;
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class DataFlowAnalyzer
     {
         private readonly DataFlowAnalysisState _state = new();
@@ -21,11 +25,14 @@ namespace MLVScan.Services
         private readonly CrossMethodDataFlowAnalyzer _crossMethodAnalyzer;
         private readonly DataFlowPatternEvaluator _patternEvaluator;
 
+#pragma warning disable CS0618
         public DataFlowAnalyzer(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder)
             : this(rules, snippetBuilder, new DataFlowAnalyzerConfig())
         {
         }
+#pragma warning restore CS0618
 
+        [Obsolete("Use the overloads that rely on ScanConfig-driven behavior. DataFlowAnalyzerConfig is an internal pipeline detail and will be removed in v2.0.")]
         public DataFlowAnalyzer(
             IEnumerable<IScanRule> rules,
             CodeSnippetBuilder snippetBuilder,
@@ -51,7 +58,9 @@ namespace MLVScan.Services
 
             _patternEvaluator = new DataFlowPatternEvaluator();
             _methodAnalyzer = new DataFlowMethodAnalyzer(operationClassifier, _patternEvaluator, nodeFactory);
+#pragma warning disable CS0618
             _crossMethodAnalyzer = new CrossMethodDataFlowAnalyzer(_patternEvaluator, nodeFactory, config);
+#pragma warning restore CS0618
         }
 
         public void Clear()

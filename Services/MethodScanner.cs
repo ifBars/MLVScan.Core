@@ -3,9 +3,11 @@ using MLVScan.Models.Rules;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class MethodScanner
     {
         private readonly IEnumerable<IScanRule> _rules;
@@ -32,6 +34,7 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public class MethodScanResult
         {
             public List<ScanFinding> Findings { get; set; } = new List<ScanFinding>();

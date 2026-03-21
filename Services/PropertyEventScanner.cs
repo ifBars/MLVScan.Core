@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
@@ -7,6 +8,7 @@ namespace MLVScan.Services
     /// Scans property accessors (get/set) and event handlers (add/remove/invoke) for malicious code.
     /// Malware can hide in these accessors to evade basic scanning.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class PropertyEventScanner
     {
         private readonly MethodScanner _methodScanner;

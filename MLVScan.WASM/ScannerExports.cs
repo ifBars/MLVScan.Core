@@ -8,7 +8,9 @@ namespace MLVScan.WASM;
 /// </summary>
 public partial class ScannerExports
 {
+#pragma warning disable CS0618
     private static readonly WasmScanner _scanner = new WasmScanner();
+#pragma warning restore CS0618
 
     /// <summary>
     /// Scans an uploaded assembly and returns the shared scan result schema as JSON.
@@ -19,7 +21,9 @@ public partial class ScannerExports
     [JSExport]
     public static string ScanAssembly(byte[] assemblyBytes, string fileName)
     {
+#pragma warning disable CS0618
         return _scanner.ScanAssembly(assemblyBytes, fileName);
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -32,7 +36,9 @@ public partial class ScannerExports
     [JSExport]
     public static string ScanAssemblyWithConfig(byte[] assemblyBytes, string fileName, string configJson)
     {
+#pragma warning disable CS0618
         return _scanner.ScanAssemblyWithConfig(assemblyBytes, fileName, configJson);
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -42,7 +48,9 @@ public partial class ScannerExports
     [JSExport]
     public static string GetVersion()
     {
+#pragma warning disable CS0618
         return WasmScanner.GetVersion();
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -52,6 +60,8 @@ public partial class ScannerExports
     [JSExport]
     public static string GetSchemaVersion()
     {
+#pragma warning disable CS0618
         return WasmScanner.GetSchemaVersion();
+#pragma warning restore CS0618
     }
 }

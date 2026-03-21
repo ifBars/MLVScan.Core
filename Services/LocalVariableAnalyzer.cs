@@ -3,6 +3,7 @@ using MLVScan.Models.Rules;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
@@ -10,6 +11,7 @@ namespace MLVScan.Services
     /// Analyzes local variables in method bodies for suspicious types.
     /// This provides context for multi-signal detection.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class LocalVariableAnalyzer
     {
         private readonly IEnumerable<IScanRule> _rules;

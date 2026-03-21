@@ -2,9 +2,11 @@ using MLVScan.Models;
 using MLVScan.Models.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class TypeScanner
     {
         private static readonly HashSet<string> ReflectionCompanionRuleIds = new(StringComparer.Ordinal)

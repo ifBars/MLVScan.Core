@@ -2,9 +2,11 @@ using MLVScan.Models;
 using MLVScan.Models.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class ReflectionDetector
     {
         private readonly IEnumerable<IScanRule> _rules;

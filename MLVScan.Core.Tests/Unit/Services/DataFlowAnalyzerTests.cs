@@ -8,6 +8,8 @@ using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Services;
 
+#pragma warning disable CS0618
+
 public class DataFlowAnalyzerTests
 {
     [Fact]
@@ -733,3 +735,5 @@ public class DataFlowAnalyzerTests
 
     #endregion
 }
+
+#pragma warning restore CS0618

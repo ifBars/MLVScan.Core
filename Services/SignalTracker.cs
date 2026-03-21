@@ -1,9 +1,11 @@
 using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class SignalTracker
     {
         private readonly Dictionary<string, MethodSignals> _typeSignals;

@@ -1,11 +1,13 @@
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services.Helpers
 {
     /// <summary>
     /// Extension methods for Mono.Cecil.Cil.Instruction to provide low-level IL analysis utilities.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class InstructionExtensions
     {
         /// <summary>

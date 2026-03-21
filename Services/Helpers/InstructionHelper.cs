@@ -1,7 +1,9 @@
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services.Helpers
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class InstructionHelper
     {
         public static int? ExtractFolderPathArgument(Mono.Collections.Generic.Collection<Instruction> instructions,

@@ -3,9 +3,11 @@ using MLVScan.Models.Rules;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class InstructionAnalyzer
     {
         private static readonly HashSet<string> ReflectionCompanionRuleIds = new(StringComparer.Ordinal)
@@ -49,6 +51,7 @@ namespace MLVScan.Services
             _callGraphBuilder = callGraphBuilder;
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public class InstructionAnalysisResult
         {
             public List<ScanFinding> Findings { get; set; } = new List<ScanFinding>();

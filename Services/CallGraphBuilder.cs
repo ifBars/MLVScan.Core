@@ -2,6 +2,7 @@ using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
@@ -9,6 +10,7 @@ namespace MLVScan.Services
     /// Tracks call relationships between methods and builds call chains for suspicious patterns.
     /// This allows consolidating multiple related findings into a single finding with full attack path visibility.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class CallGraphBuilder
     {
         private readonly IEnumerable<IScanRule> _rules;

@@ -45,10 +45,17 @@ public static class MLVScanVersions
     /// <summary>
     /// Gets the full version string for the core library.
     /// </summary>
+    [Obsolete("Use the CoreVersion property instead. Removed in v2.0.")]
     public static string GetCoreVersion() => CoreVersion;
+
+    /// <summary>
+    /// Gets the full user-facing version string for the core library.
+    /// </summary>
+    public static string GetVersionString() => $"MLVScan.Core v{CoreVersion}";
 
     /// <summary>
     /// Gets the schema version string.
     /// </summary>
+    [Obsolete("Use the SchemaVersion property instead. Removed in v2.0.")]
     public static string GetSchemaVersion() => SchemaVersion;
 }

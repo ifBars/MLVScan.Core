@@ -1,4 +1,5 @@
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Abstractions
 {
@@ -18,6 +19,7 @@ namespace MLVScan.Abstractions
     /// Default provider that creates a basic DefaultAssemblyResolver without any search directories.
     /// Suitable for web scenarios or standalone scanning where game assembly resolution isn't needed.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public sealed class DefaultAssemblyResolverProvider : IAssemblyResolverProvider
     {
         /// <summary>

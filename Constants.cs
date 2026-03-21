@@ -1,19 +1,24 @@
 namespace MLVScan
 {
     /// <summary>
-    /// Version and build constants for MLVScan.Core.
-    /// Update this file when releasing new versions.
+    /// Legacy version constants retained for backward compatibility.
+    /// Prefer <see cref="MLVScanVersions"/> for all new code.
     /// </summary>
+    [Obsolete("Use MLVScanVersions instead. Removed in v2.0.")]
     public static class Constants
     {
         /// <summary>
-        /// Core engine version - the scanning/analysis library version.
+        /// Legacy public constant retained for compatibility with older consumers.
+        /// Prefer <see cref="MLVScanVersions.CoreVersion"/>.
         /// </summary>
+        [Obsolete("Use MLVScanVersions.CoreVersion instead. Removed in v2.0.")]
         public const string CoreVersion = "1.3.3";
 
         /// <summary>
         /// Gets the full version string with prefix.
+        /// Prefer <see cref="MLVScanVersions.GetVersionString"/>.
         /// </summary>
-        public static string GetVersionString() => $"MLVScan.Core v{CoreVersion}";
+        [Obsolete("Use MLVScanVersions.GetVersionString() instead. Removed in v2.0.")]
+        public static string GetVersionString() => MLVScanVersions.GetVersionString();
     }
 }

@@ -42,21 +42,33 @@ public class MLVScanVersionsTests
     }
 
     [Fact]
-    public void GetCoreVersion_ReturnsSameAsCoreVersionProperty()
+    public void CoreVersion_Property_IsStableAcrossCalls()
     {
+        var version1 = MLVScanVersions.CoreVersion;
+        var version2 = MLVScanVersions.CoreVersion;
+
+        version1.Should().Be(version2);
+    }
+
+    [Fact]
+    public void GetVersionString_ContainsCoreVersion()
+    {
+        MLVScanVersions.GetVersionString().Should().Be($"MLVScan.Core v{MLVScanVersions.CoreVersion}");
+    }
+
+    [Fact]
+    public void SchemaVersion_Property_ReturnsExpectedConstant()
+    {
+        MLVScanVersions.SchemaVersion.Should().Be("1.2.0");
+    }
+
+    [Fact]
+    public void LegacyGetterMethods_RemainCompatible()
+    {
+#pragma warning disable CS0618
         MLVScanVersions.GetCoreVersion().Should().Be(MLVScanVersions.CoreVersion);
-    }
-
-    [Fact]
-    public void GetSchemaVersion_ReturnsSameAsSchemaVersionConstant()
-    {
         MLVScanVersions.GetSchemaVersion().Should().Be(MLVScanVersions.SchemaVersion);
-    }
-
-    [Fact]
-    public void GetSchemaVersion_Returns_1_2_0()
-    {
-        MLVScanVersions.GetSchemaVersion().Should().Be("1.2.0");
+#pragma warning restore CS0618
     }
 
     [Fact]
@@ -64,10 +76,8 @@ public class MLVScanVersionsTests
     {
         var version1 = MLVScanVersions.CoreVersion;
         var version2 = MLVScanVersions.CoreVersion;
-        var version3 = MLVScanVersions.GetCoreVersion();
 
         version1.Should().Be(version2);
-        version1.Should().Be(version3);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Abstractions
 {
@@ -23,6 +24,7 @@ namespace MLVScan.Abstractions
     /// Generic entry point provider that detects common patterns across multiple environments.
     /// This is the default provider used when no specific environment is configured.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class GenericEntryPointProvider : IEntryPointProvider
     {
         // Common entry point patterns across mod loaders and game frameworks

@@ -3,6 +3,7 @@ using MLVScan.Models.DataFlow;
 
 namespace MLVScan.Services.DataFlow
 {
+#pragma warning disable CS0618
     internal sealed class CrossMethodDataFlowAnalyzer
     {
         private readonly DataFlowPatternEvaluator _patternEvaluator;
@@ -264,4 +265,5 @@ namespace MLVScan.Services.DataFlow
                 .ToList();
         }
     }
+#pragma warning restore CS0618
 }

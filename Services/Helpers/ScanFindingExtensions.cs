@@ -1,10 +1,12 @@
 using MLVScan.Models;
+using System.ComponentModel;
 
 namespace MLVScan.Services.Helpers
 {
     /// <summary>
     /// Extension methods for enriching ScanFindings with rule metadata.
     /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class ScanFindingExtensions
     {
         /// <summary>

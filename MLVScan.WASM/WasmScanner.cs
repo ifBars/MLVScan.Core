@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.ComponentModel;
 using MLVScan.Models;
 using MLVScan.Models.Dto;
 using MLVScan.Services;
@@ -9,6 +10,8 @@ namespace MLVScan.WASM;
 /// Main WASM API for scanning assemblies in the browser.
 /// This is the primary entry point for JavaScript/TypeScript code.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+[Obsolete("Use ScannerExports from the WASM runtime or the @mlvscan/wasm-core package instead. This type is not a stable public API and will be removed in v2.0.")]
 public class WasmScanner
 {
     private readonly ScanConfig _config;

@@ -2,6 +2,8 @@ using FluentAssertions;
 using MLVScan;
 using Xunit;
 
+#pragma warning disable CS0618
+
 namespace MLVScan.Core.Tests.Unit;
 
 public class ConstantsTests
@@ -43,3 +45,5 @@ public class ConstantsTests
         versionString.Should().Be($"MLVScan.Core v{Constants.CoreVersion}");
     }
 }
+
+#pragma warning restore CS0618

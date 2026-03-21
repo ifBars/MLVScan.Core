@@ -2,9 +2,11 @@ using MLVScan.Models;
 using MLVScan.Models.Rules;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class DllImportScanner
     {
         private readonly IEnumerable<IScanRule> _rules;

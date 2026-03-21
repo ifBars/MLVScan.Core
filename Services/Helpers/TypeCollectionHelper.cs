@@ -1,7 +1,9 @@
 using Mono.Cecil;
+using System.ComponentModel;
 
 namespace MLVScan.Services.Helpers
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class TypeCollectionHelper
     {
         public static IEnumerable<TypeDefinition> GetAllTypes(ModuleDefinition module)

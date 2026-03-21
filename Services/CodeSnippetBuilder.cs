@@ -1,7 +1,9 @@
 using Mono.Cecil.Cil;
+using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class CodeSnippetBuilder
     {
         public string BuildSnippet(Mono.Collections.Generic.Collection<Instruction> instructions, int index,
