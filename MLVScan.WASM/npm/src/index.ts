@@ -23,7 +23,7 @@ import {
   MLVSCAN_SCHEMA_VERSION,
   type ScanConfigInput,
   type ScanResult,
-} from './types'
+} from './types.js'
 
 let scannerExports: any = null
 let scannerLoaded = false
