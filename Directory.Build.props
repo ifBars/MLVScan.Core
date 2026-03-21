@@ -1,7 +1,12 @@
 <Project>
   <PropertyGroup>
-    <Version>1.3.2</Version>
+    <Version>1.3.3</Version>
     <Company>Bars</Company>
     <Product>MLVScan</Product>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests')) != 'True'">
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 </Project>
