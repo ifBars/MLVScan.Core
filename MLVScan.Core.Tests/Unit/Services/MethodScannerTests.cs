@@ -86,6 +86,20 @@ public class MethodScannerTests
         result.Findings.Any(f => f.Description.StartsWith("Critical:")).Should().BeTrue();
     }
 
+    [Fact]
+    public void ScanMethod_WithLocalVariables_DoesNotReplayAnalyzeInstructionsForNonLocalRules()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true, AnalyzeLocalVariables = true };
+        var countingRule = new CountingAnalyzeInstructionRule();
+        var scanner = CreateScanner(config, new IScanRule[] { countingRule });
+        var method = CreateMethod(withLocalVariable: true);
+
+        var result = scanner.ScanMethod(method, "Test.Type");
+
+        result.Findings.Should().ContainSingle();
+        countingRule.AnalyzeInstructionsCallCount.Should().Be(1);
+    }
+
     private static MethodScanner CreateScanner(ScanConfig config, IEnumerable<IScanRule> rules)
     {
         var signalTracker = new SignalTracker(config);
@@ -98,7 +112,7 @@ public class MethodScannerTests
         return new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, config);
     }
 
-    private static MethodDefinition CreateMethod(bool withBody = true)
+    private static MethodDefinition CreateMethod(bool withBody = true, bool withLocalVariable = false)
     {
         var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("MethodScannerTest", new Version(1, 0, 0, 0)), "MethodScannerTest", ModuleKind.Dll);
         var module = assembly.MainModule;
@@ -111,6 +125,11 @@ public class MethodScannerTests
         if (withBody)
         {
             method.Body = new MethodBody(method);
+            if (withLocalVariable)
+            {
+                method.Body.Variables.Add(new VariableDefinition(module.TypeSystem.String));
+            }
+
             method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
         }
 
@@ -159,6 +178,25 @@ public class MethodScannerTests
             methodSignals.HasEncodedStrings = true;
             methodSignals.HasProcessLikeCall = true;
             return Enumerable.Empty<ScanFinding>();
+        }
+    }
+
+    private sealed class CountingAnalyzeInstructionRule : IScanRule
+    {
+        public int AnalyzeInstructionsCallCount { get; private set; }
+
+        public string Description => "Counting rule";
+        public Severity Severity => Severity.Low;
+        public string RuleId => "CountingRule";
+        public bool RequiresCompanionFinding => false;
+
+        public bool IsSuspicious(MethodReference method) => false;
+
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        {
+            AnalyzeInstructionsCallCount++;
+            return new[] { new ScanFinding($"{method.DeclaringType?.FullName}.{method.Name}", "counted", Severity.Low) };
         }
     }
 }

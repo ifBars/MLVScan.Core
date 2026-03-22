@@ -1,9 +1,11 @@
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.Diagnostics;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.ComponentModel;
+using System.Reflection;
 
 namespace MLVScan.Services
 {
@@ -28,27 +30,51 @@ namespace MLVScan.Services
             "ByteArrayManipulationRule"
         };
 
-        private readonly IEnumerable<IScanRule> _rules;
+        private readonly IReadOnlyList<IScanRule> _rules;
+        private readonly IReadOnlyList<IScanRule> _contextualPatternRules;
         private readonly SignalTracker _signalTracker;
         private readonly ReflectionDetector _reflectionDetector;
         private readonly StringPatternDetector _stringPatternDetector;
         private readonly CodeSnippetBuilder _snippetBuilder;
         private readonly ScanConfig _config;
         private readonly CallGraphBuilder? _callGraphBuilder;
+        private readonly IScanRule? _reflectionRule;
+        private readonly ScanTelemetryHub _telemetry;
 
         public InstructionAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
             ReflectionDetector reflectionDetector,
             StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder, ScanConfig config,
             CallGraphBuilder? callGraphBuilder = null)
+            : this(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, config,
+                new ScanTelemetryHub(), callGraphBuilder)
         {
-            _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+        }
+
+        internal InstructionAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
+            ReflectionDetector reflectionDetector,
+            StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder, ScanConfig config,
+            ScanTelemetryHub telemetry, CallGraphBuilder? callGraphBuilder = null)
+        {
+            if (rules == null)
+                throw new ArgumentNullException(nameof(rules));
+
+            _rules = rules.ToArray();
+            _contextualPatternRules = _rules
+                .Where(static rule => OverridesRuleMethod(rule, nameof(IScanRule.AnalyzeContextualPattern),
+                    typeof(MethodReference),
+                    typeof(Mono.Collections.Generic.Collection<Instruction>),
+                    typeof(int),
+                    typeof(MethodSignals)))
+                .ToArray();
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _reflectionDetector = reflectionDetector ?? throw new ArgumentNullException(nameof(reflectionDetector));
             _stringPatternDetector =
                 stringPatternDetector ?? throw new ArgumentNullException(nameof(stringPatternDetector));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
             _config = config ?? new ScanConfig();
+            _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
             _callGraphBuilder = callGraphBuilder;
+            _reflectionRule = _rules.FirstOrDefault(static rule => rule is ReflectionRule);
         }
 
         [EditorBrowsable(EditorBrowsableState.Never)]
@@ -68,10 +94,15 @@ namespace MLVScan.Services
             MethodSignals? methodSignals, string typeFullName)
         {
             var result = new InstructionAnalysisResult();
+            var analysisStart = _telemetry.StartTimestamp();
+            _telemetry.IncrementCounter("InstructionAnalyzer.MethodsAnalyzed");
+            _telemetry.IncrementCounter("InstructionAnalyzer.InstructionsVisited", instructions.Count);
 
             // Build set of instruction offsets inside exception handlers
             // These are analyzed by ExceptionHandlerAnalyzer with proper context, skip here to prevent duplicates
+            var exceptionOffsetStart = _telemetry.StartTimestamp();
             var exceptionHandlerOffsets = BuildExceptionHandlerOffsets(method, instructions);
+            _telemetry.AddPhaseElapsed("InstructionAnalyzer.BuildExceptionHandlerOffsets", exceptionOffsetStart);
 
             for (int i = 0; i < instructions.Count; i++)
             {
@@ -82,10 +113,16 @@ namespace MLVScan.Services
                     if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
                         instruction.Operand is MethodReference calledMethod)
                     {
+                        _telemetry.IncrementCounter("InstructionAnalyzer.CallInstructions");
+                        HashSet<string>? contextualRuleIdsWithFindings = null;
+
                         // Track signals for multi-pattern detection
                         if (methodSignals != null)
                         {
+                            var signalUpdateStart = _telemetry.StartTimestamp();
                             _signalTracker.UpdateMethodSignals(methodSignals, calledMethod, method.DeclaringType);
+                            _telemetry.AddPhaseElapsed("InstructionAnalyzer.UpdateMethodSignals",
+                                signalUpdateStart);
 
                             // Check for Environment.GetFolderPath with sensitive folder values (for signal tracking)
                             if (calledMethod.DeclaringType?.FullName == "System.Environment" &&
@@ -105,6 +142,7 @@ namespace MLVScan.Services
 
                         if (isCallToTrackedSuspiciousMethod)
                         {
+                            _telemetry.IncrementCounter("InstructionAnalyzer.CallGraphTrackedCalls");
                             // Register this call site with the call graph builder instead of creating a finding
                             var snippet = _snippetBuilder.BuildSnippet(instructions, i, 8);
                             var invocationContext =
@@ -116,7 +154,7 @@ namespace MLVScan.Services
                             // Mark rule as triggered for signal tracking
                             if (methodSignals != null)
                             {
-                                var rule = _rules.FirstOrDefault(r => r.IsSuspicious(calledMethod));
+                                var rule = FindFirstSuspiciousRule(calledMethod);
                                 if (rule != null)
                                 {
                                     _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
@@ -131,11 +169,14 @@ namespace MLVScan.Services
                         // Those are already analyzed by ExceptionHandlerAnalyzer with proper context
                         if (!exceptionHandlerOffsets.Contains(instruction.Offset))
                         {
-                            // Call AnalyzeContextualPattern for all rules
-                            foreach (var rule in _rules)
+                            foreach (var rule in _contextualPatternRules)
                             {
+                                _telemetry.IncrementCounter("InstructionAnalyzer.ContextualRuleInvocations");
+                                var contextualRuleStart = _telemetry.StartTimestamp();
                                 var ruleFindings =
                                     rule.AnalyzeContextualPattern(calledMethod, instructions, i, methodSignals);
+                                _telemetry.AddPhaseElapsed("InstructionAnalyzer.ContextualRuleDispatch",
+                                    contextualRuleStart);
                                 foreach (var finding in ruleFindings)
                                 {
                                     // If rule requires companion finding, check if other rules have been triggered
@@ -168,6 +209,9 @@ namespace MLVScan.Services
                                     // Enrich finding with rule metadata
                                     finding.WithRuleMetadata(rule);
                                     result.Findings.Add(finding);
+                                    _telemetry.IncrementCounter("InstructionAnalyzer.ContextualFindings");
+                                    contextualRuleIdsWithFindings ??= new HashSet<string>(StringComparer.Ordinal);
+                                    contextualRuleIdsWithFindings.Add(rule.RuleId);
                                     if (methodSignals != null &&
                                         !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
                                     {
@@ -177,12 +221,20 @@ namespace MLVScan.Services
                                 }
                             }
                         } // end exception handler skip
+                        else
+                        {
+                            _telemetry.IncrementCounter("InstructionAnalyzer.ExceptionHandlerSkippedCalls");
+                        }
 
                         // For reflection invocations, only flag if combined with other malicious patterns
+                        var reflectionHandlingStart = _telemetry.StartTimestamp();
                         bool isReflectionInvoke = _reflectionDetector.IsReflectionInvokeMethod(calledMethod);
+                        _telemetry.AddPhaseElapsed("InstructionAnalyzer.ReflectionInvokeCheck",
+                            reflectionHandlingStart);
                         if (isReflectionInvoke)
                         {
-                            var reflectionRule = _rules.FirstOrDefault(r => r is ReflectionRule);
+                            _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionInvokes");
+                            var reflectionRule = _reflectionRule;
                             if (reflectionRule == null)
                                 continue;
 
@@ -210,6 +262,7 @@ namespace MLVScan.Services
                                 {
                                     result.PendingReflectionFindings.Add((method, instruction, i, instructions,
                                         methodSignals));
+                                    _telemetry.IncrementCounter("InstructionAnalyzer.PendingReflectionQueued");
                                 }
 
                                 continue;
@@ -224,6 +277,7 @@ namespace MLVScan.Services
                                 reflectionRule.Severity,
                                 snippet).WithRuleMetadata(reflectionRule);
                             result.Findings.Add(finding);
+                            _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionFindings");
                             if (methodSignals != null && !(reflectionRule.RequiresCompanionFinding &&
                                                            finding.Severity == Severity.Low))
                             {
@@ -238,47 +292,69 @@ namespace MLVScan.Services
                         // but we also need to skip if the method is tracked (for methods matched by rules)
                         if (!exceptionHandlerOffsets.Contains(instruction.Offset) &&
                             !isCallToTrackedSuspiciousMethod &&
-                            !isReflectionInvoke &&
-                            _rules.Any(r => r.IsSuspicious(calledMethod)))
+                            !isReflectionInvoke)
                         {
-                            var rule = _rules.First(r => r.IsSuspicious(calledMethod));
-
-                            // Get type-level signals for cross-method detection (e.g., file writes in other methods)
-                            MethodSignals? typeSignals = null;
-                            if (!string.IsNullOrEmpty(typeFullName))
+                            var suspiciousRuleStart = _telemetry.StartTimestamp();
+                            var rule = FindFirstSuspiciousRule(calledMethod);
+                            _telemetry.AddPhaseElapsed("InstructionAnalyzer.FindFirstSuspiciousRule",
+                                suspiciousRuleStart);
+                            if (rule != null)
                             {
-                                typeSignals = _signalTracker.GetTypeSignals(typeFullName);
-                            }
+                                _telemetry.IncrementCounter("InstructionAnalyzer.DirectSuspiciousMatches");
+                                if (contextualRuleIdsWithFindings?.Contains(rule.RuleId) == true)
+                                {
+                                    continue;
+                                }
 
-                            // Check if rule wants to suppress this finding based on contextual analysis
-                            if (rule.ShouldSuppressFinding(calledMethod, instructions, i, methodSignals, typeSignals))
-                            {
-                                continue;
-                            }
+                                // Get type-level signals for cross-method detection (e.g., file writes in other methods)
+                                MethodSignals? typeSignals = null;
+                                if (!string.IsNullOrEmpty(typeFullName))
+                                {
+                                    typeSignals = _signalTracker.GetTypeSignals(typeFullName);
+                                }
 
-                            var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
+                                // Check if rule wants to suppress this finding based on contextual analysis
+                                var suppressFindingStart = _telemetry.StartTimestamp();
+                                if (rule.ShouldSuppressFinding(calledMethod, instructions, i, methodSignals, typeSignals))
+                                {
+                                    _telemetry.AddPhaseElapsed("InstructionAnalyzer.ShouldSuppressFinding",
+                                        suppressFindingStart);
+                                    _telemetry.IncrementCounter("InstructionAnalyzer.SuppressedFindings");
+                                    continue;
+                                }
+                                _telemetry.AddPhaseElapsed("InstructionAnalyzer.ShouldSuppressFinding",
+                                    suppressFindingStart);
 
-                            var description = rule.GetFindingDescription(method, calledMethod, instructions, i);
+                                var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
 
-                            var finding = new ScanFinding(
-                                $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
-                                description,
-                                rule.Severity,
-                                snippet).WithRuleMetadata(rule);
-                            result.Findings.Add(finding);
-                            if (methodSignals != null &&
-                                !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
-                            {
-                                _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+                                var description = rule.GetFindingDescription(method, calledMethod, instructions, i);
+
+                                var finding = new ScanFinding(
+                                    $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
+                                    description,
+                                    rule.Severity,
+                                    snippet).WithRuleMetadata(rule);
+                                result.Findings.Add(finding);
+                                _telemetry.IncrementCounter("InstructionAnalyzer.DirectFindings");
+                                if (methodSignals != null &&
+                                    !(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                                {
+                                    _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
+                                        rule.RuleId);
+                                }
                             }
                         }
 
                         // Check for reflection-based calls that might bypass detection
+                        var reflectionDetectorStart = _telemetry.StartTimestamp();
                         var reflectionFindings = _reflectionDetector.ScanForReflectionInvocation(method, instruction,
                             calledMethod, i, instructions, methodSignals);
+                        _telemetry.AddPhaseElapsed("InstructionAnalyzer.ReflectionDetector",
+                            reflectionDetectorStart);
                         foreach (var finding in reflectionFindings)
                         {
                             result.Findings.Add(finding);
+                            _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionBypassFindings");
                             var reflectionRuleForFinding = _rules.FirstOrDefault(r => r is ReflectionRule);
                             if (methodSignals != null && reflectionRuleForFinding != null &&
                                 !(reflectionRuleForFinding.RequiresCompanionFinding &&
@@ -296,7 +372,21 @@ namespace MLVScan.Services
                 }
             }
 
+            _telemetry.AddPhaseElapsed("InstructionAnalyzer.AnalyzeInstructions", analysisStart);
             return result;
+        }
+
+        private IScanRule? FindFirstSuspiciousRule(MethodReference calledMethod)
+        {
+            foreach (var rule in _rules)
+            {
+                if (rule.IsSuspicious(calledMethod))
+                {
+                    return rule;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -346,6 +436,18 @@ namespace MLVScan.Services
             }
 
             return false;
+        }
+
+        private static bool OverridesRuleMethod(IScanRule rule, string methodName, params Type[] parameterTypes)
+        {
+            var method = rule.GetType().GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                types: parameterTypes,
+                modifiers: null);
+
+            return method != null && method.DeclaringType != typeof(IScanRule);
         }
     }
 }

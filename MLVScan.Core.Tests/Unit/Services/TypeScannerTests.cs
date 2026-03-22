@@ -77,6 +77,48 @@ public class TypeScannerTests
         findings.Any(f => f.Location.Contains("Inner.Run")).Should().BeTrue();
     }
 
+    [Fact]
+    public void ScanType_WithPropertyAccessor_AnnotatesWithoutRescanningMethod()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = false, AnalyzePropertyAccessors = true };
+        var countingRule = new CountingAnalyzeInstructionRule();
+        var rules = new IScanRule[] { countingRule };
+
+        var signalTracker = new SignalTracker(config);
+        var snippetBuilder = new CodeSnippetBuilder();
+        var stringPatternDetector = new StringPatternDetector();
+        var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
+        var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
+        var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector, stringPatternDetector, snippetBuilder, config, null);
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder, localVariableAnalyzer, exceptionHandlerAnalyzer, config);
+        var propertyEventScanner = new PropertyEventScanner(methodScanner, config);
+        var typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules, config);
+
+        var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("PropertyTypeScan", new Version(1, 0, 0, 0)), "PropertyTypeScan", ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "HasProperty", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var getter = new MethodDefinition("get_Name", MethodAttributes.Public, module.TypeSystem.String);
+        getter.Body = new MethodBody(getter);
+        getter.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ldstr, "value"));
+        getter.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(getter);
+
+        var property = new PropertyDefinition("Name", PropertyAttributes.None, module.TypeSystem.String)
+        {
+            GetMethod = getter
+        };
+        type.Properties.Add(property);
+
+        var findings = typeScanner.ScanType(type).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Description.Should().Contain("found in property getter: Name");
+        countingRule.AnalyzeInstructionsCallCount.Should().Be(1);
+    }
+
     private static TypeDefinition CreateTypeWithReflectionAndProcessMethods()
     {
         var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("TypeScan", new Version(1, 0, 0, 0)), "TypeScan", ModuleKind.Dll);
@@ -107,5 +149,27 @@ public class TypeScannerTests
         type.Methods.Add(processMethod);
 
         return type;
+    }
+
+    private sealed class CountingAnalyzeInstructionRule : IScanRule
+    {
+        public int AnalyzeInstructionsCallCount { get; private set; }
+
+        public string Description => "Counting rule";
+        public Severity Severity => Severity.Low;
+        public string RuleId => "CountingRule";
+        public bool RequiresCompanionFinding => false;
+
+        public bool IsSuspicious(MethodReference method) => false;
+
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        {
+            AnalyzeInstructionsCallCount++;
+            return new[]
+            {
+                new ScanFinding($"{method.DeclaringType?.FullName}.{method.Name}", "counted", Severity.Low, "snippet")
+            };
+        }
     }
 }

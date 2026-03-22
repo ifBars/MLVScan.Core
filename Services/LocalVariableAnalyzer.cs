@@ -14,15 +14,19 @@ namespace MLVScan.Services
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class LocalVariableAnalyzer
     {
-        private readonly IEnumerable<IScanRule> _rules;
+        private readonly IReadOnlyList<IScanRule> _localVariableRules;
         private readonly SignalTracker _signalTracker;
         private readonly ScanConfig _config;
 
         public LocalVariableAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker, ScanConfig config)
         {
-            _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+            if (rules == null)
+                throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _config = config ?? new ScanConfig();
+            _localVariableRules = rules
+                .Where(static rule => rule is SuspiciousLocalVariableRule)
+                .ToArray();
         }
 
         public IEnumerable<ScanFinding> AnalyzeLocalVariables(MethodDefinition method,
@@ -35,9 +39,7 @@ namespace MLVScan.Services
 
             try
             {
-                // Run AnalyzeInstructions on all rules (not just SuspiciousLocalVariableRule)
-                // This allows any rule to analyze local variables based on their own logic
-                foreach (var rule in _rules)
+                foreach (var rule in _localVariableRules)
                 {
                     var ruleFindings = rule.AnalyzeInstructions(method, method.Body.Instructions, methodSignals);
 
