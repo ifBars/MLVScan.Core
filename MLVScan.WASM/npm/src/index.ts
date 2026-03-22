@@ -233,8 +233,7 @@ export async function scanAssembly(
 }
 
 /**
- * Scans an assembly with an explicit scan configuration (including deep analysis options).
- * Use this for opt-in deep scans while keeping quick scan defaults for normal usage.
+ * Scans an assembly with an explicit scan configuration.
  */
 export async function scanAssemblyWithConfig(
   fileBytes: Uint8Array,

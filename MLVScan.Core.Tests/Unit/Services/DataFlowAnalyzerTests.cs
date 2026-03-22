@@ -659,7 +659,7 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeCrossMethodFlows_WithMaxDepthLessThan3_DoesNotRunDeepAnalysis()
+    public void AnalyzeCrossMethodFlows_WithMaxDepthLessThan3_DoesNotRunExpandedCrossMethodTraversal()
     {
         // Arrange
         var rules = RuleFactory.CreateDefaultRules();

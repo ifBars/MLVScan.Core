@@ -1,28 +1,9 @@
-using MLVScan.Tools.SchemaGen;
+namespace MLVScan.Tools.SchemaGen;
 
-var verifyOnly = args.Any(static argument => string.Equals(argument, "--verify", StringComparison.Ordinal));
-var repositoryRootArgument = GetRepositoryRootArgument(args);
-var repositoryRoot = repositoryRootArgument ?? SchemaArtifactsGenerator.FindRepositoryRoot(AppContext.BaseDirectory);
-
-if (verifyOnly)
+public static class Program
 {
-    SchemaArtifactsGenerator.VerifyArtifacts(repositoryRoot);
-    Console.WriteLine("Schema artifacts are up to date.");
-    return;
-}
-
-SchemaArtifactsGenerator.WriteArtifacts(repositoryRoot);
-Console.WriteLine($"Generated schema artifacts in '{repositoryRoot}'.");
-
-static string? GetRepositoryRootArgument(IReadOnlyList<string> arguments)
-{
-    for (var index = 0; index < arguments.Count - 1; index++)
+    public static int Main(string[] args)
     {
-        if (string.Equals(arguments[index], "--repo-root", StringComparison.Ordinal))
-        {
-            return Path.GetFullPath(arguments[index + 1]);
-        }
+        return SchemaGeneratorCli.Run(args, Console.Out, AppContext.BaseDirectory);
     }
-
-    return null;
 }

@@ -66,9 +66,5 @@ namespace MLVScan.Models
         /// </summary>
         public bool DeveloperMode { get; set; } = false;
 
-        /// <summary>
-        /// Configuration for the optional deep behavior pipeline.
-        /// </summary>
-        public DeepBehaviorAnalysisConfig DeepAnalysis { get; set; } = new DeepBehaviorAnalysisConfig();
     }
 }

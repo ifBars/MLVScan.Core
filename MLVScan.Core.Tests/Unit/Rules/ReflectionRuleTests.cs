@@ -64,21 +64,21 @@ public class ReflectionRuleTests
     [Fact]
     public void AnalyzeInstructions_NoMethodBody_ReturnsEmpty()
     {
-        var assembly = TestAssemblyBuilder.Create()
-            .AddType("TestType")
-                .AddMethod("TestMethod")
-                .EndMethodNoRet()
-            .EndType()
-            .Build();
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("ReflectionRuleTests", new Version(1, 0, 0, 0)),
+            "ReflectionRuleTests",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "ReflectionType", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
 
-        var type = assembly.MainModule.Types.First(t => t.Name == "TestType");
-        var method = type.Methods.First();
-        method.Body = null;
+        var method = new MethodDefinition("Run", MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void);
+        type.Methods.Add(method);
 
         var signals = new MethodSignals();
         signals.MarkRuleTriggered("OtherRule");
 
-        var findings = _rule.AnalyzeInstructions(method, method.Body!.Instructions, signals);
+        var findings = _rule.AnalyzeInstructions(method, new Mono.Collections.Generic.Collection<Instruction>(), signals);
 
         findings.Should().BeEmpty();
     }

@@ -50,7 +50,7 @@ QUARANTINE/
 TestLogs/
 run-false-positive-tests.bat
 run-quarantine-tests.bat
-
+run-coverage.bat
 bump-version.bat
 bump-version.ps1
 

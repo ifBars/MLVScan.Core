@@ -81,16 +81,12 @@ const result = await scanAssembly(bytes, 'MyMod.dll')
 
 ### `scanAssemblyWithConfig(fileBytes, fileName, config)`
 
-Scans with explicit options for deeper analysis (call chains, data flows, developer guidance).
+Scans with explicit options for call chains, data flows, and developer guidance.
 
 ```ts
 const result = await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
   developerMode: true,
-  enableCrossMethodAnalysis: true,
-  deepAnalysis: {
-    enableDeepAnalysis: true,
-    enableNetworkToExecutionCorrelation: true,
-  }
+  enableCrossMethodAnalysis: true
 })
 ```
 
