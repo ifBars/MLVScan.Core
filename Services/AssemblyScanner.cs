@@ -310,7 +310,7 @@ namespace MLVScan.Services
 
         internal static string CreateAssemblyTelemetryId(string assemblyPath)
         {
-            return Path.GetFileName(assemblyPath);
+            return GetPathLeaf(assemblyPath);
         }
 
         internal static string CreateStreamTelemetryId(string? virtualPath)
@@ -320,12 +320,40 @@ namespace MLVScan.Services
                 return "<stream>";
             }
 
-            if (Path.IsPathRooted(virtualPath))
+            if (IsAbsoluteLikePath(virtualPath))
             {
-                return Path.GetFileName(virtualPath);
+                return GetPathLeaf(virtualPath);
             }
 
             return virtualPath;
+        }
+
+        private static bool IsAbsoluteLikePath(string path)
+        {
+            if (Path.IsPathRooted(path))
+            {
+                return true;
+            }
+
+            if (path.Length >= 3 &&
+                char.IsLetter(path[0]) &&
+                path[1] == ':' &&
+                (path[2] == Path.DirectorySeparatorChar ||
+                 path[2] == Path.AltDirectorySeparatorChar ||
+                 path[2] == '\\' ||
+                 path[2] == '/'))
+            {
+                return true;
+            }
+
+            return path.StartsWith(@"\\", StringComparison.Ordinal) ||
+                   path.StartsWith("//", StringComparison.Ordinal);
+        }
+
+        private static string GetPathLeaf(string path)
+        {
+            int separatorIndex = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+            return separatorIndex >= 0 ? path[(separatorIndex + 1)..] : path;
         }
 
         internal ScanProfileSnapshot? GetLastProfileSnapshot()
