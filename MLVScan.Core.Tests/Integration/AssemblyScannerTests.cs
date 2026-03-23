@@ -272,4 +272,29 @@ public class AssemblyScannerTests
 
         findings.Count.Should().BeGreaterThanOrEqualTo(2);
     }
+
+    [Fact]
+    public void CreateAssemblyTelemetryId_StripsAbsolutePath()
+    {
+        var assemblyPath = Path.Combine(Path.GetTempPath(), "MLVScan.Core.Tests", "Example.dll");
+        var assemblyId = AssemblyScanner.CreateAssemblyTelemetryId(assemblyPath);
+
+        assemblyId.Should().Be("Example.dll");
+    }
+
+    [Fact]
+    public void CreateStreamTelemetryId_PreservesRelativeVirtualPath()
+    {
+        var assemblyId = AssemblyScanner.CreateStreamTelemetryId(@"corpus\Example.dll");
+
+        assemblyId.Should().Be(@"corpus\Example.dll");
+    }
+
+    [Fact]
+    public void CreateStreamTelemetryId_StripsAbsoluteVirtualPath()
+    {
+        var assemblyId = AssemblyScanner.CreateStreamTelemetryId(@"C:\Users\ghost\Desktop\sample\Example.dll");
+
+        assemblyId.Should().Be("Example.dll");
+    }
 }

@@ -1,11 +1,15 @@
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services.Diagnostics;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Scans a Cecil type definition and coordinates method, nested-type, and type-level signal processing.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class TypeScanner
     {
@@ -34,11 +38,31 @@ namespace MLVScan.Services
         private readonly PropertyEventScanner _propertyEventScanner;
         private readonly IEnumerable<IScanRule> _rules;
         private readonly ScanConfig _config;
+        private readonly ScanTelemetryHub _telemetry;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TypeScanner"/> class.
+        /// </summary>
+        /// <param name="methodScanner">Scans methods declared on the type.</param>
+        /// <param name="signalTracker">Tracks type-level signals across methods.</param>
+        /// <param name="reflectionDetector">Processes deferred reflection findings.</param>
+        /// <param name="snippetBuilder">Builds snippets for emitted findings.</param>
+        /// <param name="propertyEventScanner">Provides accessor context annotations.</param>
+        /// <param name="rules">The rule set available to the type scanner.</param>
+        /// <param name="config">Controls type-scanner behavior.</param>
         public TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker,
             ReflectionDetector reflectionDetector,
             CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules,
             ScanConfig config)
+            : this(methodScanner, signalTracker, reflectionDetector, snippetBuilder, propertyEventScanner, rules,
+                config, new ScanTelemetryHub())
+        {
+        }
+
+        internal TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker,
+            ReflectionDetector reflectionDetector,
+            CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules,
+            ScanConfig config, ScanTelemetryHub telemetry)
         {
             _methodScanner = methodScanner ?? throw new ArgumentNullException(nameof(methodScanner));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
@@ -48,20 +72,36 @@ namespace MLVScan.Services
                 propertyEventScanner ?? throw new ArgumentNullException(nameof(propertyEventScanner));
             _rules = rules ?? throw new ArgumentNullException(nameof(rules));
             _config = config ?? new ScanConfig();
+            _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         }
 
+        /// <summary>
+        /// Scans a type and its nested types for suspicious behavior.
+        /// </summary>
+        /// <param name="type">The type to scan.</param>
+        /// <returns>The findings produced for the type hierarchy.</returns>
         public IEnumerable<ScanFinding> ScanType(TypeDefinition type)
         {
             var findings = new List<ScanFinding>();
+            var typeStart = _telemetry.StartTimestamp();
+            var typeMethodCount = type.Methods.Count;
+            var nestedTypeCount = type.NestedTypes.Count;
+            var pendingReflectionCount = 0;
+            string typeFullName = type.FullName;
+            bool typeSignalsInitialized = false;
+            _telemetry.IncrementCounter("TypeScanner.TypesScanned");
+            _telemetry.IncrementCounter("TypeScanner.MethodsDiscovered", typeMethodCount);
+            _telemetry.IncrementCounter("TypeScanner.NestedTypesDiscovered", nestedTypeCount);
 
             try
             {
-                string typeFullName = type.FullName;
+                var methodContexts = _propertyEventScanner.BuildAccessorContexts(type);
 
                 // Initialize type-level signal tracking for this type
                 if (_config.EnableMultiSignalDetection)
                 {
                     _signalTracker.GetOrCreateTypeSignals(typeFullName);
+                    typeSignalsInitialized = true;
                 }
 
                 // Queue of pending reflection findings that need type-level signals to be confirmed
@@ -69,30 +109,37 @@ namespace MLVScan.Services
                     new List<(MethodDefinition method, Instruction instruction, int index,
                         Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>();
 
-                // Scan methods in this type
-                foreach (var method in type.Methods)
+                try
                 {
-                    var methodResult = _methodScanner.ScanMethod(method, typeFullName);
-                    findings.AddRange(methodResult.Findings);
-                    pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
+                    // Scan methods in this type
+                    foreach (var method in type.Methods)
+                    {
+                        var methodResult = _methodScanner.ScanMethod(method, typeFullName);
+                        AnnotateFindings(methodResult.Findings, method, methodContexts);
+                        findings.AddRange(methodResult.Findings);
+                        pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
+                    }
+
+                    pendingReflectionCount = pendingReflectionFindings.Count;
+                    _telemetry.IncrementCounter("TypeScanner.PendingReflectionQueued", pendingReflectionCount);
+
+                    // After scanning all methods, check pending reflection findings with type-level signals
+                    if (_config.EnableMultiSignalDetection)
+                    {
+                        var pendingReflectionStart = _telemetry.StartTimestamp();
+                        ProcessPendingReflectionFindings(pendingReflectionFindings, typeFullName, findings,
+                            methodContexts);
+                        _telemetry.AddPhaseElapsed("TypeScanner.ProcessPendingReflectionFindings",
+                            pendingReflectionStart);
+                    }
                 }
-
-                // Scan property accessors
-                var propertyFindings = _propertyEventScanner.ScanProperties(type, typeFullName);
-                findings.AddRange(propertyFindings);
-
-                // Scan event handlers
-                var eventFindings = _propertyEventScanner.ScanEvents(type, typeFullName);
-                findings.AddRange(eventFindings);
-
-                // After scanning all methods, check pending reflection findings with type-level signals
-                if (_config.EnableMultiSignalDetection)
+                finally
                 {
-                    ProcessPendingReflectionFindings(pendingReflectionFindings, typeFullName, findings);
+                    if (typeSignalsInitialized)
+                    {
+                        _signalTracker.ClearTypeSignals(typeFullName);
+                    }
                 }
-
-                // Clear type signals after processing
-                _signalTracker.ClearTypeSignals(typeFullName);
 
                 // Recursively scan nested types
                 foreach (var nestedType in type.NestedTypes)
@@ -104,6 +151,17 @@ namespace MLVScan.Services
             {
                 // Skip type if it can't be properly analyzed
             }
+            finally
+            {
+                _telemetry.AddPhaseElapsed("TypeScanner.ScanType", typeStart);
+                _telemetry.RecordTypeSample(
+                    type.FullName,
+                    typeStart,
+                    typeMethodCount,
+                    nestedTypeCount,
+                    findings.Count,
+                    pendingReflectionCount);
+            }
 
             return findings;
         }
@@ -112,7 +170,9 @@ namespace MLVScan.Services
             List<(MethodDefinition method, Instruction instruction, int index,
                     Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>
                 pendingReflectionFindings,
-            string typeFullName, List<ScanFinding> findings)
+            string typeFullName,
+            List<ScanFinding> findings,
+            IReadOnlyDictionary<MethodDefinition, string> methodContexts)
         {
             if (pendingReflectionFindings.Count == 0)
                 return;
@@ -131,6 +191,7 @@ namespace MLVScan.Services
             if (!hasTypeLevelTriggeredRules)
                 return;
 
+            var reflectionFindingsBefore = findings.Count;
             // Process each pending reflection finding
             foreach (var (method, instruction, index, instructions, methodSignals) in pendingReflectionFindings)
             {
@@ -141,6 +202,11 @@ namespace MLVScan.Services
                     reflectionRule.Description + " (combined with other suspicious patterns detected in this type)",
                     reflectionRule.Severity,
                     snippet) { RuleId = reflectionRule.RuleId, DeveloperGuidance = reflectionRule.DeveloperGuidance };
+                if (methodContexts.TryGetValue(method, out var context))
+                {
+                    finding.Description += $" ({context})";
+                }
+
                 findings.Add(finding);
                 // Mark rule as triggered
                 if (methodSignals != null)
@@ -148,6 +214,9 @@ namespace MLVScan.Services
                     _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, reflectionRule.RuleId);
                 }
             }
+
+            _telemetry.IncrementCounter("TypeScanner.PendingReflectionFindingsConfirmed",
+                findings.Count - reflectionFindingsBefore);
         }
 
         private static bool HasStrongReflectionCompanion(MethodSignals typeSignal, string reflectionRuleId)
@@ -162,6 +231,21 @@ namespace MLVScan.Services
             }
 
             return false;
+        }
+
+        private static void AnnotateFindings(List<ScanFinding> findings, MethodDefinition method,
+            IReadOnlyDictionary<MethodDefinition, string> methodContexts)
+        {
+            if (!methodContexts.TryGetValue(method, out var context))
+                return;
+
+            foreach (var finding in findings)
+            {
+                if (!finding.Description.Contains(context, StringComparison.Ordinal))
+                {
+                    finding.Description += $" ({context})";
+                }
+            }
         }
     }
 }

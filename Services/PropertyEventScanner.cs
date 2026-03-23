@@ -20,6 +20,42 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
         }
 
+        public IReadOnlyDictionary<MethodDefinition, string> BuildAccessorContexts(TypeDefinition type)
+        {
+            var contexts = new Dictionary<MethodDefinition, string>();
+
+            if (!_config.AnalyzePropertyAccessors)
+                return contexts;
+
+            try
+            {
+                if (type.HasProperties)
+                {
+                    foreach (var property in type.Properties)
+                    {
+                        AddContext(contexts, property.GetMethod, $"found in property getter: {property.Name}");
+                        AddContext(contexts, property.SetMethod, $"found in property setter: {property.Name}");
+                    }
+                }
+
+                if (type.HasEvents)
+                {
+                    foreach (var evt in type.Events)
+                    {
+                        AddContext(contexts, evt.AddMethod, $"found in event add: {evt.Name}");
+                        AddContext(contexts, evt.RemoveMethod, $"found in event remove: {evt.Name}");
+                        AddContext(contexts, evt.InvokeMethod, $"found in event invoke: {evt.Name}");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Skip if accessor context discovery fails
+            }
+
+            return contexts;
+        }
+
         public IEnumerable<ScanFinding> ScanProperties(TypeDefinition type, string typeFullName)
         {
             var findings = new List<ScanFinding>();
@@ -169,6 +205,25 @@ namespace MLVScan.Services
             }
 
             return findings;
+        }
+
+        private static void AddContext(Dictionary<MethodDefinition, string> contexts, MethodDefinition? method,
+            string context)
+        {
+            if (method?.HasBody != true)
+                return;
+
+            if (contexts.TryGetValue(method, out var existingContext))
+            {
+                if (!existingContext.Contains(context, StringComparison.Ordinal))
+                {
+                    contexts[method] = $"{existingContext}; {context}";
+                }
+
+                return;
+            }
+
+            contexts[method] = context;
         }
     }
 }

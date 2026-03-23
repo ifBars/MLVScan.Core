@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <EnableMlvScanProfiling>false</EnableMlvScanProfiling>
     
     <!-- NuGet Package Metadata -->
     <PackageId>MLVScan.Core</PackageId>
@@ -21,6 +22,10 @@
     <!-- Assembly Info -->
     <AssemblyName>MLVScan.Core</AssemblyName>
     <RootNamespace>MLVScan</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(EnableMlvScanProfiling)' == 'true'">
+    <DefineConstants>$(DefineConstants);MLVSCAN_PROFILING</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
