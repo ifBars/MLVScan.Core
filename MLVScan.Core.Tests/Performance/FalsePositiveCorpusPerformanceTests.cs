@@ -41,16 +41,16 @@ public class FalsePositiveCorpusPerformanceTests
 
         for (var run = 0; run < warmupRuns; run++)
         {
-            RunCorpus(assemblyPaths, captureProfiles: false);
+            RunCorpus(falsePositivesFolder!, assemblyPaths, captureProfiles: false);
         }
 
         var measurement = PerfMeasurement.Measure("FalsePositiveCorpus", 0, measuredRuns, () =>
         {
-            var runResult = RunCorpus(assemblyPaths, captureProfiles: false);
+            var runResult = RunCorpus(falsePositivesFolder!, assemblyPaths, captureProfiles: false);
             findingCounts.Add(runResult.TotalFindings);
         });
 
-        var baselineRun = RunCorpus(assemblyPaths, captureProfiles: true);
+        var baselineRun = RunCorpus(falsePositivesFolder!, assemblyPaths, captureProfiles: true);
 
         findingCounts.Should().OnlyContain(count => count == findingCounts[0],
             "benchmark runs should produce a stable finding count across the same corpus");
@@ -85,7 +85,8 @@ public class FalsePositiveCorpusPerformanceTests
         }
     }
 
-    private static CorpusRunResult RunCorpus(IReadOnlyList<string> assemblyPaths, bool captureProfiles)
+    private static CorpusRunResult RunCorpus(string falsePositivesFolder, IReadOnlyList<string> assemblyPaths,
+        bool captureProfiles)
     {
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         var stopwatch = Stopwatch.StartNew();
@@ -98,9 +99,10 @@ public class FalsePositiveCorpusPerformanceTests
             var findings = scanner.Scan(assemblyPath).ToList();
             assemblyStopwatch.Stop();
 
+            var assemblyId = Path.GetRelativePath(falsePositivesFolder, assemblyPath);
             totalFindings += findings.Count;
             perAssembly.Add(new AssemblyRunResult(
-                assemblyPath,
+                assemblyId,
                 assemblyStopwatch.ElapsedMilliseconds,
                 findings.Count,
                 captureProfiles ? scanner.GetLastProfileSnapshot() : null));
@@ -117,9 +119,7 @@ public class FalsePositiveCorpusPerformanceTests
             return null;
         }
 
-        var repositoryRoot = FindRepositoryRoot(falsePositivesFolder);
-        var outputDirectory = Path.Combine(repositoryRoot, "MLVScan.Core", "MLVScan.Core.Tests", "TestResults",
-            "Performance");
+        var outputDirectory = GetPerformanceArtifactDirectory();
         Directory.CreateDirectory(outputDirectory);
 
         var outputPath = Path.Combine(outputDirectory,
@@ -128,7 +128,8 @@ public class FalsePositiveCorpusPerformanceTests
         var payload = new CorpusProfileArtifact
         {
             GeneratedUtc = DateTime.UtcNow,
-            CorpusRoot = falsePositivesFolder,
+            CorpusRoot = Path.GetFileName(falsePositivesFolder.TrimEnd(Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar)),
             AssemblyCount = run.Assemblies.Count,
             TotalDurationMs = run.TotalDurationMs,
             TotalFindings = run.TotalFindings,
@@ -159,20 +160,9 @@ public class FalsePositiveCorpusPerformanceTests
             .OrderByDescending(static phase => phase.TotalMs);
     }
 
-    private static string FindRepositoryRoot(string falsePositivesFolder)
+    private static string GetPerformanceArtifactDirectory()
     {
-        var current = Directory.GetParent(falsePositivesFolder)?.FullName;
-        while (current != null)
-        {
-            if (File.Exists(Path.Combine(current, "AGENTS.md")))
-            {
-                return current;
-            }
-
-            current = Directory.GetParent(current)?.FullName;
-        }
-
-        throw new DirectoryNotFoundException("Repository root not found for performance artifact output.");
+        return Path.Combine(Path.GetTempPath(), "MLVScanTests", "TestResults", "Performance");
     }
 
     private static double TicksToMilliseconds(long ticks)

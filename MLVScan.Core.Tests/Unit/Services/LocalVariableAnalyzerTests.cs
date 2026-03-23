@@ -70,6 +70,22 @@ public class LocalVariableAnalyzerTests
         methodSignals.HasTriggeredRuleOtherThan("DifferentRule").Should().BeTrue();
     }
 
+    [Fact]
+    public void AnalyzeLocalVariables_WithSuspiciousProcessVariable_PropagatesTypeLevelSignal()
+    {
+        var config = new ScanConfig { AnalyzeLocalVariables = true, EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var analyzer = new LocalVariableAnalyzer(new IScanRule[] { new SuspiciousLocalVariableRule() }, tracker, config);
+        var method = CreateMethodWithLocal("System.Diagnostics.Process");
+        var methodSignals = new MethodSignals();
+        var typeSignals = tracker.GetOrCreateTypeSignals(method.DeclaringType!.FullName);
+
+        analyzer.AnalyzeLocalVariables(method, method.Body.Variables, methodSignals).ToList();
+
+        typeSignals.Should().NotBeNull();
+        typeSignals!.HasSuspiciousLocalVariables.Should().BeTrue();
+    }
+
     private static MethodDefinition CreateMethodWithLocal(string localVariableTypeName)
     {
         var assembly = AssemblyDefinition.CreateAssembly(

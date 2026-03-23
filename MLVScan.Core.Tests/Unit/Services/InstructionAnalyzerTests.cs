@@ -1,5 +1,6 @@
 using FluentAssertions;
 using MLVScan.Models;
+using MLVScan.Models.Rules;
 using MLVScan.Services;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -62,7 +63,7 @@ public class InstructionAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeInstructions_SkipsDirectFindingWhenSameRuleAlreadyProducedContextualFinding()
+    public void AnalyzeInstructions_PreservesDirectFindingWhenSameRuleAlsoProducesContextualFinding()
     {
         var config = new ScanConfig();
         var rule = new CountingContextualAndDirectRule(matchMethodName: "InvokePayload", emitContextualFinding: true);
@@ -72,8 +73,8 @@ public class InstructionAnalyzerTests
         var result = analyzer.AnalyzeInstructions(method, method.Body.Instructions, new MethodSignals(),
             method.DeclaringType!.FullName);
 
-        result.Findings.Should().ContainSingle();
-        result.Findings[0].Description.Should().Be("contextual");
+        result.Findings.Should().HaveCount(2);
+        result.Findings.Select(f => f.Description).Should().Contain(new[] { "contextual", "Matched InvokePayload" });
         rule.IsSuspiciousCallCount.Should().Be(1);
         rule.ContextualCallCount.Should().Be(1);
     }
@@ -93,6 +94,40 @@ public class InstructionAnalyzerTests
         result.Findings[0].Description.Should().Be("Matched InvokePayload");
         rule.IsSuspiciousCallCount.Should().Be(1);
         rule.ContextualCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_WithNullMethodSignals_ProvidesNonNullSignalBagToRuleCallbacks()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = false };
+        var rule = new NullSafeContextualRule();
+        var analyzer = CreateAnalyzer(config, new IScanRule[] { rule });
+        var method = CreateMethodCalling("InvokePayload");
+
+        var result = analyzer.AnalyzeInstructions(method, method.Body.Instructions, null, method.DeclaringType!.FullName);
+
+        result.Findings.Should().ContainSingle();
+        rule.ContextualReceivedNull.Should().BeFalse();
+        rule.SuppressReceivedNull.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnalyzeInstructions_WithoutReflectionRule_StillRunsReflectionBypassDetector()
+    {
+        var config = new ScanConfig();
+        var analyzer = CreateAnalyzer(config, new IScanRule[] { new ProcessStartRule() });
+        var method = CreateReflectionInvokeMethodWithSuspiciousStrings();
+        var methodSignals = new MethodSignals
+        {
+            HasProcessLikeCall = true
+        };
+
+        var result = analyzer.AnalyzeInstructions(method, method.Body.Instructions, methodSignals,
+            method.DeclaringType!.FullName);
+
+        result.Findings.Should().ContainSingle();
+        result.Findings[0].Description.Should().Contain("reflection bypass");
+        result.Findings[0].RuleId.Should().Be("ProcessStartRule");
     }
 
     private static InstructionAnalyzer CreateAnalyzer(ScanConfig config, IEnumerable<IScanRule> rules)
@@ -122,6 +157,30 @@ public class InstructionAnalyzerTests
         var calledType = new TypeReference("Test", "Target", module, module.TypeSystem.CoreLibrary);
         var calledMethod = new MethodReference(calledMethodName, module.TypeSystem.Void, calledType);
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, calledMethod));
+        method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(method);
+
+        return method;
+    }
+
+    private static MethodDefinition CreateReflectionInvokeMethodWithSuspiciousStrings()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("InstructionAnalyzerReflectionTest", new Version(1, 0, 0, 0)),
+            "InstructionAnalyzerReflectionTest",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "ReflectionType", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var method = new MethodDefinition("Run", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        method.Body = new MethodBody(method);
+        var methodInfoType = new TypeReference("System.Reflection", "MethodInfo", module, module.TypeSystem.CoreLibrary);
+        var invokeMethod = new MethodReference("Invoke", module.TypeSystem.Object, methodInfoType);
+        method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ldstr, "Start"));
+        method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, invokeMethod));
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
         type.Methods.Add(method);
 
@@ -201,6 +260,35 @@ public class InstructionAnalyzerTests
             Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex)
         {
             return $"Matched {method.Name}";
+        }
+    }
+
+    private sealed class NullSafeContextualRule : IScanRule
+    {
+        public bool ContextualReceivedNull { get; private set; }
+        public bool SuppressReceivedNull { get; private set; }
+
+        public string Description => "Null-safe contextual rule";
+        public Severity Severity => Severity.Medium;
+        public string RuleId => "NullSafeContextualRule";
+        public bool RequiresCompanionFinding => false;
+
+        public bool IsSuspicious(MethodReference method) => method.Name == "InvokePayload";
+
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals)
+        {
+            ContextualReceivedNull = methodSignals == null;
+            return Enumerable.Empty<ScanFinding>();
+        }
+
+        public bool ShouldSuppressFinding(MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex, MethodSignals methodSignals,
+            MethodSignals? typeSignals = null)
+        {
+            SuppressReceivedNull = methodSignals == null;
+            return false;
         }
     }
 }

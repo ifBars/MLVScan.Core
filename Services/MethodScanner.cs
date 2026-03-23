@@ -9,6 +9,9 @@ using System.Reflection;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Coordinates per-method rule execution across local-variable, exception-handler, string, and instruction passes.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class MethodScanner
     {
@@ -22,6 +25,16 @@ namespace MLVScan.Services
         private readonly ScanConfig _config;
         private readonly ScanTelemetryHub _telemetry;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MethodScanner"/> class.
+        /// </summary>
+        /// <param name="rules">The rules that participate in method scanning.</param>
+        /// <param name="signalTracker">Tracks method and type-level signals.</param>
+        /// <param name="instructionAnalyzer">Performs instruction-level contextual analysis.</param>
+        /// <param name="snippetBuilder">Builds snippets for emitted findings.</param>
+        /// <param name="localVariableAnalyzer">Performs the early local-variable signal pass.</param>
+        /// <param name="exceptionHandlerAnalyzer">Analyzes exception handlers separately from the main pass.</param>
+        /// <param name="config">Controls method-scanner behavior.</param>
         public MethodScanner(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
             InstructionAnalyzer instructionAnalyzer,
             CodeSnippetBuilder snippetBuilder, LocalVariableAnalyzer localVariableAnalyzer,
@@ -55,11 +68,20 @@ namespace MLVScan.Services
             _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         }
 
+        /// <summary>
+        /// Represents the aggregate result of scanning a single method.
+        /// </summary>
         [EditorBrowsable(EditorBrowsableState.Never)]
         public class MethodScanResult
         {
+            /// <summary>
+            /// Gets or sets the findings produced while scanning the method.
+            /// </summary>
             public List<ScanFinding> Findings { get; set; } = new List<ScanFinding>();
 
+            /// <summary>
+            /// Gets or sets reflection findings that must be revisited once type-level signals are known.
+            /// </summary>
             public List<(MethodDefinition method, Instruction instruction, int index,
                     Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>
                 PendingReflectionFindings { get; set; } =
@@ -67,6 +89,12 @@ namespace MLVScan.Services
                     MethodSignals?)>();
         }
 
+        /// <summary>
+        /// Scans a single method across all method-level analysis passes.
+        /// </summary>
+        /// <param name="method">The method to scan.</param>
+        /// <param name="typeFullName">The declaring type's full name for cross-method signal correlation.</param>
+        /// <returns>The findings and deferred reflection work collected for the method.</returns>
         public MethodScanResult ScanMethod(MethodDefinition method, string typeFullName)
         {
             var result = new MethodScanResult();
@@ -93,9 +121,11 @@ namespace MLVScan.Services
                 _telemetry.IncrementCounter("MethodScanner.ExceptionHandlersVisited", exceptionHandlerCount);
 
                 var instructions = method.Body.Instructions;
+                var processedLocalRuleIds = new HashSet<string>(StringComparer.Ordinal);
 
                 // Initialize signal tracking for this method
                 var methodSignals = _signalTracker.CreateMethodSignals();
+                var effectiveMethodSignals = methodSignals ?? new MethodSignals();
 
                 // Analyze local variables if present
                 if (method.Body.HasVariables)
@@ -105,6 +135,11 @@ namespace MLVScan.Services
                         _localVariableAnalyzer.AnalyzeLocalVariables(method, method.Body.Variables, methodSignals);
                     _telemetry.AddPhaseElapsed("MethodScanner.AnalyzeLocalVariables", localVariableStart);
                     result.Findings.AddRange(variableFindings);
+                    if (_config.AnalyzeLocalVariables)
+                    {
+                        processedLocalRuleIds = new HashSet<string>(_localVariableAnalyzer.GetProcessedRuleIds(),
+                            StringComparer.Ordinal);
+                    }
                 }
 
                 // Analyze exception handlers if present
@@ -121,8 +156,13 @@ namespace MLVScan.Services
                 var ruleInstructionPassStart = _telemetry.StartTimestamp();
                 foreach (var rule in _rules)
                 {
+                    if (processedLocalRuleIds.Contains(rule.RuleId))
+                    {
+                        continue;
+                    }
+
                     _telemetry.IncrementCounter("MethodScanner.RuleInstructionPasses");
-                    var ruleFindings = rule.AnalyzeInstructions(method, instructions, methodSignals);
+                    var ruleFindings = rule.AnalyzeInstructions(method, instructions, effectiveMethodSignals);
                     foreach (var finding in ruleFindings)
                     {
                         // If rule requires companion finding, check if other rules have been triggered

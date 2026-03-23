@@ -7,6 +7,9 @@ using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Scans a Cecil type definition and coordinates method, nested-type, and type-level signal processing.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class TypeScanner
     {
@@ -37,6 +40,16 @@ namespace MLVScan.Services
         private readonly ScanConfig _config;
         private readonly ScanTelemetryHub _telemetry;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TypeScanner"/> class.
+        /// </summary>
+        /// <param name="methodScanner">Scans methods declared on the type.</param>
+        /// <param name="signalTracker">Tracks type-level signals across methods.</param>
+        /// <param name="reflectionDetector">Processes deferred reflection findings.</param>
+        /// <param name="snippetBuilder">Builds snippets for emitted findings.</param>
+        /// <param name="propertyEventScanner">Provides accessor context annotations.</param>
+        /// <param name="rules">The rule set available to the type scanner.</param>
+        /// <param name="config">Controls type-scanner behavior.</param>
         public TypeScanner(MethodScanner methodScanner, SignalTracker signalTracker,
             ReflectionDetector reflectionDetector,
             CodeSnippetBuilder snippetBuilder, PropertyEventScanner propertyEventScanner, IEnumerable<IScanRule> rules,
@@ -62,6 +75,11 @@ namespace MLVScan.Services
             _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         }
 
+        /// <summary>
+        /// Scans a type and its nested types for suspicious behavior.
+        /// </summary>
+        /// <param name="type">The type to scan.</param>
+        /// <returns>The findings produced for the type hierarchy.</returns>
         public IEnumerable<ScanFinding> ScanType(TypeDefinition type)
         {
             var findings = new List<ScanFinding>();
@@ -69,19 +87,21 @@ namespace MLVScan.Services
             var typeMethodCount = type.Methods.Count;
             var nestedTypeCount = type.NestedTypes.Count;
             var pendingReflectionCount = 0;
+            string typeFullName = type.FullName;
+            bool typeSignalsInitialized = false;
             _telemetry.IncrementCounter("TypeScanner.TypesScanned");
             _telemetry.IncrementCounter("TypeScanner.MethodsDiscovered", typeMethodCount);
             _telemetry.IncrementCounter("TypeScanner.NestedTypesDiscovered", nestedTypeCount);
 
             try
             {
-                string typeFullName = type.FullName;
                 var methodContexts = _propertyEventScanner.BuildAccessorContexts(type);
 
                 // Initialize type-level signal tracking for this type
                 if (_config.EnableMultiSignalDetection)
                 {
                     _signalTracker.GetOrCreateTypeSignals(typeFullName);
+                    typeSignalsInitialized = true;
                 }
 
                 // Queue of pending reflection findings that need type-level signals to be confirmed
@@ -89,29 +109,37 @@ namespace MLVScan.Services
                     new List<(MethodDefinition method, Instruction instruction, int index,
                         Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)>();
 
-                // Scan methods in this type
-                foreach (var method in type.Methods)
+                try
                 {
-                    var methodResult = _methodScanner.ScanMethod(method, typeFullName);
-                    AnnotateFindings(methodResult.Findings, method, methodContexts);
-                    findings.AddRange(methodResult.Findings);
-                    pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
+                    // Scan methods in this type
+                    foreach (var method in type.Methods)
+                    {
+                        var methodResult = _methodScanner.ScanMethod(method, typeFullName);
+                        AnnotateFindings(methodResult.Findings, method, methodContexts);
+                        findings.AddRange(methodResult.Findings);
+                        pendingReflectionFindings.AddRange(methodResult.PendingReflectionFindings);
+                    }
+
+                    pendingReflectionCount = pendingReflectionFindings.Count;
+                    _telemetry.IncrementCounter("TypeScanner.PendingReflectionQueued", pendingReflectionCount);
+
+                    // After scanning all methods, check pending reflection findings with type-level signals
+                    if (_config.EnableMultiSignalDetection)
+                    {
+                        var pendingReflectionStart = _telemetry.StartTimestamp();
+                        ProcessPendingReflectionFindings(pendingReflectionFindings, typeFullName, findings,
+                            methodContexts);
+                        _telemetry.AddPhaseElapsed("TypeScanner.ProcessPendingReflectionFindings",
+                            pendingReflectionStart);
+                    }
                 }
-
-                pendingReflectionCount = pendingReflectionFindings.Count;
-                _telemetry.IncrementCounter("TypeScanner.PendingReflectionQueued", pendingReflectionCount);
-
-                // After scanning all methods, check pending reflection findings with type-level signals
-                if (_config.EnableMultiSignalDetection)
+                finally
                 {
-                    var pendingReflectionStart = _telemetry.StartTimestamp();
-                    ProcessPendingReflectionFindings(pendingReflectionFindings, typeFullName, findings, methodContexts);
-                    _telemetry.AddPhaseElapsed("TypeScanner.ProcessPendingReflectionFindings",
-                        pendingReflectionStart);
+                    if (typeSignalsInitialized)
+                    {
+                        _signalTracker.ClearTypeSignals(typeFullName);
+                    }
                 }
-
-                // Clear type signals after processing
-                _signalTracker.ClearTypeSignals(typeFullName);
 
                 // Recursively scan nested types
                 foreach (var nestedType in type.NestedTypes)

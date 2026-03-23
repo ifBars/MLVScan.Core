@@ -7,17 +7,32 @@ using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Legacy configuration for the data-flow analysis pipeline.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     [Obsolete("Use ScanConfig to control data flow behavior. DataFlowAnalyzerConfig is an internal pipeline detail and will be removed in v2.0.")]
     public class DataFlowAnalyzerConfig
     {
+        /// <summary>
+        /// Gets or sets a value indicating whether inter-procedural flow analysis is enabled.
+        /// </summary>
         public bool EnableCrossMethodAnalysis { get; set; } = true;
 
+        /// <summary>
+        /// Gets or sets the maximum depth explored when following call chains.
+        /// </summary>
         public int MaxCallChainDepth { get; set; } = 5;
 
+        /// <summary>
+        /// Gets or sets a value indicating whether return values should be tracked through the flow graph.
+        /// </summary>
         public bool EnableReturnValueTracking { get; set; } = true;
     }
 
+    /// <summary>
+    /// Builds method and cross-method data-flow chains for suspicious operations.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class DataFlowAnalyzer
     {
@@ -28,12 +43,23 @@ namespace MLVScan.Services
         private readonly ScanTelemetryHub _telemetry;
 
 #pragma warning disable CS0618
+        /// <summary>
+        /// Initializes the analyzer with the default legacy configuration.
+        /// </summary>
+        /// <param name="rules">The scan rules used when translating chains into findings.</param>
+        /// <param name="snippetBuilder">Builds code snippets for emitted findings.</param>
         public DataFlowAnalyzer(IEnumerable<IScanRule> rules, CodeSnippetBuilder snippetBuilder)
             : this(rules, snippetBuilder, new DataFlowAnalyzerConfig(), new ScanTelemetryHub())
         {
         }
 #pragma warning restore CS0618
 
+        /// <summary>
+        /// Initializes the analyzer with an explicit legacy configuration.
+        /// </summary>
+        /// <param name="rules">The scan rules used when translating chains into findings.</param>
+        /// <param name="snippetBuilder">Builds code snippets for emitted findings.</param>
+        /// <param name="config">The legacy data-flow configuration to apply.</param>
         [Obsolete("Use the overloads that rely on ScanConfig-driven behavior. DataFlowAnalyzerConfig is an internal pipeline detail and will be removed in v2.0.")]
         public DataFlowAnalyzer(
             IEnumerable<IScanRule> rules,
@@ -43,6 +69,7 @@ namespace MLVScan.Services
         {
         }
 
+#pragma warning disable CS0618
         internal DataFlowAnalyzer(
             IEnumerable<IScanRule> rules,
             CodeSnippetBuilder snippetBuilder,
@@ -79,16 +106,23 @@ namespace MLVScan.Services
 
             _patternEvaluator = new DataFlowPatternEvaluator();
             _methodAnalyzer = new DataFlowMethodAnalyzer(operationClassifier, _patternEvaluator, nodeFactory);
-#pragma warning disable CS0618
             _crossMethodAnalyzer = new CrossMethodDataFlowAnalyzer(_patternEvaluator, nodeFactory, config);
-#pragma warning restore CS0618
         }
+#pragma warning restore CS0618
 
+        /// <summary>
+        /// Clears any previously collected flow state.
+        /// </summary>
         public void Clear()
         {
             _state.Clear();
         }
 
+        /// <summary>
+        /// Analyzes a single method and records the discovered data-flow chains.
+        /// </summary>
+        /// <param name="method">The method to analyze.</param>
+        /// <returns>The chains discovered within the method body.</returns>
         public List<DataFlowChain> AnalyzeMethod(MethodDefinition method)
         {
             if (method?.Body == null || method.Body.Instructions.Count == 0)
@@ -109,6 +143,9 @@ namespace MLVScan.Services
             return analysis.Chains;
         }
 
+        /// <summary>
+        /// Expands the recorded method flows across call boundaries.
+        /// </summary>
         public void AnalyzeCrossMethodFlows()
         {
             var crossMethodStart = _telemetry.StartTimestamp();
@@ -128,6 +165,10 @@ namespace MLVScan.Services
                 _state.CrossMethodChains.Count(static chain => chain.IsSuspicious));
         }
 
+        /// <summary>
+        /// Materializes findings from the recorded flow chains.
+        /// </summary>
+        /// <returns>The findings emitted from suspicious data-flow patterns.</returns>
         public IEnumerable<ScanFinding> BuildDataFlowFindings()
         {
             var buildFindingsStart = _telemetry.StartTimestamp();
@@ -154,14 +195,26 @@ namespace MLVScan.Services
             return findings;
         }
 
+        /// <summary>
+        /// Gets the number of intra-method chains currently stored.
+        /// </summary>
         public int DataFlowChainCount => _state.MethodDataFlows.Values.Sum(static list => list.Count);
 
+        /// <summary>
+        /// Gets the number of suspicious intra-method chains currently stored.
+        /// </summary>
         public int SuspiciousChainCount => _state.MethodDataFlows.Values
             .SelectMany(static list => list)
             .Count(static chain => chain.IsSuspicious);
 
+        /// <summary>
+        /// Gets the number of cross-method chains currently stored.
+        /// </summary>
         public int CrossMethodChainCount => _state.CrossMethodChains.Count;
 
+        /// <summary>
+        /// Gets the number of suspicious cross-method chains currently stored.
+        /// </summary>
         public int SuspiciousCrossMethodChainCount => _state.CrossMethodChains.Count(static chain => chain.IsSuspicious);
     }
 }

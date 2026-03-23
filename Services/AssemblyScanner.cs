@@ -89,7 +89,8 @@ namespace MLVScan.Services
             if (!File.Exists(assemblyPath))
                 throw new FileNotFoundException("Assembly file not found", assemblyPath);
 
-            _telemetry.BeginAssembly(assemblyPath);
+            var assemblyId = CreateAssemblyTelemetryId(assemblyPath);
+            _telemetry.BeginAssembly(assemblyId);
             _telemetry.IncrementCounter("Assemblies.Scanned");
             var totalStart = _telemetry.StartTimestamp();
             var findings = new List<ScanFinding>();
@@ -163,7 +164,7 @@ namespace MLVScan.Services
             if (assemblyStream.CanSeek)
                 assemblyStream.Position = 0;
 
-            var assemblyId = virtualPath ?? "<stream>";
+            var assemblyId = CreateStreamTelemetryId(virtualPath);
             _telemetry.BeginAssembly(assemblyId);
             _telemetry.IncrementCounter("Assemblies.Scanned");
             var totalStart = _telemetry.StartTimestamp();
@@ -305,6 +306,26 @@ namespace MLVScan.Services
             }
 
             return findings;
+        }
+
+        internal static string CreateAssemblyTelemetryId(string assemblyPath)
+        {
+            return Path.GetFileName(assemblyPath);
+        }
+
+        internal static string CreateStreamTelemetryId(string? virtualPath)
+        {
+            if (string.IsNullOrWhiteSpace(virtualPath))
+            {
+                return "<stream>";
+            }
+
+            if (Path.IsPathRooted(virtualPath))
+            {
+                return Path.GetFileName(virtualPath);
+            }
+
+            return virtualPath;
         }
 
         internal ScanProfileSnapshot? GetLastProfileSnapshot()
