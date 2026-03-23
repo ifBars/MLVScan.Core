@@ -12,7 +12,7 @@ namespace MLVScan
         /// Prefer <see cref="MLVScanVersions.CoreVersion"/>.
         /// </summary>
         [Obsolete("Use MLVScanVersions.CoreVersion instead. Removed in v2.0.")]
-        public const string CoreVersion = "1.3.4";
+        public const string CoreVersion = "1.3.5";
 
         /// <summary>
         /// Gets the full version string with prefix.
