@@ -4,16 +4,37 @@ using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects native P/Invoke usage and ranks imports by risk based on DLL and exported function name.
+    /// </summary>
     public class DllImportRule : IScanRule
     {
         private Severity _severity = Severity.Medium;
         private string _description = "Detected DLL import";
 
+        /// <summary>
+        /// Gets the description for the most recently matched import.
+        /// </summary>
         public string Description => _description;
+
+        /// <summary>
+        /// Gets the severity for the most recently matched import.
+        /// </summary>
         public Severity Severity => _severity;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "DllImportRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Gets guidance for legitimate native interop scenarios.
+        /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
             "Native DLL imports are flagged as high risk. If essential for your mod's functionality, clearly document the purpose and consider using managed alternatives where possible.",
             null,
@@ -150,6 +171,11 @@ namespace MLVScan.Models.Rules
             "getasynckeystate"
         ];
 
+        /// <summary>
+        /// Returns true when the supplied method is a P/Invoke import that this rule considers noteworthy.
+        /// </summary>
+        /// <param name="method">The method reference to inspect.</param>
+        /// <returns><see langword="true"/> when the method is a tracked native import; otherwise <see langword="false"/>.</returns>
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)
@@ -275,6 +301,11 @@ namespace MLVScan.Models.Rules
             return entryPoint.StartsWith("il2cpp_", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Returns true when the supplied export name appears to launch or shell-execute a process.
+        /// </summary>
+        /// <param name="entryPointLower">The normalized export name to inspect.</param>
+        /// <returns><see langword="true"/> when the name contains a native execution entry point.</returns>
         public static bool IsNativeExecutionEntryPoint(string entryPointLower)
         {
             if (string.IsNullOrWhiteSpace(entryPointLower))

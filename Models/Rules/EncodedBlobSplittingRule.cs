@@ -5,15 +5,36 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects encoded blob splitting logic where a string is split on suspicious separators and then
+    /// consumed inside a loop, which is a common pattern in staged payload reconstruction.
+    /// </summary>
     public class EncodedBlobSplittingRule : IScanRule
     {
+        /// <summary>
+        /// Gets the description emitted when the rule finds a structured blob-splitting pattern.
+        /// </summary>
         public string Description =>
             "Detected structured encoded blob splitting pattern (backtick/dash separator in loop).";
 
+        /// <summary>
+        /// Gets the severity assigned to blob splitting patterns.
+        /// </summary>
         public Severity Severity => Severity.High;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "EncodedBlobSplittingRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Returns false because this rule analyzes IL instruction patterns rather than method signatures.
+        /// </summary>
         public bool IsSuspicious(MethodReference method)
         {
             // This rule doesn't check methods directly - it's used by AssemblyScanner
@@ -21,6 +42,13 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        /// <summary>
+        /// Scans a method body for split-then-loop blob reconstruction patterns using suspicious separators.
+        /// </summary>
+        /// <param name="methodDef">The method being analyzed.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="methodSignals">Current method signal state.</param>
+        /// <returns>Findings when a suspicious split-and-loop pattern is detected.</returns>
         public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef,
             Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {

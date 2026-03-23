@@ -3,8 +3,14 @@ using MLVScan.Models.ThreatIntel;
 
 namespace MLVScan.Services.ThreatIntel;
 
+/// <summary>
+/// Built-in catalog of threat families used by the classifier.
+/// </summary>
 internal static class ThreatFamilyCatalog
 {
+    /// <summary>
+    /// Gets the built-in threat families recognized by the classifier.
+    /// </summary>
     public static IReadOnlyList<ThreatFamilyDefinition> Families { get; } =
     [
         new ThreatFamilyDefinition

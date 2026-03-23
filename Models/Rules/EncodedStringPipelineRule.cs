@@ -5,15 +5,36 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects encoded string reconstruction pipelines, including numeric parsing, Unicode variation
+    /// selector decoding, sequence remapping, and char-array rebuilding.
+    /// </summary>
     public class EncodedStringPipelineRule : IScanRule
     {
+        /// <summary>
+        /// Gets the description emitted when the rule finds an encoded string pipeline.
+        /// </summary>
         public string Description =>
             "Detected encoded string to char decoding pipeline (ASCII number or invisible Unicode pattern).";
 
+        /// <summary>
+        /// Gets the severity assigned to encoded-string reconstruction patterns.
+        /// </summary>
         public Severity Severity => Severity.High;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "EncodedStringPipelineRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Returns false because the rule operates on instruction sequences rather than method signatures.
+        /// </summary>
         public bool IsSuspicious(MethodReference method)
         {
             // This rule doesn't check methods directly - it's used by AssemblyScanner
@@ -21,6 +42,13 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        /// <summary>
+        /// Scans a method body for string-to-char reconstruction pipelines and variation-selector payloads.
+        /// </summary>
+        /// <param name="methodDef">The method being analyzed.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="methodSignals">Current method signal state.</param>
+        /// <returns>Findings for the encoded string pipelines detected in the method body.</returns>
         public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition methodDef,
             Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
         {

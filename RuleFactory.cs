@@ -5,15 +5,15 @@ using MLVScan.Models.Rules;
 namespace MLVScan
 {
     /// <summary>
-    /// Factory for creating the default set of scan rules.
-    /// Use this to get a consistent set of rules across all platforms.
+    /// Creates the built-in rule set shipped with <c>MLVScan.Core</c>.
+    /// Consumers that want the standard scanner behavior across CLI, API, WASM, or desktop hosts should start here.
     /// </summary>
     public static class RuleFactory
     {
         /// <summary>
-        /// Creates the default set of scan rules for detecting malicious patterns.
+        /// Creates the default set of rules in the order expected by the core scanning pipeline.
         /// </summary>
-        /// <returns>A read-only list of all default scan rules.</returns>
+        /// <returns>A read-only list containing the built-in rules registered by the library.</returns>
         public static IReadOnlyList<IScanRule> CreateDefaultRules()
         {
             return new List<IScanRule>

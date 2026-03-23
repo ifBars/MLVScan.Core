@@ -3,8 +3,16 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules.Helpers
 {
+    /// <summary>
+    /// Builds obfuscation evidence by combining decode, sink, and context heuristics across IL instructions.
+    /// </summary>
     internal static class ObfuscatedExecutionHeuristics
     {
+        /// <summary>
+        /// Collects the evidence used by <see cref="ObfuscatedReflectiveExecutionRule"/> to score a method body.
+        /// </summary>
+        /// <param name="instructions">The method body instructions to analyze.</param>
+        /// <returns>A populated evidence object with decode, sink, and danger scores.</returns>
         public static ObfuscatedExecutionEvidence CollectEvidence(
             Mono.Collections.Generic.Collection<Instruction> instructions)
         {

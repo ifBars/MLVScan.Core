@@ -3,8 +3,17 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules.Helpers
 {
+    /// <summary>
+    /// Applies literal and call-site heuristics that feed the obfuscated execution scorer.
+    /// </summary>
     internal static class ObfuscatedExecutionPatternMatcher
     {
+        /// <summary>
+        /// Scores a string literal for obfuscation characteristics and suspicious recovered content.
+        /// </summary>
+        /// <param name="literal">The literal to inspect.</param>
+        /// <param name="index">The instruction index where the literal appears.</param>
+        /// <param name="evidence">The evidence bag to update.</param>
         public static void AnalyzeLiteral(string literal, int index, ObfuscatedExecutionEvidence evidence)
         {
             if (string.IsNullOrWhiteSpace(literal))
@@ -54,6 +63,13 @@ namespace MLVScan.Models.Rules.Helpers
             }
         }
 
+        /// <summary>
+        /// Scores a method call for decode primitives, execution sinks, and contextual danger signals.
+        /// </summary>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="index">The instruction index of the call.</param>
+        /// <param name="calledMethod">The method being called.</param>
+        /// <param name="evidence">The evidence bag to update.</param>
         public static void AnalyzeCall(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int index,

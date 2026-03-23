@@ -4,25 +4,26 @@ using System.ComponentModel;
 namespace MLVScan.Abstractions
 {
     /// <summary>
-    /// Provides environment-specific entry point detection.
-    /// Different mod loaders and frameworks have different entry point conventions.
+    /// Provides environment-specific entry-point detection.
     /// </summary>
     public interface IEntryPointProvider
     {
         /// <summary>
-        /// Determines if a method is likely an entry point for the current environment.
+        /// Determines whether a method should be treated as an entry point for the current environment.
         /// </summary>
+        /// <param name="method">Method to evaluate.</param>
+        /// <returns><see langword="true"/> when the method is treated as an entry point.</returns>
         bool IsEntryPoint(MethodDefinition method);
 
         /// <summary>
-        /// Gets the set of known entry point names for documentation purposes.
+        /// Gets the set of entry-point names known to the provider.
         /// </summary>
+        /// <returns>Names that the provider recognizes as entry-point-like.</returns>
         IEnumerable<string> GetKnownEntryPointNames();
     }
 
     /// <summary>
-    /// Generic entry point provider that detects common patterns across multiple environments.
-    /// This is the default provider used when no specific environment is configured.
+    /// Generic entry-point provider that detects common patterns across multiple environments.
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class GenericEntryPointProvider : IEntryPointProvider
@@ -60,6 +61,7 @@ namespace MLVScan.Abstractions
             "On",
         };
 
+        /// <inheritdoc />
         public bool IsEntryPoint(MethodDefinition method)
         {
             var name = method.Name;
@@ -78,6 +80,7 @@ namespace MLVScan.Abstractions
             return false;
         }
 
+        /// <inheritdoc />
         public IEnumerable<string> GetKnownEntryPointNames()
         {
             return CommonEntryPoints.OrderBy(n => n);

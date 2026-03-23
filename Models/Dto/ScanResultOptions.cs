@@ -2,59 +2,54 @@ namespace MLVScan.Models.Dto;
 
 /// <summary>
 /// Options for configuring scan result generation and output formatting.
-/// Allows platforms to customize metadata without hardcoding values in the mapper.
 /// </summary>
 public class ScanResultOptions
 {
     /// <summary>
-    /// The platform identifier (e.g., "wasm", "cli", "server", "desktop").
-    /// Defaults to "core".
+    /// Logical platform identifier used in result metadata.
     /// </summary>
     public string Platform { get; set; } = "core";
 
     /// <summary>
-    /// The scan mode: "summary", "detailed", or "developer".
-    /// Defaults to "detailed".
+    /// Scan mode to publish in the result metadata.
     /// </summary>
     public string ScanMode { get; set; } = "detailed";
 
     /// <summary>
-    /// The MLVScan.Core library version (semver).
-    /// Defaults to the current Core version.
+    /// Core library version reported in the result metadata.
     /// </summary>
     public string CoreVersion { get; set; } = MLVScanVersions.CoreVersion;
 
     /// <summary>
-    /// The platform implementation version (e.g., "1.0.2" for DevCLI, "0.1.0" for WASM).
-    /// This represents the specific tool/version that executed the scan.
+    /// Host or platform version reported in the result metadata.
     /// </summary>
     public string PlatformVersion { get; set; } = "0.0.0";
 
     /// <summary>
-    /// The schema version for the output.
-    /// Defaults to the current schema version.
+    /// Shared JSON schema version reported in the result metadata.
     /// </summary>
     public string SchemaVersion { get; set; } = MLVScanVersions.SchemaVersion;
 
     /// <summary>
-    /// Whether to include developer guidance in the output.
-    /// Automatically set to true when ScanMode is "developer".
+    /// Indicates whether developer guidance should be included in the result.
     /// </summary>
     public bool IncludeDeveloperGuidance { get; set; } = false;
 
     /// <summary>
-    /// Whether to include call chains in the output.
+    /// Indicates whether call chains should be included in the result.
     /// </summary>
     public bool IncludeCallChains { get; set; } = true;
 
     /// <summary>
-    /// Whether to include data flows in the output.
+    /// Indicates whether data-flow chains should be included in the result.
     /// </summary>
     public bool IncludeDataFlows { get; set; } = true;
 
     /// <summary>
-    /// Creates options for WASM platform.
+    /// Creates options for the WASM host.
     /// </summary>
+    /// <param name="developerMode">Whether to include developer guidance.</param>
+    /// <returns>Options configured for the WASM host.</returns>
     public static ScanResultOptions ForWasm(bool developerMode = false) => new()
     {
         Platform = "wasm",
@@ -63,8 +58,10 @@ public class ScanResultOptions
     };
 
     /// <summary>
-    /// Creates options for CLI platform.
+    /// Creates options for the CLI host.
     /// </summary>
+    /// <param name="developerMode">Whether to include developer guidance.</param>
+    /// <returns>Options configured for the CLI host.</returns>
     public static ScanResultOptions ForCli(bool developerMode = false) => new()
     {
         Platform = "cli",
@@ -73,8 +70,10 @@ public class ScanResultOptions
     };
 
     /// <summary>
-    /// Creates options for Server platform.
+    /// Creates options for the server host.
     /// </summary>
+    /// <param name="developerMode">Whether to include developer guidance.</param>
+    /// <returns>Options configured for the server host.</returns>
     public static ScanResultOptions ForServer(bool developerMode = false) => new()
     {
         Platform = "server",
@@ -83,8 +82,10 @@ public class ScanResultOptions
     };
 
     /// <summary>
-    /// Creates options for Desktop platform.
+    /// Creates options for the desktop host.
     /// </summary>
+    /// <param name="developerMode">Whether to include developer guidance.</param>
+    /// <returns>Options configured for the desktop host.</returns>
     public static ScanResultOptions ForDesktop(bool developerMode = false) => new()
     {
         Platform = "desktop",

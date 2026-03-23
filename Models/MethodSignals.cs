@@ -1,27 +1,72 @@
 namespace MLVScan.Models
 {
     /// <summary>
-    /// Tracks suspicious signals detected within a single method for multi-pattern analysis
+    /// Tracks suspicious signals collected while analyzing a method or aggregating behavior at the type level.
+    /// The scanner uses these signals to correlate weak indicators into higher-confidence findings.
     /// </summary>
     public class MethodSignals
     {
+        /// <summary>
+        /// Gets or sets a value indicating whether encoded or obfuscated strings were observed.
+        /// </summary>
         public bool HasEncodedStrings { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether reflection APIs were used in a suspicious way.
+        /// </summary>
         public bool HasSuspiciousReflection { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether a sensitive folder identifier was referenced.
+        /// </summary>
         public bool UsesSensitiveFolder { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the method appears to launch an external process or shell.
+        /// </summary>
         public bool HasProcessLikeCall { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether Base64 decoding primitives were observed.
+        /// </summary>
         public bool HasBase64 { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether network activity was observed.
+        /// </summary>
         public bool HasNetworkCall { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the method writes data to disk.
+        /// </summary>
         public bool HasFileWrite { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether suspicious local variables were observed.
+        /// </summary>
         public bool HasSuspiciousLocalVariables { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether suspicious exception-handler behavior was observed.
+        /// </summary>
         public bool HasSuspiciousExceptionHandling { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether suspicious path manipulation was observed.
+        /// </summary>
         public bool HasPathManipulation { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether environment-variable modification was observed.
+        /// </summary>
         public bool HasEnvironmentVariableModification { get; set; }
 
         private HashSet<string> _triggeredRuleIds = new HashSet<string>();
 
         /// <summary>
-        /// Marks a rule as having been triggered in this method/type
+        /// Records that the specified rule has triggered for the current signal set.
         /// </summary>
+        /// <param name="ruleId">The identifier of the triggered rule.</param>
         public void MarkRuleTriggered(string ruleId)
         {
             if (!string.IsNullOrEmpty(ruleId))
@@ -31,8 +76,10 @@ namespace MLVScan.Models
         }
 
         /// <summary>
-        /// Checks if any rule other than the specified one has been triggered
+        /// Determines whether any recorded rule other than the supplied rule has triggered.
         /// </summary>
+        /// <param name="ruleId">The rule identifier to exclude from the comparison.</param>
+        /// <returns><see langword="true"/> when another rule has been recorded; otherwise, <see langword="false"/>.</returns>
         public bool HasTriggeredRuleOtherThan(string ruleId)
         {
             if (string.IsNullOrEmpty(ruleId))
@@ -44,21 +91,26 @@ namespace MLVScan.Models
         }
 
         /// <summary>
-        /// Checks if any rule has been triggered
+        /// Determines whether at least one rule has been recorded for the current signal set.
         /// </summary>
+        /// <returns><see langword="true"/> when one or more rules have been recorded; otherwise, <see langword="false"/>.</returns>
         public bool HasAnyTriggeredRule()
         {
             return _triggeredRuleIds.Count > 0;
         }
 
         /// <summary>
-        /// Gets all triggered rule IDs
+        /// Returns the recorded rule identifiers.
         /// </summary>
+        /// <returns>A snapshot of the triggered rule identifiers.</returns>
         public IEnumerable<string> GetTriggeredRuleIds()
         {
             return _triggeredRuleIds.ToList();
         }
 
+        /// <summary>
+        /// Gets the number of high-level signal flags currently set.
+        /// </summary>
         public int SignalCount
         {
             get
@@ -86,6 +138,10 @@ namespace MLVScan.Models
             }
         }
 
+        /// <summary>
+        /// Determines whether the current signal mix matches a critical-risk combination.
+        /// </summary>
+        /// <returns><see langword="true"/> when the active signals represent a critical combination.</returns>
         public bool IsCriticalCombination()
         {
             // Critical: Reflection + Encoded data
@@ -111,6 +167,10 @@ namespace MLVScan.Models
             return false;
         }
 
+        /// <summary>
+        /// Determines whether the current signal mix matches an elevated-risk combination.
+        /// </summary>
+        /// <returns><see langword="true"/> when the active signals represent a high-risk combination.</returns>
         public bool IsHighRiskCombination()
         {
             // High risk requires dangerous signal combinations that can be abused maliciously
@@ -135,6 +195,10 @@ namespace MLVScan.Models
             return false;
         }
 
+        /// <summary>
+        /// Builds a human-readable description of the active signals.
+        /// </summary>
+        /// <returns>A stable, concatenated description of the currently set signals.</returns>
         public string GetCombinationDescription()
         {
             var signals = new List<string>();

@@ -2,10 +2,24 @@ using Mono.Cecil;
 
 namespace MLVScan.Models.Rules.Helpers
 {
+    /// <summary>
+    /// Scores decode-oriented methods and string literals so higher-level rules can combine them into
+    /// stronger obfuscation evidence.
+    /// </summary>
     internal static class ObfuscatedDecodeMatcher
     {
         private static readonly char[] TokenSeparators = { '-', '`', ':', ',', '|', ' ' };
 
+        /// <summary>
+        /// Scores a method call that looks like a decode or reconstruction primitive.
+        /// </summary>
+        /// <param name="calledMethod">The referenced method.</param>
+        /// <param name="typeName">The declaring type name.</param>
+        /// <param name="methodName">The method name.</param>
+        /// <param name="score">Receives the assigned decode score.</param>
+        /// <param name="reason">Receives a short explanation for the score.</param>
+        /// <param name="isStrongDecodePrimitive">Receives whether the call is considered a strong primitive.</param>
+        /// <returns><see langword="true"/> when the method matches a known decode pattern.</returns>
         public static bool TryGetDecodeCallScore(
             MethodReference calledMethod,
             string typeName,
@@ -171,6 +185,11 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Returns true when a string looks like tokenized numeric ASCII data.
+        /// </summary>
+        /// <param name="literal">The string to inspect.</param>
+        /// <returns><see langword="true"/> when the literal resembles numeric tokenization.</returns>
         public static bool IsTokenizedNumericLiteral(string literal)
         {
             if (literal.Length < 12)
@@ -210,6 +229,11 @@ namespace MLVScan.Models.Rules.Helpers
             return numericRatio >= 0.7 && plausibleAsciiTokens >= 3;
         }
 
+        /// <summary>
+        /// Returns true when a string resembles a Base64 payload.
+        /// </summary>
+        /// <param name="literal">The string to inspect.</param>
+        /// <returns><see langword="true"/> when the literal looks like Base64.</returns>
         public static bool IsBase64LikeLiteral(string literal)
         {
             if (literal.Length < 24 || literal.Length % 4 != 0)
@@ -232,6 +256,11 @@ namespace MLVScan.Models.Rules.Helpers
             return validChars >= literal.Length - 2;
         }
 
+        /// <summary>
+        /// Returns true when a string resembles a hexadecimal payload.
+        /// </summary>
+        /// <param name="literal">The string to inspect.</param>
+        /// <returns><see langword="true"/> when the literal looks like hex-encoded data.</returns>
         public static bool IsHexLikeLiteral(string literal)
         {
             if (literal.Length < 12)
@@ -263,6 +292,12 @@ namespace MLVScan.Models.Rules.Helpers
             return true;
         }
 
+        /// <summary>
+        /// Tries to extract a suspicious command, path, or protocol marker from a literal.
+        /// </summary>
+        /// <param name="literal">The string to inspect.</param>
+        /// <param name="marker">Receives the matched marker or its reversed match.</param>
+        /// <returns><see langword="true"/> when a suspicious marker is found.</returns>
         public static bool TryGetDangerLiteralMarker(string literal, out string marker)
         {
             string[] markers =
@@ -294,6 +329,13 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to describe an invisible-Unicode payload and whether its decoded content looks suspicious.
+        /// </summary>
+        /// <param name="literal">The string to inspect.</param>
+        /// <param name="reason">Receives a short description of the suspicious payload.</param>
+        /// <param name="hasSuspiciousDecodedContent">Receives whether the decoded payload contains suspicious content.</param>
+        /// <returns><see langword="true"/> when the literal contains a variation-selector payload.</returns>
         public static bool TryGetInvisibleUnicodeLiteralReason(string literal, out string reason,
             out bool hasSuspiciousDecodedContent)
         {

@@ -1,62 +1,62 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Data flow chain showing data movement.
+/// Serialized data-flow chain that explains how data moves from source to sink.
 /// </summary>
 public class DataFlowChainDto
 {
     /// <summary>
-    /// Unique identifier for this data flow.
+    /// Optional stable identifier for the data-flow chain.
     /// </summary>
     public string? Id { get; set; }
 
     /// <summary>
-    /// Description of the data flow pattern.
+    /// Human-readable description of the data-flow pattern.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Severity of the entire flow.
+    /// Severity of the overall flow, serialized as a string label.
     /// </summary>
     public string Severity { get; set; } = "Low";
 
     /// <summary>
-    /// Recognized attack pattern (e.g., "DataExfiltration", "DownloadAndExecute").
+    /// Recognized pattern name, such as <c>DataExfiltration</c> or <c>DownloadAndExecute</c>.
     /// </summary>
     public string Pattern { get; set; } = "Unknown";
 
     /// <summary>
-    /// The IL variable or stack slot being tracked (for debugging).
+    /// Optional variable or stack slot name used as the original source handle.
     /// </summary>
     public string? SourceVariable { get; set; }
 
     /// <summary>
-    /// The method where this data flow occurs (primary method for single-method flows).
+    /// Primary method location for single-method flows.
     /// </summary>
     public string? MethodLocation { get; set; }
 
     /// <summary>
-    /// True if this data flow spans multiple methods.
+    /// Indicates whether the flow spans more than one method.
     /// </summary>
     public bool IsCrossMethod { get; set; }
 
     /// <summary>
-    /// True when this flow matches a suspicious pattern.
+    /// Indicates whether the flow matches a suspicious pattern.
     /// </summary>
     public bool IsSuspicious { get; set; }
 
     /// <summary>
-    /// Number of methods traversed by this flow.
+    /// Number of methods traversed by the flow.
     /// </summary>
     public int CallDepth { get; set; }
 
     /// <summary>
-    /// All methods involved in this data flow (for cross-method flows).
+    /// Optional ordered list of methods involved in the flow.
     /// </summary>
     public List<string>? InvolvedMethods { get; set; }
 
     /// <summary>
-    /// Nodes in the data flow (ordered).
+    /// Ordered nodes that describe the flow from source to sink.
     /// </summary>
     public List<DataFlowNodeDto> Nodes { get; set; } = new();
 }

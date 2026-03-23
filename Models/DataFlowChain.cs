@@ -51,6 +51,16 @@ namespace MLVScan.Models
         /// </summary>
         public string? TargetMethodKey { get; set; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DataFlowNode"/> class.
+        /// </summary>
+        /// <param name="location">Location of the operation, typically formatted as method plus IL offset.</param>
+        /// <param name="operation">Display name of the operation represented by the node.</param>
+        /// <param name="nodeType">Role played by the node in the flow.</param>
+        /// <param name="dataDescription">Description of the data being tracked at this point.</param>
+        /// <param name="instructionOffset">IL offset associated with the node.</param>
+        /// <param name="codeSnippet">Optional code snippet captured near the node.</param>
+        /// <param name="methodKey">Optional stable method key for cross-method tracking.</param>
         public DataFlowNode(string location, string operation, DataFlowNodeType nodeType, string dataDescription,
             int instructionOffset, string? codeSnippet = null, string? methodKey = null)
         {
@@ -63,6 +73,10 @@ namespace MLVScan.Models
             MethodKey = methodKey;
         }
 
+        /// <summary>
+        /// Returns a compact textual representation of the node.
+        /// </summary>
+        /// <returns>A formatted string containing the node type, operation, and tracked data description.</returns>
         public override string ToString()
         {
             var prefix = NodeType switch
@@ -166,6 +180,14 @@ namespace MLVScan.Models
         /// </summary>
         public int CallDepth => InvolvedMethods.Count > 0 ? InvolvedMethods.Count : 1;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DataFlowChain"/> class.
+        /// </summary>
+        /// <param name="chainId">Stable identifier used to group related flow-derived findings.</param>
+        /// <param name="pattern">Recognized pattern assigned to the flow.</param>
+        /// <param name="severity">Severity assigned to the flow.</param>
+        /// <param name="summary">Human-readable summary of the flow.</param>
+        /// <param name="methodLocation">Primary method location associated with the flow.</param>
         public DataFlowChain(string chainId, DataFlowPattern pattern, Severity severity, string summary,
             string methodLocation)
         {
@@ -179,6 +201,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Adds a node to the end of the chain.
         /// </summary>
+        /// <param name="node">The node to append.</param>
         public void AppendNode(DataFlowNode node)
         {
             Nodes.Add(node);
@@ -187,6 +210,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Adds a node to the beginning of the chain.
         /// </summary>
+        /// <param name="node">The node to insert at the start of the chain.</param>
         public void PrependNode(DataFlowNode node)
         {
             Nodes.Insert(0, node);
@@ -195,6 +219,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Generates a detailed description of the data flow with all steps.
         /// </summary>
+        /// <returns>A multi-line description of the tracked flow.</returns>
         public string ToDetailedDescription()
         {
             if (Nodes.Count == 0)
@@ -216,6 +241,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Creates a combined code snippet showing all operations in the flow.
         /// </summary>
+        /// <returns>The concatenated snippets for the flow, or <see langword="null"/> when no snippets are available.</returns>
         public string? ToCombinedCodeSnippet()
         {
             var snippets = Nodes
@@ -229,6 +255,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Gets the source node (where data originates).
         /// </summary>
+        /// <returns>The first source node in the chain, or <see langword="null"/> when none is present.</returns>
         public DataFlowNode? GetSource()
         {
             return Nodes.FirstOrDefault(n => n.NodeType == DataFlowNodeType.Source);
@@ -237,6 +264,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Gets all sink nodes (where data is consumed).
         /// </summary>
+        /// <returns>All sink nodes currently present in the flow.</returns>
         public IEnumerable<DataFlowNode> GetSinks()
         {
             return Nodes.Where(n => n.NodeType == DataFlowNodeType.Sink);
@@ -245,6 +273,7 @@ namespace MLVScan.Models
         /// <summary>
         /// Gets all transform nodes (where data is modified).
         /// </summary>
+        /// <returns>All transform nodes currently present in the flow.</returns>
         public IEnumerable<DataFlowNode> GetTransforms()
         {
             return Nodes.Where(n => n.NodeType == DataFlowNodeType.Transform);

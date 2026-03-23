@@ -4,19 +4,39 @@ using Mono.Cecil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects Windows Registry reads and writes through managed APIs and P/Invoke entry points.
+    /// </summary>
     public class RegistryRule : IScanRule
     {
         private Severity _severity = Severity.Critical;
         private string _description =
             "Detected Windows Registry manipulation, which is suspicious for a game mod. Registry access could be used to persist malware or modify system settings.";
 
+        /// <summary>
+        /// Gets the description for the most recently matched registry action.
+        /// </summary>
         public string Description =>
             _description;
 
+        /// <summary>
+        /// Gets the severity for the most recently matched registry action.
+        /// </summary>
         public Severity Severity => _severity;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "RegistryRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Gets guidance for legitimate configuration storage alternatives.
+        /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
             "Game mods should not modify the Windows Registry. For persistent settings, use your mod framework's configuration system: " +
             "MelonPreferences for MelonLoader, Config.Bind<T>() for BepInEx, or Unity's PlayerPrefs for simple settings.",
@@ -93,6 +113,11 @@ namespace MLVScan.Models.Rules
             "regqueryvalueex"
         ];
 
+        /// <summary>
+        /// Returns true when the supplied method is a managed or native registry access API.
+        /// </summary>
+        /// <param name="method">The method reference to inspect.</param>
+        /// <returns><see langword="true"/> when the method manipulates or queries the Windows Registry.</returns>
         public bool IsSuspicious(MethodReference method)
         {
             if (method?.DeclaringType == null)
@@ -170,6 +195,11 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        /// <summary>
+        /// Classifies managed registry access by operation type so the emitted severity matches the action.
+        /// </summary>
+        /// <param name="methodName">The normalized managed registry method name.</param>
+        /// <returns><see langword="true"/> when the method maps to a tracked registry operation.</returns>
         private bool ClassifyManagedRegistryCall(string methodName)
         {
             if (methodName.Contains("setvalue", StringComparison.Ordinal) ||

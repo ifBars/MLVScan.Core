@@ -6,21 +6,51 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects network-send patterns that may indicate data exfiltration, with special handling for
+    /// Discord webhooks, paste sites, direct IP targets, and other suspicious outbound destinations.
+    /// </summary>
     public class DataExfiltrationRule : IScanRule
     {
+        /// <summary>
+        /// Gets the description emitted when the rule matches a suspicious outbound transfer.
+        /// </summary>
         public string Description =>
             "Detected potential data exfiltration endpoints (Discord webhooks, raw paste sites, IP URLs).";
 
+        /// <summary>
+        /// Gets the severity assigned to exfiltration-oriented network send patterns.
+        /// </summary>
         public Severity Severity => Severity.Critical;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "DataExfiltrationRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Returns false because this rule is driven by contextual instruction analysis rather than direct
+        /// method-level signature matching.
+        /// </summary>
         public bool IsSuspicious(MethodReference method)
         {
             // This rule analyzes contextual patterns around method calls
             return false;
         }
 
+        /// <summary>
+        /// Analyzes network send operations for suspicious outbound destinations and nearby URL literals.
+        /// </summary>
+        /// <param name="method">The network-related method being analyzed.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="instructionIndex">The index of the call instruction being inspected.</param>
+        /// <param name="methodSignals">Current method signal state used for cross-rule correlation.</param>
+        /// <returns>Findings describing suspicious exfiltration endpoints near the call site.</returns>
         public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
             Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
             MethodSignals methodSignals)

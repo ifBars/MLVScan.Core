@@ -1,27 +1,27 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Single node in a call chain.
+/// Single node in a serialized call chain.
 /// </summary>
 public class CallChainNodeDto
 {
     /// <summary>
-    /// Node type: "EntryPoint", "IntermediateCall", or "SuspiciousDeclaration".
+    /// Node type label, such as <c>EntryPoint</c>, <c>IntermediateCall</c>, or <c>SuspiciousDeclaration</c>.
     /// </summary>
     public string NodeType { get; set; } = string.Empty;
 
     /// <summary>
-    /// Location of this node (method signature).
+    /// Location of the node, typically a method signature or declaration reference.
     /// </summary>
     public string Location { get; set; } = string.Empty;
 
     /// <summary>
-    /// Description of what happens at this node.
+    /// Short explanation of what the node contributes to the call chain.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional code snippet at this node.
+    /// Optional source snippet captured for the node.
     /// </summary>
     public string? CodeSnippet { get; set; }
 }

@@ -2,6 +2,9 @@ using System.Text;
 
 namespace MLVScan.Models.Rules.Helpers
 {
+    /// <summary>
+    /// Analyzes strings that may hide payload bytes in Unicode variation selectors.
+    /// </summary>
     internal static class InvisibleUnicodeAnalyzer
     {
         private const int VariationSelectorStart = 0xFE00;
@@ -10,6 +13,11 @@ namespace MLVScan.Models.Rules.Helpers
         private const int SupplementaryVariationSelectorEnd = 0xE01EF;
         private const int MinimumVariationSelectorCount = 8;
 
+        /// <summary>
+        /// Scans a string for variation-selector payload bytes and attempts to decode them as UTF-8.
+        /// </summary>
+        /// <param name="literal">The string literal to inspect.</param>
+        /// <returns>A structured analysis result describing the hidden payload characteristics.</returns>
         public static InvisibleUnicodeAnalysis Analyze(string literal)
         {
             if (string.IsNullOrEmpty(literal))
@@ -52,6 +60,12 @@ namespace MLVScan.Models.Rules.Helpers
             return new InvisibleUnicodeAnalysis(true, variationSelectorCount, nonWhitespaceVisibleCount, decodedText);
         }
 
+        /// <summary>
+        /// Tries to decode a Unicode variation selector code point into the payload byte it represents.
+        /// </summary>
+        /// <param name="codePoint">The Unicode code point to inspect.</param>
+        /// <param name="decodedByte">Receives the decoded byte when the code point is a supported selector.</param>
+        /// <returns><see langword="true"/> when the code point maps to payload data.</returns>
         public static bool TryDecodeVariationSelectorByte(int codePoint, out byte decodedByte)
         {
             if (codePoint >= VariationSelectorStart && codePoint <= VariationSelectorEnd)
@@ -90,6 +104,13 @@ namespace MLVScan.Models.Rules.Helpers
 
         internal readonly struct InvisibleUnicodeAnalysis
         {
+            /// <summary>
+            /// Creates a new analysis result for a string that may contain variation-selector payload bytes.
+            /// </summary>
+            /// <param name="hasVariationSelectorPayload">Whether enough variation selectors were found to consider the string suspicious.</param>
+            /// <param name="variationSelectorCount">The number of decoded variation selector bytes.</param>
+            /// <param name="nonWhitespaceVisibleCount">The number of visible, non-whitespace code points encountered.</param>
+            /// <param name="decodedText">The decoded UTF-8 payload, if decoding succeeded.</param>
             public InvisibleUnicodeAnalysis(bool hasVariationSelectorPayload, int variationSelectorCount,
                 int nonWhitespaceVisibleCount, string? decodedText)
             {
@@ -99,11 +120,29 @@ namespace MLVScan.Models.Rules.Helpers
                 DecodedText = decodedText;
             }
 
+            /// <summary>
+            /// Gets an empty analysis result.
+            /// </summary>
             public static InvisibleUnicodeAnalysis Empty => new(false, 0, 0, null);
 
+            /// <summary>
+            /// Gets a value indicating whether the string appears to contain a payload encoded in variation selectors.
+            /// </summary>
             public bool HasVariationSelectorPayload { get; }
+
+            /// <summary>
+            /// Gets the number of decoded variation selector bytes.
+            /// </summary>
             public int VariationSelectorCount { get; }
+
+            /// <summary>
+            /// Gets the count of visible non-whitespace characters that accompanied the selectors.
+            /// </summary>
             public int NonWhitespaceVisibleCount { get; }
+
+            /// <summary>
+            /// Gets the decoded UTF-8 payload, if decoding succeeded.
+            /// </summary>
             public string? DecodedText { get; }
         }
     }

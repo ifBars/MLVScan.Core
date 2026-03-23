@@ -1,22 +1,22 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Summary statistics of the scan.
+/// Summary statistics for a scan result.
 /// </summary>
 public class ScanSummaryDto
 {
     /// <summary>
-    /// Total number of findings.
+    /// Total number of findings in the scan.
     /// </summary>
     public int TotalFindings { get; set; }
 
     /// <summary>
-    /// Count by severity level.
+    /// Counts grouped by severity label.
     /// </summary>
     public Dictionary<string, int> CountBySeverity { get; set; } = new();
 
     /// <summary>
-    /// Unique rule IDs that were triggered.
+    /// Unique rule identifiers that were triggered during the scan.
     /// </summary>
     public List<string> TriggeredRules { get; set; } = new();
 }

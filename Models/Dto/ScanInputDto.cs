@@ -1,12 +1,12 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Information about the scanned input.
+/// Metadata about the scanned input file.
 /// </summary>
 public class ScanInputDto
 {
     /// <summary>
-    /// File name of the scanned assembly.
+    /// File name or display name associated with the scanned assembly.
     /// </summary>
     public string FileName { get; set; } = string.Empty;
 
@@ -16,7 +16,7 @@ public class ScanInputDto
     public long SizeBytes { get; set; }
 
     /// <summary>
-    /// SHA256 hash of the input (hex string).
+    /// Optional SHA-256 hash of the input, encoded as a lowercase hex string.
     /// </summary>
     public string? Sha256Hash { get; set; }
 }

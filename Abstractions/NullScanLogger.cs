@@ -2,7 +2,6 @@ namespace MLVScan.Abstractions
 {
     /// <summary>
     /// A no-op logger implementation that discards all log messages.
-    /// Useful for scenarios where logging is not needed (e.g., web scanning, unit tests).
     /// </summary>
     public sealed class NullScanLogger : IScanLogger
     {
@@ -13,10 +12,15 @@ namespace MLVScan.Abstractions
 
         private NullScanLogger() { }
 
+        /// <inheritdoc />
         public void Debug(string message) { }
+        /// <inheritdoc />
         public void Info(string message) { }
+        /// <inheritdoc />
         public void Warning(string message) { }
+        /// <inheritdoc />
         public void Error(string message) { }
+        /// <inheritdoc />
         public void Error(string message, Exception exception) { }
     }
 }

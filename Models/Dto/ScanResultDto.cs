@@ -1,13 +1,12 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Root scan result DTO that matches the shared JSON schema.
-/// This is the primary output format for all MLVScan implementations (CLI, WASM, Server, Desktop).
+/// Root scan result object that matches the shared JSON schema.
 /// </summary>
 public class ScanResultDto
 {
     /// <summary>
-    /// Schema version for backward compatibility (semver).
+    /// Schema version for backward compatibility.
     /// </summary>
     public string SchemaVersion { get; set; } = MLVScanVersions.SchemaVersion;
 
@@ -22,40 +21,37 @@ public class ScanResultDto
     public ScanInputDto Input { get; set; } = new();
 
     /// <summary>
-    /// Summary statistics of the scan.
+    /// Summary statistics for the scan.
     /// </summary>
     public ScanSummaryDto Summary { get; set; } = new();
 
     /// <summary>
-    /// All individual findings.
+    /// Individual findings emitted by the scanner.
     /// </summary>
     public List<FindingDto> Findings { get; set; } = new();
 
     /// <summary>
-    /// Optional: Call chains showing attack paths.
-    /// Only present when cross-method analysis is enabled.
+    /// Optional call-chain expansions included when cross-method analysis is enabled.
     /// </summary>
     public List<CallChainDto>? CallChains { get; set; }
 
     /// <summary>
-    /// Optional: Data flow chains showing data movement through suspicious operations.
-    /// Only present when data flow analysis is enabled.
+    /// Optional data-flow expansions included when data-flow analysis is enabled.
     /// </summary>
     public List<DataFlowChainDto>? DataFlows { get; set; }
 
     /// <summary>
-    /// Optional: Developer guidance for remediation.
-    /// Only present when developer mode is enabled.
+    /// Optional developer guidance included when developer mode is enabled.
     /// </summary>
     public List<DeveloperGuidanceDto>? DeveloperGuidance { get; set; }
 
     /// <summary>
-    /// Optional: Known malware family matches derived from threat-intel classification.
+    /// Optional malware-family classifications derived from threat-intel matching.
     /// </summary>
     public List<ThreatFamilyDto>? ThreatFamilies { get; set; }
 
     /// <summary>
-    /// Optional: Primary file disposition derived from threat families and correlated unknown behavior.
+    /// Optional primary disposition derived from threat-intel correlation.
     /// </summary>
     public ThreatDispositionDto? Disposition { get; set; }
 }

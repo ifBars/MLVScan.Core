@@ -1,32 +1,32 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Call chain showing an attack path.
+/// Serialized call chain that shows how a suspicious declaration is reached.
 /// </summary>
 public class CallChainDto
 {
     /// <summary>
-    /// Unique identifier for this call chain.
+    /// Optional stable identifier for the call chain.
     /// </summary>
     public string? Id { get; set; }
 
     /// <summary>
-    /// The rule that detected this suspicious pattern.
+    /// Rule identifier that produced the chain.
     /// </summary>
     public string? RuleId { get; set; }
 
     /// <summary>
-    /// Description of the attack pattern.
+    /// Human-readable description of the chain or attack pattern.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Severity of the entire chain.
+    /// Severity of the overall chain, serialized as a string label.
     /// </summary>
     public string Severity { get; set; } = "Low";
 
     /// <summary>
-    /// Nodes in the call chain (ordered).
+    /// Ordered nodes from entry point to suspicious declaration.
     /// </summary>
     public List<CallChainNodeDto> Nodes { get; set; } = new();
 }

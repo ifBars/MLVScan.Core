@@ -3,9 +3,17 @@ using System.ComponentModel;
 
 namespace MLVScan.Services.Helpers
 {
+    /// <summary>
+    /// Collects all top-level and nested type definitions from a Cecil module.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static class TypeCollectionHelper
     {
+        /// <summary>
+        /// Gets every type in the module, including nested types.
+        /// </summary>
+        /// <param name="module">The module to enumerate.</param>
+        /// <returns>All type definitions discovered in the module.</returns>
         public static IEnumerable<TypeDefinition> GetAllTypes(ModuleDefinition module)
         {
             var allTypes = new List<TypeDefinition>();

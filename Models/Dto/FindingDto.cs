@@ -1,42 +1,42 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Individual finding DTO.
+/// Individual finding in the serialized scan result.
 /// </summary>
 public class FindingDto
 {
     /// <summary>
-    /// Unique identifier for this finding (optional, for UI tracking).
+    /// Optional stable identifier used by UIs to track or de-duplicate a finding.
     /// </summary>
     public string? Id { get; set; }
 
     /// <summary>
-    /// Rule ID that generated this finding (e.g., "Base64Rule").
+    /// Stable rule identifier that produced the finding.
     /// </summary>
     public string? RuleId { get; set; }
 
     /// <summary>
-    /// Human-readable description.
+    /// Human-readable description of the suspicious behavior.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Severity: "Low", "Medium", "High", or "Critical".
+    /// Severity label serialized as <c>Low</c>, <c>Medium</c>, <c>High</c>, or <c>Critical</c>.
     /// </summary>
     public string Severity { get; set; } = "Low";
 
     /// <summary>
-    /// Location (e.g., "ClassName::MethodName").
+    /// Location string for display, typically a type and method signature or a metadata path.
     /// </summary>
     public string Location { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional code snippet showing the suspicious code.
+    /// Optional source snippet showing the triggering IL or source-like context.
     /// </summary>
     public string? CodeSnippet { get; set; }
 
     /// <summary>
-    /// Optional numeric risk score emitted by scoring-based rules.
+    /// Optional numeric score emitted by rules that use scoring models.
     /// </summary>
     public int? RiskScore { get; set; }
 
@@ -51,22 +51,22 @@ public class FindingDto
     public string? DataFlowChainId { get; set; }
 
     /// <summary>
-    /// Optional developer guidance attached directly to this finding.
+    /// Optional developer guidance attached directly to the finding.
     /// </summary>
     public DeveloperGuidanceDto? DeveloperGuidance { get; set; }
 
     /// <summary>
-    /// Optional call chain reference (ID or inline).
+    /// Optional inline call-chain payload for consumers that want a fully expanded result.
     /// </summary>
     public CallChainDto? CallChain { get; set; }
 
     /// <summary>
-    /// Optional data flow chain reference.
+    /// Optional inline data-flow payload for consumers that want a fully expanded result.
     /// </summary>
     public DataFlowChainDto? DataFlowChain { get; set; }
 
     /// <summary>
-    /// Controls whether this finding should appear in the default view or advanced diagnostics only.
+    /// Visibility tier used by consumers to hide advanced diagnostics from default views.
     /// </summary>
     public string? Visibility { get; set; }
 }

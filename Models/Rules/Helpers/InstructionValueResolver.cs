@@ -5,6 +5,10 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules.Helpers
 {
+    /// <summary>
+    /// Resolves literal and simple computed values from IL so rules can report concrete process targets,
+    /// arguments, and related metadata instead of placeholder stack values.
+    /// </summary>
     internal static class InstructionValueResolver
     {
         private const int MaxDepth = 16;
@@ -16,6 +20,15 @@ namespace MLVScan.Models.Rules.Helpers
         private static readonly Regex FormatItemRegex =
             new Regex(@"\{(\d+)(?:[^}]*)\}", RegexOptions.CultureInvariant);
 
+        /// <summary>
+        /// Tries to resolve the executable or command target passed to a process-launching call.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the call site.</param>
+        /// <param name="calledMethod">The method being invoked.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="target">Receives a display string for the resolved target.</param>
+        /// <returns><see langword="true"/> when a concrete target could be reconstructed.</returns>
         public static bool TryResolveProcessTarget(
             MethodDefinition? containingMethod,
             MethodReference calledMethod,
@@ -38,6 +51,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to resolve the argument string passed to a process-launching call.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the call site.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="arguments">Receives the resolved argument display string.</param>
+        /// <returns><see langword="true"/> when the arguments could be reconstructed.</returns>
         public static bool TryResolveProcessArguments(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -57,6 +78,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to resolve the top-of-stack value immediately before a call site for display purposes.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the instruction sequence.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="beforeIndex">The instruction index immediately before the value is consumed.</param>
+        /// <param name="valueDisplay">Receives a human-readable representation of the resolved value.</param>
+        /// <returns><see langword="true"/> when a literal or simple computed value could be reconstructed.</returns>
         public static bool TryResolveStackValueDisplay(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -76,6 +105,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to recover a constant value assigned to <c>ProcessStartInfo.UseShellExecute</c>.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the process launch.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="useShellExecute">Receives the resolved boolean value when available.</param>
+        /// <returns><see langword="true"/> when a definite value could be reconstructed.</returns>
         public static bool TryResolveUseShellExecute(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -121,6 +158,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to recover a constant value assigned to <c>ProcessStartInfo.CreateNoWindow</c>.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the process launch.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="createNoWindow">Receives the resolved boolean value when available.</param>
+        /// <returns><see langword="true"/> when a definite value could be reconstructed.</returns>
         public static bool TryResolveCreateNoWindow(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -166,6 +211,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to recover a constant value assigned to <c>ProcessStartInfo.WindowStyle</c>.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the process launch.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="windowStyle">Receives the resolved window-style value when available.</param>
+        /// <returns><see langword="true"/> when a definite value could be reconstructed.</returns>
         public static bool TryResolveWindowStyle(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -250,6 +303,14 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Tries to recover a constant value assigned to <c>ProcessStartInfo.WorkingDirectory</c>.
+        /// </summary>
+        /// <param name="containingMethod">The method containing the process launch.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="processStartIndex">The call instruction index.</param>
+        /// <param name="workingDirectory">Receives the resolved working-directory string.</param>
+        /// <returns><see langword="true"/> when a definite value could be reconstructed.</returns>
         public static bool TryResolveWorkingDirectory(
             MethodDefinition? containingMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,

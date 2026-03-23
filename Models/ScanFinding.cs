@@ -2,67 +2,80 @@ using MLVScan.Abstractions;
 
 namespace MLVScan.Models
 {
+    /// <summary>
+    /// Represents a single scan finding emitted by a rule or analysis pass.
+    /// </summary>
     public class ScanFinding(
         string location,
         string description,
         Severity severity = Severity.Low,
         string? codeSnippet = null)
     {
+        /// <summary>
+        /// Gets or sets the location associated with the finding.
+        /// </summary>
         public string Location { get; set; } = location;
+
+        /// <summary>
+        /// Gets or sets the human-readable finding description.
+        /// </summary>
         public string Description { get; set; } = description;
+
+        /// <summary>
+        /// Gets or sets the severity assigned by the detecting rule.
+        /// </summary>
         public Severity Severity { get; set; } = severity;
+
+        /// <summary>
+        /// Gets or sets the optional source snippet captured with the finding.
+        /// </summary>
         public string? CodeSnippet { get; set; } = codeSnippet;
 
         /// <summary>
-        /// The rule ID that generated this finding (e.g., "Base64Rule", "PersistenceRule").
-        /// Populated during scanning to track which rule triggered.
+        /// Gets or sets the rule identifier that generated the finding.
         /// </summary>
         public string? RuleId { get; set; }
 
         /// <summary>
-        /// Developer-facing guidance for fixing false positives.
-        /// Only populated in developer mode when the rule provides guidance.
+        /// Gets or sets developer-facing guidance when the rule can suggest a safer alternative.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance { get; set; }
 
         /// <summary>
-        /// The call chain showing how malicious code is reached.
-        /// When present, this finding represents a consolidated view of an attack pattern
-        /// (e.g., entry point -> wrapper method -> P/Invoke declaration).
+        /// Gets or sets the call chain associated with the finding.
         /// </summary>
         public CallChain? CallChain { get; set; }
 
         /// <summary>
-        /// Indicates whether this finding has call chain information.
+        /// Gets a value indicating whether call-chain data is attached.
         /// </summary>
         public bool HasCallChain => CallChain != null && CallChain.Nodes.Count > 0;
 
         /// <summary>
-        /// The data flow chain showing how data moves through suspicious operations.
-        /// When present, this finding represents a data flow analysis result
-        /// (e.g., network download -> decode -> file write -> process start).
+        /// Gets or sets the data flow chain associated with the finding.
         /// </summary>
         public DataFlowChain? DataFlowChain { get; set; }
 
         /// <summary>
-        /// Indicates whether this finding has data flow information.
+        /// Gets a value indicating whether data-flow data is attached.
         /// </summary>
         public bool HasDataFlow => DataFlowChain != null && DataFlowChain.Nodes.Count > 0;
 
         /// <summary>
-        /// When true, this finding bypasses the RequiresCompanionFinding check on its rule.
-        /// Used by rules that compute high-confidence scores internally (e.g., AssemblyDynamicLoadRule
-        /// with a full provenance chain or recursive resource scan that found malware).
+        /// Gets or sets whether this finding bypasses the companion-finding requirement.
         /// </summary>
         public bool BypassCompanionCheck { get; set; } = false;
 
         /// <summary>
-        /// Optional numeric risk score computed by rules that use scoring models.
-        /// Used for transparency in findings output (e.g., "score 82" in descriptions).
-        /// Not used by the scanner for severity decisions — severity is set by the rule.
+        /// Gets or sets the optional numeric risk score computed by a rule.
+        /// Severity still comes from the rule; this value is for transparency or ranking only.
         /// </summary>
         public int? RiskScore { get; set; }
 
+        /// <summary>
+        /// Returns a human-readable description of the finding.
+        /// </summary>
+        /// <returns>A formatted string containing severity, description, location, and snippet details.</returns>
         public override string ToString()
         {
             var logMessage = $"[{Severity}] {Description} at {Location}";

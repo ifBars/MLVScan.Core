@@ -3,8 +3,17 @@ using MLVScan.Models.ThreatIntel;
 
 namespace MLVScan.Services.ThreatIntel;
 
+/// <summary>
+/// Provides normalized finding, call-chain, and data-flow lookups for threat-family classification.
+/// </summary>
 internal sealed class ThreatFamilyAnalysisContext
 {
+    /// <summary>
+    /// Creates a threat-family analysis context from the current scan outputs.
+    /// </summary>
+    /// <param name="findings">The findings collected from the scan.</param>
+    /// <param name="callChains">Optional explicit call chains to consider during classification.</param>
+    /// <param name="dataFlows">Optional explicit data-flow chains to consider during classification.</param>
     public ThreatFamilyAnalysisContext(
         IEnumerable<ScanFinding> findings,
         IEnumerable<CallChain>? callChains,
@@ -15,17 +24,37 @@ internal sealed class ThreatFamilyAnalysisContext
         DataFlows = CollectUniqueFlows(dataFlows, Findings.Where(f => f.HasDataFlow).Select(f => f.DataFlowChain!));
     }
 
+    /// <summary>
+    /// Gets the findings used to evaluate family matches.
+    /// </summary>
     public IReadOnlyList<ScanFinding> Findings { get; }
 
+    /// <summary>
+    /// Gets the call chains considered during family matching.
+    /// </summary>
     public IReadOnlyList<CallChain> CallChains { get; }
 
+    /// <summary>
+    /// Gets the data-flow chains considered during family matching.
+    /// </summary>
     public IReadOnlyList<DataFlowChain> DataFlows { get; }
 
+    /// <summary>
+    /// Determines whether the scan contains a finding for the given rule identifier.
+    /// </summary>
+    /// <param name="ruleId">The rule identifier to search for.</param>
+    /// <returns><see langword="true"/> when a matching finding exists; otherwise <see langword="false"/>.</returns>
     public bool HasRule(string ruleId)
     {
         return Findings.Any(f => string.Equals(f.RuleId, ruleId, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Finds the first matching finding for a rule and optional text needles.
+    /// </summary>
+    /// <param name="ruleId">The rule identifier to match.</param>
+    /// <param name="needles">Optional text fragments that must all appear in the finding text.</param>
+    /// <returns>The first matching finding, or <see langword="null"/> if none match.</returns>
     public ScanFinding? FindFinding(string ruleId, params string[] needles)
     {
         return Findings.FirstOrDefault(f =>
@@ -33,6 +62,12 @@ internal sealed class ThreatFamilyAnalysisContext
             (needles.Length == 0 || TextContainsAll(EnumerateFindingTexts(f), needles)));
     }
 
+    /// <summary>
+    /// Finds the first matching call chain for a rule and optional text needles.
+    /// </summary>
+    /// <param name="ruleId">The rule identifier to match.</param>
+    /// <param name="needles">Optional text fragments that must all appear in the chain text.</param>
+    /// <returns>The first matching call chain, or <see langword="null"/> if none match.</returns>
     public CallChain? FindCallChain(string ruleId, params string[] needles)
     {
         return CallChains.FirstOrDefault(chain =>
@@ -40,6 +75,12 @@ internal sealed class ThreatFamilyAnalysisContext
             (needles.Length == 0 || TextContainsAll(EnumerateCallChainTexts(chain), needles)));
     }
 
+    /// <summary>
+    /// Finds the first matching data-flow chain for a pattern and optional text needles.
+    /// </summary>
+    /// <param name="pattern">The data-flow pattern to match.</param>
+    /// <param name="needles">Optional text fragments that must all appear in the flow text.</param>
+    /// <returns>The first matching data-flow chain, or <see langword="null"/> if none match.</returns>
     public DataFlowChain? FindDataFlow(DataFlowPattern pattern, params string[] needles)
     {
         return DataFlows.FirstOrDefault(flow =>
@@ -47,26 +88,51 @@ internal sealed class ThreatFamilyAnalysisContext
             (needles.Length == 0 || TextContainsAll(EnumerateDataFlowTexts(flow), needles)));
     }
 
+    /// <summary>
+    /// Determines whether any finding contains all supplied text fragments.
+    /// </summary>
+    /// <param name="needles">Text fragments that must all be present in a single finding.</param>
+    /// <returns><see langword="true"/> when a finding matches; otherwise <see langword="false"/>.</returns>
     public bool AnyFindingContainsAll(params string[] needles)
     {
         return Findings.Any(f => TextContainsAll(EnumerateFindingTexts(f), needles));
     }
 
+    /// <summary>
+    /// Determines whether any call chain contains all supplied text fragments.
+    /// </summary>
+    /// <param name="needles">Text fragments that must all be present in a single call chain.</param>
+    /// <returns><see langword="true"/> when a call chain matches; otherwise <see langword="false"/>.</returns>
     public bool AnyCallChainContainsAll(params string[] needles)
     {
         return CallChains.Any(chain => TextContainsAll(EnumerateCallChainTexts(chain), needles));
     }
 
+    /// <summary>
+    /// Determines whether any data-flow chain contains all supplied text fragments.
+    /// </summary>
+    /// <param name="needles">Text fragments that must all be present in a single data-flow chain.</param>
+    /// <returns><see langword="true"/> when a data-flow chain matches; otherwise <see langword="false"/>.</returns>
     public bool AnyDataFlowContainsAll(params string[] needles)
     {
         return DataFlows.Any(flow => TextContainsAll(EnumerateDataFlowTexts(flow), needles));
     }
 
+    /// <summary>
+    /// Determines whether any finding, call chain, or data-flow chain contains all supplied text fragments.
+    /// </summary>
+    /// <param name="needles">Text fragments that must all be present in at least one tracked artifact.</param>
+    /// <returns><see langword="true"/> when any artifact matches; otherwise <see langword="false"/>.</returns>
     public bool AnyContextContainsAll(params string[] needles)
     {
         return AnyFindingContainsAll(needles) || AnyCallChainContainsAll(needles) || AnyDataFlowContainsAll(needles);
     }
 
+    /// <summary>
+    /// Normalizes a set of rule identifiers to those that are present in the current context.
+    /// </summary>
+    /// <param name="rules">The rule identifiers to filter and normalize.</param>
+    /// <returns>The matching rule identifiers in ordinal order.</returns>
     public IReadOnlyList<string> BuildMatchedRules(params string[] rules)
     {
         return rules
@@ -77,6 +143,13 @@ internal sealed class ThreatFamilyAnalysisContext
             .ToList();
     }
 
+    /// <summary>
+    /// Creates evidence metadata for a matching rule-based finding.
+    /// </summary>
+    /// <param name="kind">The evidence kind.</param>
+    /// <param name="value">The evidence value.</param>
+    /// <param name="finding">The source finding, if one exists.</param>
+    /// <returns>A populated threat-family evidence record.</returns>
     public ThreatFamilyEvidence CreateRuleEvidence(string kind, string value, ScanFinding? finding)
     {
         return new ThreatFamilyEvidence
@@ -89,9 +162,16 @@ internal sealed class ThreatFamilyAnalysisContext
             DataFlowChainId = finding?.DataFlowChain?.ChainId,
             Pattern = finding?.DataFlowChain?.Pattern.ToString(),
             MethodLocation = finding?.DataFlowChain?.MethodLocation
-        };
+            };
     }
 
+    /// <summary>
+    /// Creates evidence metadata for a matching call chain.
+    /// </summary>
+    /// <param name="kind">The evidence kind.</param>
+    /// <param name="value">The evidence value.</param>
+    /// <param name="chain">The source call chain, if one exists.</param>
+    /// <returns>A populated threat-family evidence record.</returns>
     public ThreatFamilyEvidence CreateCallChainEvidence(string kind, string value, CallChain? chain)
     {
         return new ThreatFamilyEvidence
@@ -101,9 +181,16 @@ internal sealed class ThreatFamilyAnalysisContext
             RuleId = chain?.RuleId,
             Location = chain?.Nodes.LastOrDefault()?.Location,
             CallChainId = chain?.ChainId
-        };
+            };
     }
 
+    /// <summary>
+    /// Creates evidence metadata for a matching data-flow chain.
+    /// </summary>
+    /// <param name="kind">The evidence kind.</param>
+    /// <param name="value">The evidence value.</param>
+    /// <param name="flow">The source data-flow chain, if one exists.</param>
+    /// <returns>A populated threat-family evidence record.</returns>
     public ThreatFamilyEvidence CreateDataFlowEvidence(string kind, string value, DataFlowChain? flow)
     {
         return new ThreatFamilyEvidence

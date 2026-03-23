@@ -7,6 +7,9 @@ using MLVScan.Abstractions;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Detects suspicious reflection invocation patterns and correlates them with other signals.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class ReflectionDetector
     {
@@ -15,6 +18,13 @@ namespace MLVScan.Services
         private readonly StringPatternDetector _stringPatternDetector;
         private readonly CodeSnippetBuilder _snippetBuilder;
 
+        /// <summary>
+        /// Creates a reflection detector that can correlate reflection calls with scanner signals and code snippets.
+        /// </summary>
+        /// <param name="rules">The rules used to evaluate reflected method names.</param>
+        /// <param name="signalTracker">Tracks method and type-level signals gathered during scanning.</param>
+        /// <param name="stringPatternDetector">Detects suspicious string patterns near reflection calls.</param>
+        /// <param name="snippetBuilder">Builds a source snippet around the suspicious instruction.</param>
         public ReflectionDetector(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
             StringPatternDetector stringPatternDetector, CodeSnippetBuilder snippetBuilder)
         {
@@ -25,6 +35,11 @@ namespace MLVScan.Services
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
         }
 
+        /// <summary>
+        /// Determines whether a method reference represents a reflection invocation pattern that this detector treats as suspicious.
+        /// </summary>
+        /// <param name="method">The method reference to evaluate.</param>
+        /// <returns><see langword="true"/> when the method is treated as a suspicious reflection invocation; otherwise <see langword="false"/>.</returns>
         public bool IsReflectionInvokeMethod(MethodReference method)
         {
             // Check for various reflection invocation patterns
@@ -74,6 +89,16 @@ namespace MLVScan.Services
             return false;
         }
 
+        /// <summary>
+        /// Scans a call instruction for reflection invocation patterns and emits findings when the call is supported by other suspicious signals.
+        /// </summary>
+        /// <param name="methodDef">The method containing the call instruction.</param>
+        /// <param name="instruction">The call instruction being analyzed.</param>
+        /// <param name="calledMethod">The method referenced by the call instruction.</param>
+        /// <param name="index">The instruction index within <paramref name="instructions"/>.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="methodSignals">Optional per-method signal state collected during earlier analysis passes.</param>
+        /// <returns>The findings produced for the reflection invocation, if any.</returns>
         public IEnumerable<ScanFinding> ScanForReflectionInvocation(MethodDefinition methodDef, Instruction instruction,
             MethodReference calledMethod, int index,
             Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals? methodSignals)

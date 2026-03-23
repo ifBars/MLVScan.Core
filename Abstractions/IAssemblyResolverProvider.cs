@@ -5,19 +5,18 @@ namespace MLVScan.Abstractions
 {
     /// <summary>
     /// Abstraction for providing assembly resolvers.
-    /// Different platforms (MelonLoader, BepInEx) need to resolve game assemblies differently.
     /// </summary>
     public interface IAssemblyResolverProvider
     {
         /// <summary>
-        /// Creates an assembly resolver configured for the current platform.
+        /// Creates an assembly resolver configured for the current environment.
         /// </summary>
+        /// <returns>A resolver that can be used to resolve referenced assemblies.</returns>
         IAssemblyResolver CreateResolver();
     }
 
     /// <summary>
-    /// Default provider that creates a basic DefaultAssemblyResolver without any search directories.
-    /// Suitable for web scenarios or standalone scanning where game assembly resolution isn't needed.
+    /// Default provider that creates a basic <see cref="DefaultAssemblyResolver"/>.
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public sealed class DefaultAssemblyResolverProvider : IAssemblyResolverProvider
@@ -29,6 +28,7 @@ namespace MLVScan.Abstractions
 
         private DefaultAssemblyResolverProvider() { }
 
+        /// <inheritdoc />
         public IAssemblyResolver CreateResolver() => new DefaultAssemblyResolver();
     }
 }

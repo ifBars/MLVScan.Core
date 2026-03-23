@@ -5,9 +5,19 @@ using System.ComponentModel;
 
 namespace MLVScan.Services
 {
+    /// <summary>
+    /// Detects suspicious string and assembly-loading patterns near a method call.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class StringPatternDetector
     {
+        /// <summary>
+        /// Checks nearby instructions for encoded strings, command-launcher strings, and other suspicious context.
+        /// </summary>
+        /// <param name="methodDef">The method containing the instruction window.</param>
+        /// <param name="instructions">The method instructions to inspect.</param>
+        /// <param name="currentIndex">The instruction index used as the center of the search window.</param>
+        /// <returns><see langword="true"/> when suspicious string context is found; otherwise <see langword="false"/>.</returns>
         public bool HasSuspiciousStringPatterns(MethodDefinition methodDef,
             Mono.Collections.Generic.Collection<Instruction> instructions, int currentIndex)
         {
@@ -62,6 +72,12 @@ namespace MLVScan.Services
             return false;
         }
 
+        /// <summary>
+        /// Checks whether the method body contains assembly loading calls that are commonly used to stage hidden code.
+        /// </summary>
+        /// <param name="methodDef">The method containing the instructions to inspect.</param>
+        /// <param name="instructions">The method instructions to inspect.</param>
+        /// <returns><see langword="true"/> when an assembly-loading pattern is found; otherwise <see langword="false"/>.</returns>
         public bool HasAssemblyLoadingInMethod(MethodDefinition methodDef,
             Mono.Collections.Generic.Collection<Instruction> instructions)
         {

@@ -5,6 +5,13 @@ namespace MLVScan.Models.Dto;
 /// </summary>
 public enum FindingVisibility
 {
+    /// <summary>
+    /// Finding should appear in default result views.
+    /// </summary>
     Default,
+
+    /// <summary>
+    /// Finding should be shown only in advanced or developer-focused views.
+    /// </summary>
     Advanced
 }

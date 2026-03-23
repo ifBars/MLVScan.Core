@@ -3,6 +3,9 @@ using System.Runtime.CompilerServices;
 
 namespace MLVScan.Services.Diagnostics
 {
+    /// <summary>
+    /// Collects optional scan profiling data when <c>MLVSCAN_PROFILING</c> is enabled.
+    /// </summary>
     internal sealed class ScanTelemetryHub
     {
         private ScanProfileSnapshot? _lastSnapshot;
@@ -11,6 +14,10 @@ namespace MLVScan.Services.Diagnostics
         private ScanProfileSession? _currentSession;
 #endif
 
+        /// <summary>
+        /// Starts a new telemetry session for the supplied assembly identifier.
+        /// </summary>
+        /// <param name="assemblyId">An identifier for the assembly being scanned.</param>
         public void BeginAssembly(string assemblyId)
         {
 #if MLVSCAN_PROFILING
@@ -21,6 +28,10 @@ namespace MLVScan.Services.Diagnostics
             _lastSnapshot = null;
         }
 
+        /// <summary>
+        /// Gets the current high-resolution timestamp for profiling measurements.
+        /// </summary>
+        /// <returns>A timestamp from <see cref="Stopwatch.GetTimestamp"/> when profiling is enabled; otherwise <c>0</c>.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public long StartTimestamp()
         {
@@ -31,6 +42,11 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Records the elapsed time for a named scan phase.
+        /// </summary>
+        /// <param name="phaseName">The phase name being measured.</param>
+        /// <param name="startTimestamp">The timestamp returned by <see cref="StartTimestamp"/>.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void AddPhaseElapsed(string phaseName, long startTimestamp)
         {
@@ -47,6 +63,11 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Increments a profiling counter.
+        /// </summary>
+        /// <param name="counterName">The counter name to increment.</param>
+        /// <param name="delta">The amount to add to the counter.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void IncrementCounter(string counterName, long delta = 1)
         {
@@ -63,6 +84,15 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Records a type-level profiling sample.
+        /// </summary>
+        /// <param name="typeName">The type name being sampled.</param>
+        /// <param name="startTimestamp">The timestamp returned by <see cref="StartTimestamp"/>.</param>
+        /// <param name="methodCount">The number of methods seen in the type.</param>
+        /// <param name="nestedTypeCount">The number of nested types seen in the type.</param>
+        /// <param name="findingsCount">The number of findings emitted while scanning the type.</param>
+        /// <param name="pendingReflectionCount">The number of deferred reflection findings for the type.</param>
         public void RecordTypeSample(
             string typeName,
             long startTimestamp,
@@ -94,6 +124,16 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Records a method-level profiling sample.
+        /// </summary>
+        /// <param name="methodName">The method name being sampled.</param>
+        /// <param name="startTimestamp">The timestamp returned by <see cref="StartTimestamp"/>.</param>
+        /// <param name="instructionCount">The number of IL instructions in the method.</param>
+        /// <param name="findingsCount">The number of findings emitted while scanning the method.</param>
+        /// <param name="localVariableCount">The number of local variables seen in the method.</param>
+        /// <param name="exceptionHandlerCount">The number of exception handlers seen in the method.</param>
+        /// <param name="pendingReflectionCount">The number of deferred reflection findings for the method.</param>
         public void RecordMethodSample(
             string methodName,
             long startTimestamp,
@@ -128,6 +168,11 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Completes the current assembly profiling session and stores the resulting snapshot.
+        /// </summary>
+        /// <param name="findingsBeforeFilter">The number of findings before filtering.</param>
+        /// <param name="findingsAfterFilter">The number of findings after filtering.</param>
         public void CompleteAssembly(int findingsBeforeFilter, int findingsAfterFilter)
         {
 #if MLVSCAN_PROFILING
@@ -149,6 +194,10 @@ namespace MLVScan.Services.Diagnostics
 #endif
         }
 
+        /// <summary>
+        /// Gets the most recently completed profiling snapshot.
+        /// </summary>
+        /// <returns>The last completed snapshot, or <see langword="null"/> if profiling is disabled or no session completed.</returns>
         public ScanProfileSnapshot? GetLastSnapshot()
         {
             return _lastSnapshot;

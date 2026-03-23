@@ -7,6 +7,10 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects download-oriented network activity that points to suspicious payload delivery,
+    /// including known malicious domains, raw paste links, and direct payload URLs.
+    /// </summary>
     public class DataInfiltrationRule : IScanRule
     {
         private static readonly HashSet<string> KnownMaliciousDomains = new(StringComparer.OrdinalIgnoreCase)
@@ -19,13 +23,30 @@ namespace MLVScan.Models.Rules
             ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
         };
 
+        /// <summary>
+        /// Gets the description emitted when the rule matches a suspicious download pattern.
+        /// </summary>
         public string Description =>
             "Detected data download from suspicious endpoint (potential payload infiltration).";
 
+        /// <summary>
+        /// Gets the severity assigned to suspicious download patterns.
+        /// </summary>
         public Severity Severity => Severity.High;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "DataInfiltrationRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => true;
 
+        /// <summary>
+        /// Gets developer guidance for legitimate update-check and resource-download scenarios.
+        /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
             "For update checking, use GitHub Releases API (api.github.com/repos/...) or raw.githubusercontent.com.",
             null,
@@ -33,12 +54,23 @@ namespace MLVScan.Models.Rules
             true
         );
 
+        /// <summary>
+        /// Returns false because this rule is triggered by contextual instruction analysis.
+        /// </summary>
         public bool IsSuspicious(MethodReference method)
         {
             // This rule analyzes contextual patterns around method calls
             return false;
         }
 
+        /// <summary>
+        /// Analyzes read-only network operations for suspicious download sources near the call site.
+        /// </summary>
+        /// <param name="method">The network-related method being analyzed.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="instructionIndex">The index of the call instruction being inspected.</param>
+        /// <param name="methodSignals">Current method signal state used for correlation.</param>
+        /// <returns>Findings describing suspicious payload delivery or benign allowlisted sources.</returns>
         public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference method,
             Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
             MethodSignals methodSignals)

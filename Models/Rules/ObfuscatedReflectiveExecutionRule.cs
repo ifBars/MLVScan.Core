@@ -7,6 +7,10 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
+    /// <summary>
+    /// Detects correlated obfuscation, decode, and staging behavior that culminates in reflective,
+    /// assembly-loading, process-launch, or native execution sinks.
+    /// </summary>
     public class ObfuscatedReflectiveExecutionRule : IScanRule
     {
         private const int MinimumDecodeScore = 25;
@@ -15,18 +19,42 @@ namespace MLVScan.Models.Rules
         private const int ReflectionOnlyDangerFloor = 10;
         private const int ReflectionOnlyDecodeFloor = 45;
 
+        /// <summary>
+        /// Gets the description emitted when the rule identifies an obfuscated execution chain.
+        /// </summary>
         public string Description =>
             "Detected correlated obfuscation/decode behavior reaching reflective or staged execution sinks.";
 
+        /// <summary>
+        /// Gets the severity assigned to obfuscated reflective execution chains.
+        /// </summary>
         public Severity Severity => Severity.High;
+
+        /// <summary>
+        /// Gets the stable identifier for this rule.
+        /// </summary>
         public string RuleId => "ObfuscatedReflectiveExecutionRule";
+
+        /// <summary>
+        /// Gets a value indicating whether this rule requires another finding before it can trigger.
+        /// </summary>
         public bool RequiresCompanionFinding => false;
 
+        /// <summary>
+        /// Returns false because this rule evaluates instruction-level evidence rather than method signatures.
+        /// </summary>
         public bool IsSuspicious(MethodReference method)
         {
             return false;
         }
 
+        /// <summary>
+        /// Collects obfuscation evidence from the method body and emits a finding when the score is high enough.
+        /// </summary>
+        /// <param name="methodDef">The method being analyzed.</param>
+        /// <param name="instructions">The method body instructions.</param>
+        /// <param name="methodSignals">Current method signal state.</param>
+        /// <returns>A single high-confidence finding when the evidence passes the reporting threshold.</returns>
         public IEnumerable<ScanFinding> AnalyzeInstructions(
             MethodDefinition methodDef,
             Mono.Collections.Generic.Collection<Instruction> instructions,

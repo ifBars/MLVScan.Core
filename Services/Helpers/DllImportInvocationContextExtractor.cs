@@ -6,6 +6,9 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Services.Helpers
 {
+    /// <summary>
+    /// Reconstructs contextual hints for DllImport-based native execution calls.
+    /// </summary>
     internal static class DllImportInvocationContextExtractor
     {
         private const int SearchWindow = 240;
@@ -19,6 +22,14 @@ namespace MLVScan.Services.Helpers
             "nShow"
         ];
 
+        /// <summary>
+        /// Attempts to build a human-readable context string for a suspicious native shell invocation.
+        /// </summary>
+        /// <param name="callerMethod">The method that contains the native call.</param>
+        /// <param name="calledMethod">The called method reference.</param>
+        /// <param name="instructions">The caller's IL instructions.</param>
+        /// <param name="callInstructionIndex">The instruction index for the call site.</param>
+        /// <returns>A formatted context string, or <see langword="null"/> when no useful context can be reconstructed.</returns>
         public static string? TryBuildContext(
             MethodDefinition callerMethod,
             MethodReference calledMethod,
@@ -34,6 +45,11 @@ namespace MLVScan.Services.Helpers
             return BuildShellExecuteContext(callerMethod, instructions, callInstructionIndex);
         }
 
+        /// <summary>
+        /// Determines whether the supplied P/Invoke resolves to a known native execution entry point.
+        /// </summary>
+        /// <param name="calledMethod">The referenced P/Invoke method.</param>
+        /// <returns><see langword="true"/> when the entry point maps to a known native execution function; otherwise <see langword="false"/>.</returns>
         public static bool IsNativeExecutionPInvoke(MethodReference calledMethod)
         {
             if (!TryGetPInvokeEntryPoint(calledMethod, out var entryPoint))

@@ -1,7 +1,7 @@
 namespace MLVScan.Models.Dto;
 
 /// <summary>
-/// Primary disposition for the scanned file after family and correlated-behavior analysis.
+/// Primary disposition for the scanned file after threat-intel correlation.
 /// </summary>
 public class ThreatDispositionDto
 {
@@ -26,7 +26,7 @@ public class ThreatDispositionDto
     public bool BlockingRecommended { get; set; }
 
     /// <summary>
-    /// Family identifier for the primary matched threat family, when the disposition is a known threat.
+    /// Identifier for the primary matched threat family, when the disposition is a known threat.
     /// </summary>
     public string? PrimaryThreatFamilyId { get; set; }
 
