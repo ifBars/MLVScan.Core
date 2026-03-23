@@ -33,6 +33,20 @@ namespace MLVScan.Models.Rules.Helpers
                 evidence.AddDecode(8, "hex-like literal", index);
             }
 
+            if (ObfuscatedDecodeMatcher.TryGetInvisibleUnicodeLiteralReason(literal, out string invisibleReason,
+                    out bool hasSuspiciousDecodedContent))
+            {
+                evidence.HasEncodedLiteral = true;
+                evidence.HasStrongDecodePrimitive = true;
+                evidence.AddDecode(hasSuspiciousDecodedContent ? 20 : 14, invisibleReason, index);
+
+                if (hasSuspiciousDecodedContent)
+                {
+                    evidence.HasDangerousLiteral = true;
+                    evidence.AddDanger(14, "suspicious content recovered from invisible Unicode payload", index);
+                }
+            }
+
             if (ObfuscatedDecodeMatcher.TryGetDangerLiteralMarker(literal, out string marker))
             {
                 evidence.HasDangerousLiteral = true;

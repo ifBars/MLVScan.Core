@@ -54,6 +54,22 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
+            if (typeName == "System.Char" && methodName == "ConvertToUtf32")
+            {
+                score = 12;
+                reason = "Unicode code-point extraction";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
+            if (typeName == "System.Char" && methodName == "IsSurrogatePair")
+            {
+                score = 6;
+                reason = "surrogate-pair aware Unicode walking";
+                isStrongDecodePrimitive = true;
+                return true;
+            }
+
             if (typeName == "System.Linq.Enumerable" && methodName == "Select")
             {
                 if (calledMethod is GenericInstanceMethod genericMethod &&
@@ -276,6 +292,30 @@ namespace MLVScan.Models.Rules.Helpers
 
             marker = string.Empty;
             return false;
+        }
+
+        public static bool TryGetInvisibleUnicodeLiteralReason(string literal, out string reason,
+            out bool hasSuspiciousDecodedContent)
+        {
+            var analysis = InvisibleUnicodeAnalyzer.Analyze(literal);
+            if (!analysis.HasVariationSelectorPayload)
+            {
+                reason = string.Empty;
+                hasSuspiciousDecodedContent = false;
+                return false;
+            }
+
+            hasSuspiciousDecodedContent = !string.IsNullOrWhiteSpace(analysis.DecodedText) &&
+                                          EncodedStringLiteralRule.ContainsSuspiciousContent(analysis.DecodedText);
+
+            if (hasSuspiciousDecodedContent)
+            {
+                reason = $"invisible Unicode payload decodes to '{analysis.DecodedText}'";
+                return true;
+            }
+
+            reason = $"invisible Unicode payload ({analysis.VariationSelectorCount} variation selectors)";
+            return true;
         }
 
         private static string ReverseString(string input)

@@ -168,6 +168,21 @@ public class EncodedStringLiteralRuleTests
     }
 
     [Fact]
+    public void AnalyzeStringLiteral_InvisibleUnicodePayloadWithSuspiciousDecodedContent_ReturnsCriticalFinding()
+    {
+        var method = CreateMethodDefinition("RunLiteral");
+        var encoded =
+            "\U000E0143\U000E0169\U000E0163\U000E0164\U000E0155\U000E015D\U000E011E\U000E0134\U000E0159\U000E0151\U000E0157\U000E015E\U000E015F\U000E0163\U000E0164\U000E0159\U000E0153\U000E0163\U000E011E\U000E0140\U000E0162\U000E015F\U000E0153\U000E0155\U000E0163\U000E0163";
+
+        var findings = _rule.AnalyzeStringLiteral(encoded, method, 7).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Invisible Unicode payload");
+        findings[0].Description.Should().Contain("System.Diagnostics.Process");
+    }
+
+    [Fact]
     public void AnalyzeAssemblyMetadata_WithEncodedAttributeValue_ReturnsCriticalFinding()
     {
         var assembly = TestUtilities.TestAssemblyBuilder.Create("MetaEncoded")
@@ -193,6 +208,22 @@ public class EncodedStringLiteralRuleTests
 
         findings.Should().ContainSingle();
         findings[0].Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void AnalyzeAssemblyMetadata_WithInvisibleUnicodePayload_ReturnsCriticalFinding()
+    {
+        var encoded =
+            "\U000E0143\U000E0169\U000E0163\U000E0164\U000E0155\U000E015D\U000E011E\U000E0134\U000E0159\U000E0151\U000E0157\U000E015E\U000E015F\U000E0163\U000E0164\U000E0159\U000E0153\U000E0163\U000E011E\U000E0140\U000E0162\U000E015F\U000E0153\U000E0155\U000E0163\U000E0163";
+        var assembly = TestUtilities.TestAssemblyBuilder.Create("MetaEncodedInvisible")
+            .AddAssemblyAttribute("AssemblyMetadataAttribute", "k", encoded)
+            .Build();
+
+        var findings = _rule.AnalyzeAssemblyMetadata(assembly).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("invisible Unicode payload", Exactly.Once());
     }
 
     #endregion

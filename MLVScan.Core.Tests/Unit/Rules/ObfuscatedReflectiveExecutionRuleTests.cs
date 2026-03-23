@@ -220,6 +220,75 @@ namespace MLVScan.Core.Tests.Unit.Rules
             findings.Should().BeEmpty();
         }
 
+        [Fact]
+        public void AnalyzeInstructions_DetectsInvisibleUnicodeDecodeCorrelatedWithReflection()
+        {
+            (MethodDefinition method, ModuleDefinition module) = CreateTestMethod();
+            ILProcessor il = method.Body.GetILProcessor();
+
+            MethodReference convertToUtf32Method = CreateMethodReference(
+                module,
+                "System",
+                "Char",
+                "ConvertToUtf32",
+                module.TypeSystem.Int32,
+                module.TypeSystem.String,
+                module.TypeSystem.Int32);
+
+            MethodReference isSurrogatePairMethod = CreateMethodReference(
+                module,
+                "System",
+                "Char",
+                "IsSurrogatePair",
+                module.TypeSystem.Boolean,
+                module.TypeSystem.String,
+                module.TypeSystem.Int32);
+
+            MethodReference getStringMethod = CreateMethodReference(
+                module,
+                "System.Text",
+                "Encoding",
+                "GetString",
+                module.TypeSystem.String,
+                new ArrayType(module.TypeSystem.Byte));
+
+            MethodReference getMethodCall = CreateMethodReference(
+                module,
+                "System",
+                "Type",
+                "GetMethod",
+                module.TypeSystem.Object,
+                module.TypeSystem.String);
+
+            MethodReference invokeMethod = CreateMethodReference(
+                module,
+                "System.Reflection",
+                "MethodInfo",
+                "Invoke",
+                module.TypeSystem.Object,
+                module.TypeSystem.Object,
+                new ArrayType(module.TypeSystem.Object));
+
+            il.Append(il.Create(OpCodes.Ldstr,
+                "\U000E0143\U000E0169\U000E0163\U000E0164\U000E0155\U000E015D\U000E011E\U000E0134\U000E0159\U000E0151\U000E0157\U000E015E\U000E015F\U000E0163\U000E0164\U000E0159\U000E0153\U000E0163\U000E011E\U000E0140\U000E0162\U000E015F\U000E0153\U000E0155\U000E0163\U000E0163"));
+            il.Append(il.Create(OpCodes.Call, convertToUtf32Method));
+            il.Append(il.Create(OpCodes.Call, isSurrogatePairMethod));
+            il.Append(il.Create(OpCodes.Ldc_I4, 65024));
+            il.Append(il.Create(OpCodes.Ldc_I4, 917760));
+            il.Append(il.Create(OpCodes.Callvirt, getStringMethod));
+            il.Append(il.Create(OpCodes.Ldstr, "Start"));
+            il.Append(il.Create(OpCodes.Call, getMethodCall));
+            il.Append(il.Create(OpCodes.Callvirt, invokeMethod));
+            il.Append(il.Create(OpCodes.Ret));
+
+            List<ScanFinding> findings = _rule.AnalyzeInstructions(method, method.Body.Instructions, new MethodSignals()).ToList();
+
+            findings.Should().ContainSingle();
+            findings[0].Severity.Should().Be(Severity.High);
+            findings[0].RiskScore.Should().BeGreaterThanOrEqualTo(70);
+            findings[0].Description.Should().Contain("invisible Unicode payload");
+        }
+
         private static (MethodDefinition Method, ModuleDefinition Module) CreateTestMethod()
         {
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();

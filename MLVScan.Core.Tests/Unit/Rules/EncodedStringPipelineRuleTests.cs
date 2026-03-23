@@ -16,7 +16,7 @@ public class EncodedStringPipelineRuleTests
     public void RuleMetadata_IsExpected()
     {
         _rule.RuleId.Should().Be("EncodedStringPipelineRule");
-        _rule.Description.Should().Be("Detected encoded string to char decoding pipeline (ASCII number parsing pattern).");
+        _rule.Description.Should().Be("Detected encoded string to char decoding pipeline (ASCII number or invisible Unicode pattern).");
         _rule.Severity.Should().Be(Severity.High);
         _rule.RequiresCompanionFinding.Should().BeFalse();
     }
@@ -247,6 +247,29 @@ public class EncodedStringPipelineRuleTests
         lines.Should().Contain(line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal) && line.Contains("Concat", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void AnalyzeInstructions_DetectsInvisibleUnicodeDecodePipeline()
+    {
+        var context = CreateContext();
+        context.Emit(OpCodes.Call, CreateConvertToUtf32Method(context.Module));
+        context.Emit(OpCodes.Call, CreateIsSurrogatePairMethod(context.Module));
+        context.Emit(OpCodes.Ldc_I4, 65024);
+        context.Emit(OpCodes.Ldc_I4, 65039);
+        context.Emit(OpCodes.Ldc_I4, 917760);
+        context.Emit(OpCodes.Ldc_I4, 917999);
+        context.Emit(OpCodes.Callvirt, CreateListAddMethod(context.Module));
+        context.Emit(OpCodes.Callvirt, CreateEncodingGetStringMethod(context.Module));
+        context.Emit(OpCodes.Ret);
+
+        var findings = Analyze(context.Method);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("variation-selector Unicode decode pipeline");
+        findings[0].CodeSnippet.Should().Contain("ConvertToUtf32");
+        findings[0].CodeSnippet.Should().Contain("GetString");
+    }
+
     private List<ScanFinding> Analyze(MethodDefinition method)
     {
         return _rule.AnalyzeInstructions(method, method.Body.Instructions, new MethodSignals()).ToList();
@@ -301,6 +324,45 @@ public class EncodedStringPipelineRuleTests
         return parseMethod;
     }
 
+    private static MethodReference CreateConvertToUtf32Method(ModuleDefinition module)
+    {
+        var charType = CreateTypeReference(module, "System.Char");
+        var method = new MethodReference("ConvertToUtf32", module.TypeSystem.Int32, charType);
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        return method;
+    }
+
+    private static MethodReference CreateIsSurrogatePairMethod(ModuleDefinition module)
+    {
+        var charType = CreateTypeReference(module, "System.Char");
+        var method = new MethodReference("IsSurrogatePair", module.TypeSystem.Boolean, charType);
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        return method;
+    }
+
+    private static MethodReference CreateEncodingGetStringMethod(ModuleDefinition module)
+    {
+        var encodingType = CreateTypeReference(module, "System.Text.Encoding");
+        var method = new MethodReference("GetString", module.TypeSystem.String, encodingType);
+        method.Parameters.Add(new ParameterDefinition(new ArrayType(module.TypeSystem.Byte)));
+        return method;
+    }
+
+    private static MethodReference CreateListAddMethod(ModuleDefinition module)
+    {
+        var listType = new TypeReference("System.Collections.Generic", "List`1", module, module.TypeSystem.CoreLibrary);
+        var genericType = new GenericInstanceType(listType);
+        genericType.GenericArguments.Add(module.TypeSystem.Byte);
+        var method = new MethodReference("Add", module.TypeSystem.Void, genericType)
+        {
+            HasThis = true
+        };
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.Byte));
+        return method;
+    }
+
     private static TypeReference CreateTypeReference(ModuleDefinition module, string fullName)
     {
         var lastDot = fullName.LastIndexOf('.');
@@ -324,6 +386,11 @@ public class EncodedStringPipelineRuleTests
         public void Emit(OpCode opCode, MethodReference method)
         {
             Processor.Append(Processor.Create(opCode, method));
+        }
+
+        public void Emit(OpCode opCode, int value)
+        {
+            Processor.Append(Processor.Create(opCode, value));
         }
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -41,6 +42,21 @@ namespace MLVScan.Models.Rules
         {
             if (string.IsNullOrWhiteSpace(literal))
                 yield break;
+
+            var invisibleUnicodeAnalysis = InvisibleUnicodeAnalyzer.Analyze(literal);
+            if (invisibleUnicodeAnalysis.HasVariationSelectorPayload &&
+                !string.IsNullOrWhiteSpace(invisibleUnicodeAnalysis.DecodedText) &&
+                ContainsSuspiciousContent(invisibleUnicodeAnalysis.DecodedText))
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType.FullName}.{method.Name}:{instructionIndex}",
+                    "Invisible Unicode payload string with suspicious decoded content detected. " +
+                    $"Decoded: {invisibleUnicodeAnalysis.DecodedText}",
+                    Severity.Critical,
+                    $"Variation selectors: {invisibleUnicodeAnalysis.VariationSelectorCount}\n" +
+                    $"Decoded: {invisibleUnicodeAnalysis.DecodedText}");
+                yield break;
+            }
 
             // Check single-level encoding first
             if (IsEncodedString(literal))
@@ -92,6 +108,21 @@ namespace MLVScan.Models.Rules
                         {
                             if (arg.Value is string strValue && !string.IsNullOrWhiteSpace(strValue))
                             {
+                                var invisibleUnicodeAnalysis = InvisibleUnicodeAnalyzer.Analyze(strValue);
+                                if (invisibleUnicodeAnalysis.HasVariationSelectorPayload &&
+                                    !string.IsNullOrWhiteSpace(invisibleUnicodeAnalysis.DecodedText) &&
+                                    ContainsSuspiciousContent(invisibleUnicodeAnalysis.DecodedText))
+                                {
+                                    findings.Add(new ScanFinding(
+                                        $"Assembly Metadata: {attr.AttributeType.Name}",
+                                        "Hidden invisible Unicode payload in assembly metadata. Decoded content: " +
+                                        invisibleUnicodeAnalysis.DecodedText,
+                                        Severity.Critical,
+                                        $"Variation selectors: {invisibleUnicodeAnalysis.VariationSelectorCount}\n" +
+                                        $"Decoded: {invisibleUnicodeAnalysis.DecodedText}"));
+                                    continue;
+                                }
+
                                 // Check for numeric encoding patterns
                                 if (IsEncodedString(strValue))
                                 {

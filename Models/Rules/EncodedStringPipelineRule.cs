@@ -7,7 +7,7 @@ namespace MLVScan.Models.Rules
     public class EncodedStringPipelineRule : IScanRule
     {
         public string Description =>
-            "Detected encoded string to char decoding pipeline (ASCII number parsing pattern).";
+            "Detected encoded string to char decoding pipeline (ASCII number or invisible Unicode pattern).";
 
         public Severity Severity => Severity.High;
         public string RuleId => "EncodedStringPipelineRule";
@@ -35,6 +35,11 @@ namespace MLVScan.Models.Rules
                 bool hasConcatChar = false;
                 bool hasConvertAllStringChar = false;
                 bool hasNewStringCharArray = false;
+                bool hasConvertToUtf32 = false;
+                bool hasSurrogatePairCheck = false;
+                bool hasEncodingGetString = false;
+                bool hasByteAccumulator = false;
+                bool hasVariationSelectorBounds = false;
 
                 int parseIndex = -1;
                 int convU2Index = -1;
@@ -42,6 +47,11 @@ namespace MLVScan.Models.Rules
                 int concatIndex = -1;
                 int convertAllIndex = -1;
                 int newStringIndex = -1;
+                int convertToUtf32Index = -1;
+                int surrogatePairIndex = -1;
+                int getStringIndex = -1;
+                int byteAccumulatorIndex = -1;
+                int variationBoundsIndex = -1;
 
                 // First pass: Find all components
                 for (int i = 0; i < instructions.Count; i++)
@@ -107,6 +117,34 @@ namespace MLVScan.Models.Rules
                                     }
                                 }
                             }
+
+                            if (typeName == "System.Char" && methodName == "ConvertToUtf32")
+                            {
+                                hasConvertToUtf32 = true;
+                                convertToUtf32Index = i;
+                            }
+
+                            if (typeName == "System.Char" && methodName == "IsSurrogatePair")
+                            {
+                                hasSurrogatePairCheck = true;
+                                surrogatePairIndex = i;
+                            }
+
+                            if (typeName == "System.Text.Encoding" && methodName == "GetString")
+                            {
+                                hasEncodingGetString = true;
+                                getStringIndex = i;
+                            }
+
+                            if ((typeName == "System.Collections.Generic.List`1" ||
+                                 typeName.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal)) &&
+                                methodName == "Add" &&
+                                calledMethod.Parameters.Count == 1 &&
+                                calledMethod.Parameters[0].ParameterType.FullName == "System.Byte")
+                            {
+                                hasByteAccumulator = true;
+                                byteAccumulatorIndex = i;
+                            }
                         }
                     }
 
@@ -130,6 +168,13 @@ namespace MLVScan.Models.Rules
                             hasConvU2 = true;
                             convU2Index = i;
                         }
+                    }
+
+                    if (!hasVariationSelectorBounds && TryResolveInt32Literal(instr, out int literalValue) &&
+                        IsVariationSelectorBoundary(literalValue))
+                    {
+                        hasVariationSelectorBounds = true;
+                        variationBoundsIndex = i;
                     }
                 }
 
@@ -182,6 +227,38 @@ namespace MLVScan.Models.Rules
                         Severity.High,
                         snippetBuilder.ToString().TrimEnd()));
                 }
+
+                if (hasConvertToUtf32 && hasEncodingGetString && hasByteAccumulator && hasVariationSelectorBounds)
+                {
+                    var highlightIndexes = new[]
+                    {
+                        convertToUtf32Index,
+                        surrogatePairIndex,
+                        variationBoundsIndex,
+                        byteAccumulatorIndex,
+                        getStringIndex
+                    }.Where(index => index >= 0).Distinct().OrderBy(index => index).ToList();
+
+                    int startIdx = Math.Max(0, highlightIndexes.First() - 2);
+                    int endIdx = Math.Min(instructions.Count, highlightIndexes.Last() + 3);
+                    var snippetBuilder = new System.Text.StringBuilder();
+
+                    for (int j = startIdx; j < endIdx; j++)
+                    {
+                        snippetBuilder.Append(highlightIndexes.Contains(j) ? ">>> " : "    ");
+                        snippetBuilder.AppendLine(instructions[j].ToString());
+                    }
+
+                    string pipelineKind = hasSurrogatePairCheck
+                        ? "variation-selector Unicode decode pipeline with surrogate-pair handling"
+                        : "variation-selector Unicode decode pipeline";
+
+                    findings.Add(new ScanFinding(
+                        $"{methodDef.DeclaringType.FullName}.{methodDef.Name}",
+                        $"Detected encoded string to char decoding pipeline ({pipelineKind})",
+                        Severity.Critical,
+                        snippetBuilder.ToString().TrimEnd()));
+                }
             }
             catch
             {
@@ -189,6 +266,89 @@ namespace MLVScan.Models.Rules
             }
 
             return findings;
+        }
+
+        private static bool IsVariationSelectorBoundary(int value)
+        {
+            return value == 65024 || value == 65039 || value == 917760 || value == 917999;
+        }
+
+        private static bool TryResolveInt32Literal(Instruction instruction, out int value)
+        {
+            if (instruction.OpCode == OpCodes.Ldc_I4 && instruction.Operand is int intValue)
+            {
+                value = intValue;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_S && instruction.Operand is sbyte sbyteValue)
+            {
+                value = sbyteValue;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_M1)
+            {
+                value = -1;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_0)
+            {
+                value = 0;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_1)
+            {
+                value = 1;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_2)
+            {
+                value = 2;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_3)
+            {
+                value = 3;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_4)
+            {
+                value = 4;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_5)
+            {
+                value = 5;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_6)
+            {
+                value = 6;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_7)
+            {
+                value = 7;
+                return true;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldc_I4_8)
+            {
+                value = 8;
+                return true;
+            }
+
+            value = 0;
+            return false;
         }
     }
 }
