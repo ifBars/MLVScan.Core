@@ -4,6 +4,7 @@ using MLVScan.Services.DataFlow;
 using MLVScan.Services.Diagnostics;
 using Mono.Cecil;
 using System.ComponentModel;
+using MLVScan.Abstractions;
 
 namespace MLVScan.Services
 {

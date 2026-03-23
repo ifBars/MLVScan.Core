@@ -1,8 +1,9 @@
 using System.Linq;
+using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace MLVScan.Models
+namespace MLVScan.Abstractions
 {
     public interface IScanRule
     {

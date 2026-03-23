@@ -1,3 +1,5 @@
+using MLVScan.Abstractions;
+
 namespace MLVScan.Models
 {
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;

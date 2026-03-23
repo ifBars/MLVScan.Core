@@ -3,6 +3,7 @@ using MLVScan.Models.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.ComponentModel;
+using MLVScan.Abstractions;
 
 namespace MLVScan.Services
 {

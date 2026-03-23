@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;

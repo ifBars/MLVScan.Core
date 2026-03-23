@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;

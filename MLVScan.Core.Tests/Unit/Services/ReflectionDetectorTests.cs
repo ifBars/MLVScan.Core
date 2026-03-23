@@ -1,5 +1,6 @@
 using System.Linq;
 using FluentAssertions;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
 using MLVScan.Services;

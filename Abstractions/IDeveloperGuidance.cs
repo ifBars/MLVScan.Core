@@ -1,4 +1,4 @@
-namespace MLVScan.Models
+namespace MLVScan.Abstractions
 {
     /// <summary>
     /// Developer-facing guidance for fixing false positives or understanding

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MLVScan.Abstractions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;

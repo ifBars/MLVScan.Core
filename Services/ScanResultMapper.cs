@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Dto;
 using MLVScan.Models.ThreatIntel;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using MLVScan.Abstractions;
 using MLVScan.Models;
 using Mono.Cecil;
 
