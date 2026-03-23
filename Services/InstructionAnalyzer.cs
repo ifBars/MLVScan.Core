@@ -5,7 +5,6 @@ using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.ComponentModel;
-using System.Reflection;
 
 namespace MLVScan.Services
 {
@@ -73,7 +72,7 @@ namespace MLVScan.Services
 
             _rules = rules.ToArray();
             _contextualPatternRules = _rules
-                .Where(static rule => OverridesRuleMethod(rule, nameof(IScanRule.AnalyzeContextualPattern),
+                .Where(static rule => RuleOverrideChecker.OverridesRuleMethod(rule, nameof(IScanRule.AnalyzeContextualPattern),
                     typeof(MethodReference),
                     typeof(Mono.Collections.Generic.Collection<Instruction>),
                     typeof(int),
@@ -385,13 +384,12 @@ namespace MLVScan.Services
                         {
                             result.Findings.Add(finding);
                             _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionBypassFindings");
-                            var reflectionRuleForFinding = _rules.FirstOrDefault(r => r is ReflectionRule);
-                            if (methodSignals != null && reflectionRuleForFinding != null &&
-                                !(reflectionRuleForFinding.RequiresCompanionFinding &&
-                                  finding.Severity == Severity.Low))
+                            if (methodSignals != null && _reflectionRule != null &&
+                                !(_reflectionRule.RequiresCompanionFinding &&
+                                   finding.Severity == Severity.Low))
                             {
                                 _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
-                                    reflectionRuleForFinding.RuleId);
+                                    _reflectionRule.RuleId);
                             }
                         }
                     }
@@ -475,18 +473,6 @@ namespace MLVScan.Services
             }
 
             return false;
-        }
-
-        private static bool OverridesRuleMethod(IScanRule rule, string methodName, params Type[] parameterTypes)
-        {
-            var method = rule.GetType().GetMethod(
-                methodName,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null,
-                types: parameterTypes,
-                modifiers: null);
-
-            return method != null && method.DeclaringType != typeof(IScanRule);
         }
     }
 }

@@ -57,7 +57,7 @@ public class FalsePositiveCorpusPerformanceTests
 
         _output.WriteLine($"Corpus root: {falsePositivesFolder}");
         _output.WriteLine($"Assemblies scanned: {assemblyPaths.Length}");
-        _output.WriteLine($"Warmup findings: {baselineRun.TotalFindings}");
+        _output.WriteLine($"Baseline findings: {baselineRun.TotalFindings}");
         _output.WriteLine($"Measured runs (ms): {string.Join(", ", measurement.DurationsMs)}");
         _output.WriteLine(
             $"Summary: min={measurement.MinMs} avg={measurement.AverageMs:F1} p95={measurement.P95Ms} max={measurement.MaxMs}");
@@ -123,7 +123,7 @@ public class FalsePositiveCorpusPerformanceTests
         Directory.CreateDirectory(outputDirectory);
 
         var outputPath = Path.Combine(outputDirectory,
-            $"false-positive-corpus-profile-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+            $"false-positive-corpus-profile-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}.json");
 
         var payload = new CorpusProfileArtifact
         {

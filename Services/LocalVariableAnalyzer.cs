@@ -86,9 +86,9 @@ namespace MLVScan.Services
                     }
                 }
 
-                if (methodSignals?.HasSuspiciousLocalVariables == true)
+                if (effectiveMethodSignals.HasSuspiciousLocalVariables)
                 {
-                    _signalTracker.MarkSuspiciousLocalVariables(methodSignals, method.DeclaringType);
+                    _signalTracker.MarkSuspiciousLocalVariables(effectiveMethodSignals, method.DeclaringType);
                 }
             }
             catch (Exception)

@@ -276,7 +276,8 @@ public class AssemblyScannerTests
     [Fact]
     public void CreateAssemblyTelemetryId_StripsAbsolutePath()
     {
-        var assemblyId = AssemblyScanner.CreateAssemblyTelemetryId(@"C:\Users\ghost\Desktop\sample\Example.dll");
+        var assemblyPath = Path.Combine(Path.GetTempPath(), "MLVScan.Core.Tests", "Example.dll");
+        var assemblyId = AssemblyScanner.CreateAssemblyTelemetryId(assemblyPath);
 
         assemblyId.Should().Be("Example.dll");
     }
