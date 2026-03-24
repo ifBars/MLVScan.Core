@@ -51,6 +51,8 @@
     <None Remove="run-false-positive-tests.bat" />
     <None Remove="run-quarantine-tests.bat" />
     <None Remove="MLVScan.Core.Tests\**" />
+    <None Remove="api\**" />
+    <None Remove="_site\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -73,6 +75,10 @@
     <EmbeddedResource Remove="TestLogs\**" />
     <Compile Remove="MLVScan.Core.Tests\**" />
     <EmbeddedResource Remove="MLVScan.Core.Tests\**" />
+    <Compile Remove="api\**" />
+    <EmbeddedResource Remove="api\**" />
+    <Compile Remove="_site\**" />
+    <EmbeddedResource Remove="_site\**" />
   </ItemGroup>
 
   <ItemGroup>
