@@ -58,13 +58,5 @@ bump-version.ps1
 MLVScan.WASM/npm/dist/
 MLVScan.WASM/npm/node_modules/
 
-## DocFX
-_site/
-api/
-.docfx/
-_exported_templates/
-docfx.json.bak
-xrefmap.yml
-
 project-document.txt
 quarantine-tests-full-output.log
