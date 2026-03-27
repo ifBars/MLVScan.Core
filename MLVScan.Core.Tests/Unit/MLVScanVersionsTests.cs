@@ -32,6 +32,14 @@ public class MLVScanVersionsTests
     }
 
     [Fact]
+    public void CoreVersion_MatchesDeclaredCoreConstant()
+    {
+#pragma warning disable CS0618
+        MLVScanVersions.CoreVersion.Should().Be(Constants.CoreVersion);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
     public void CoreVersion_IsValidSemverOrFallback()
     {
         var version = MLVScanVersions.CoreVersion;
