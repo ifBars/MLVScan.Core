@@ -55,15 +55,11 @@ foreach (var finding in result.Findings)
 }
 ```
 
-The scanner still emits rule findings as the foundational evidence, but the primary verdict now comes from the threat-intel layer: matched `threatFamilies` and the final `disposition` built on top of those findings.
+The scanner emits rule findings as the foundational evidence, but the primary verdict comes from the threat-intel layer: matched `threatFamilies` and the final `disposition` built on top of those findings.
 
 ## 📚 Documentation
 
-Complete documentation is available in the **[MLVScan.Core Wiki](https://github.com/ifBars/MLVScan.Core/wiki)**:
-
-*   **[Getting Started](https://github.com/ifBars/MLVScan.Core/wiki/Getting-Started)** - Detailed integration guide.
-*   **[Detection Rules](https://github.com/ifBars/MLVScan.Core/wiki/Detection-Rules)** - List of all 17+ security rules.
-*   **[API Reference](https://github.com/ifBars/MLVScan.Core/wiki/API-Reference)** - Deep dive into the codebase.
+Complete documentation is available in the **[MLVScan.Core Wiki](https://mlvscan.com/docs/libraries/core)**
 
 ## ✨ Features
 
