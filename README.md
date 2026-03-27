@@ -27,15 +27,35 @@ dotnet add package MLVScan.Core
 ## 🚀 Quick Usage
 
 ```csharp
+using MLVScan.Services;
+
 var rules = RuleFactory.CreateDefaultRules();
 var scanner = new AssemblyScanner(rules);
-var findings = scanner.Scan("path/to/suspicious.dll");
+var assemblyPath = "path/to/suspicious.dll";
+var assemblyBytes = File.ReadAllBytes(assemblyPath);
+var findings = scanner.Scan(assemblyPath).ToList();
+var result = ScanResultMapper.ToDto(
+    findings,
+    Path.GetFileName(assemblyPath),
+    assemblyBytes);
 
-if (findings.Any(f => f.Severity == Severity.Critical))
+Console.WriteLine($"{result.Disposition?.Classification}: {result.Disposition?.Headline}");
+
+if (result.ThreatFamilies?.Count > 0)
 {
-    Console.WriteLine("Malware detected!");
+    foreach (var family in result.ThreatFamilies)
+    {
+        Console.WriteLine($"Matched family: {family.DisplayName} ({family.FamilyId})");
+    }
+}
+
+foreach (var finding in result.Findings)
+{
+    Console.WriteLine($"[{finding.Severity}] {finding.RuleId}: {finding.Description}");
 }
 ```
+
+The scanner still emits rule findings as the foundational evidence, but the primary verdict now comes from the threat-intel layer: matched `threatFamilies` and the final `disposition` built on top of those findings.
 
 ## 📚 Documentation
 
@@ -51,18 +71,6 @@ Complete documentation is available in the **[MLVScan.Core Wiki](https://github.
 *   **Multi-Signal Detection**: Context-aware analysis reduces false positives.
 *   **Stream Support**: Scan files from memory without writing to disk.
 *   **Deep Behavior Analysis**: Correlates practical decode/load/execute behavior chains in compiled code.
-
-## 🧪 Testing
-
-Run all tests:
-```bash
-dotnet test MLVScan.Core.sln
-```
-
-**Note**: Some tests are designed to fail locally to document features that need implementation, but pass in CI. To run tests with CI behavior locally:
-```bash
-CI=true dotnet test MLVScan.Core.sln
-```
 
 ---
 *Licensed under GPL-3.0*
