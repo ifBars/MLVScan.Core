@@ -193,7 +193,7 @@ public sealed class ThreatDispositionClassifier
         if (string.Equals(finding.RuleId, "DataFlowAnalysis", StringComparison.Ordinal))
         {
             return finding.HasDataFlow &&
-                   SuspiciousDataFlowPatterns.Contains(finding.DataFlowChain!.Pattern);
+                   IsSuspiciousDataFlowSeed(finding);
         }
 
         if (StrongStandaloneRuleIds.Contains(finding.RuleId ?? string.Empty))
@@ -222,5 +222,70 @@ public sealed class ThreatDispositionClassifier
         return (finding.HasCallChain || finding.HasDataFlow) &&
                highSeverityCorrelatedCount >= 2 &&
                highSeverityRuleCount >= 2;
+    }
+
+    private static bool IsSuspiciousDataFlowSeed(ScanFinding finding)
+    {
+        var pattern = finding.DataFlowChain!.Pattern;
+        if (pattern == DataFlowPattern.EmbeddedResourceDropAndExecute)
+        {
+            return HasEmbeddedDropperExecutionMarkers(finding);
+        }
+
+        return SuspiciousDataFlowPatterns.Contains(pattern);
+    }
+
+    private static bool HasEmbeddedDropperExecutionMarkers(ScanFinding finding)
+    {
+        var texts = EnumerateEmbeddedDataFlowTexts(finding).ToList();
+        return ContainsAny(texts,
+            ".cmd",
+            ".bat",
+            "%TEMP%",
+            "ShellExecuteEx",
+            "PInvoke.ShellExecute",
+            "PInvoke.CreateProcess",
+            "PInvoke.WinExec",
+            "temp script dropper pattern",
+            "nShow=0",
+            "WindowStyle=Hidden",
+            "CreateNoWindow=true");
+    }
+
+    private static IEnumerable<string> EnumerateEmbeddedDataFlowTexts(ScanFinding finding)
+    {
+        yield return finding.Description;
+
+        if (!string.IsNullOrWhiteSpace(finding.CodeSnippet))
+        {
+            yield return finding.CodeSnippet;
+        }
+
+        if (!finding.HasDataFlow)
+        {
+            yield break;
+        }
+
+        var dataFlow = finding.DataFlowChain!;
+        yield return dataFlow.Summary;
+        yield return dataFlow.MethodLocation;
+
+        foreach (var node in dataFlow.Nodes)
+        {
+            yield return node.Location;
+            yield return node.Operation;
+            yield return node.DataDescription;
+
+            if (!string.IsNullOrWhiteSpace(node.CodeSnippet))
+            {
+                yield return node.CodeSnippet;
+            }
+        }
+    }
+
+    private static bool ContainsAny(IEnumerable<string> haystacks, params string[] needles)
+    {
+        var haystackList = haystacks.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+        return needles.Any(needle => haystackList.Any(value => value.Contains(needle, StringComparison.OrdinalIgnoreCase)));
     }
 }

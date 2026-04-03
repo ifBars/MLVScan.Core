@@ -15,30 +15,33 @@ internal static class ThreatFamilyCatalog
     [
         new ThreatFamilyDefinition
         {
-            FamilyId = "family-resource-shell32-tempcmd-v1",
-            DisplayName = "Embedded resource ShellExecute temp CMD dropper",
-            Summary = "Extracts an embedded resource to a temporary .cmd file and executes it hidden via ShellExecuteEx.",
+            FamilyId = "family-resource-shell32-tempcmd-v2",
+            DisplayName = "Embedded resource temp CMD dropper",
+            Summary = "Extracts an embedded resource to a temporary .cmd file and executes it via ShellExecuteEx or Process.Start.",
             AdvisorySlugs =
             [
                 "2025-12-malware-customtv-il2cpp",
                 "2025-12-malware-nomoretrash",
                 "2025-12-malware-realandwaitingtimeonfire"
             ],
-            ExactSampleHashes =
-            [
-                "2f8f2b41ab22ebc9ae69f5938a4887c9bfb2f78b984e5be7789c6a67a6d54cb1",
-                "a090d5cf0db9100fac2c7e30c5a8609b1d128d99c2402dbe3bfadfac4800f3ea",
-                "994124671953a3b08d805e5b402719760129a7d19678d85e432dcbac179d0224"
-            ],
+            ExactSampleHashes = [],
             Variants =
             [
                 new ThreatFamilyVariantDefinition
                 {
-                    VariantId = "resource-shell32-tempcmd-hidden",
-                    DisplayName = "Embedded resource -> temp .cmd -> hidden ShellExecuteEx",
-                    Summary = "Embedded payload materialized to a temporary .cmd file and launched with hidden native shell execution.",
+                    VariantId = "resource-shell32-tempcmd-shell32",
+                    DisplayName = "Embedded resource -> temp .cmd -> ShellExecuteEx",
+                    Summary = "Embedded payload materialized to a temporary .cmd file and launched through ShellExecuteEx.",
                     Confidence = 0.99,
                     Matcher = MatchEmbeddedShellExecuteTempCmd
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "resource-shell32-tempcmd-process-start",
+                    DisplayName = "Embedded resource -> temp .cmd -> Process.Start",
+                    Summary = "Embedded payload materialized to a temporary .cmd file and launched through Process.Start.",
+                    Confidence = 0.97,
+                    Matcher = MatchEmbeddedProcessStartTempCmd
                 }
             ]
         },
@@ -114,17 +117,12 @@ internal static class ThreatFamilyCatalog
         var dataFlow = context.FindDataFlow(DataFlowPattern.EmbeddedResourceDropAndExecute);
         var shellExecuteFinding = context.FindFinding("DllImportRule", "ShellExecuteEx");
         var shellExecuteChain = context.FindCallChain("DllImportRule", "ShellExecuteEx");
-
-        if (dataFlow == null && shellExecuteFinding == null)
-        {
-            return null;
-        }
-
-        var hasCmdStaging = (dataFlow != null && context.AnyDataFlowContainsAll(".cmd")) ||
+        var hasShellExecute = shellExecuteFinding != null || shellExecuteChain != null;
+        var hasCmdStaging = context.AnyDataFlowContainsAll(".cmd") ||
                             context.AnyFindingContainsAll(".cmd") ||
                             context.AnyCallChainContainsAll(".cmd");
 
-        if (dataFlow == null && !hasCmdStaging)
+        if (dataFlow == null || !hasShellExecute || !hasCmdStaging)
         {
             return null;
         }
@@ -138,8 +136,44 @@ internal static class ThreatFamilyCatalog
                 context.CreateDataFlowEvidence("data-flow-chain", dataFlow?.ChainId ?? "not-available", dataFlow),
                 context.CreateRuleEvidence("api", "ShellExecuteEx", shellExecuteFinding),
                 context.CreateCallChainEvidence("call-chain", shellExecuteChain?.ChainId ?? "not-available", shellExecuteChain),
-                Evidence("staging", hasCmdStaging ? "embedded resource -> temp .cmd" : "embedded resource -> executable staging"),
-                Evidence("execution", "native shell execution")
+                Evidence("staging", "embedded resource -> temp .cmd"),
+                Evidence("execution", "ShellExecuteEx via shell32.dll")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchEmbeddedProcessStartTempCmd(ThreatFamilyAnalysisContext context)
+    {
+        var dataFlow = context.FindDataFlow(DataFlowPattern.EmbeddedResourceDropAndExecute);
+        var processFinding = context.FindFinding("ProcessStartRule");
+
+        if (dataFlow == null || processFinding == null)
+        {
+            return null;
+        }
+
+        var hasCmdStaging = context.AnyDataFlowContainsAll(".cmd") ||
+                            context.AnyFindingContainsAll(".cmd") ||
+                            context.AnyCallChainContainsAll(".cmd") ||
+                            context.AnyDataFlowContainsAll(".bat") ||
+                            context.AnyFindingContainsAll(".bat") ||
+                            context.AnyCallChainContainsAll(".bat");
+
+        if (!hasCmdStaging)
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("DataFlowAnalysis", "ProcessStartRule"),
+            Evidence =
+            [
+                context.CreateDataFlowEvidence("pattern", DataFlowPattern.EmbeddedResourceDropAndExecute.ToString(), dataFlow),
+                context.CreateDataFlowEvidence("data-flow-chain", dataFlow.ChainId, dataFlow),
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                Evidence("staging", "embedded resource -> temp script"),
+                Evidence("execution", "Process.Start script execution")
             ]
         };
     }

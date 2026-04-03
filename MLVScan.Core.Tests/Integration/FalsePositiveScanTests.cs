@@ -18,6 +18,7 @@ public class FalsePositiveScanTests
         "AudioImportLib.dll",
         "Bannerlord.ButterLib.dll",
         "BankApp.dll",
+        "BoneLibUpdater.dll",
         "CustomTV.dll",
         "DeliveryCartPlus_v.1.0.dll",
         "eMployee.dll",
@@ -252,6 +253,24 @@ public class FalsePositiveScanTests
 
         findings.Should().NotContain(f => f.RuleId == "SuspiciousLocalVariableRule",
             "CustomTV's controlled yt-dlp process usage should not trigger SuspiciousLocalVariableRule");
+    }
+
+    [SkippableFact]
+    public void Scan_BoneLibUpdater_ShouldRemainCleanUnderThreatDisposition()
+    {
+        var path = GetSamplePath("BoneLibUpdater.dll");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, "BoneLibUpdater.dll");
+
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean",
+            "BoneLibUpdater stages a bundled local updater executable, but it does not stage a temp script or invoke shell32 ShellExecuteEx like the malicious family");
+        dto.ThreatFamilies.Should().BeNull();
     }
 
     [SkippableFact]

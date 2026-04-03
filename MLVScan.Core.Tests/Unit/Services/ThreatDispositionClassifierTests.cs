@@ -114,6 +114,89 @@ public class ThreatDispositionClassifierTests
     }
 
     [Fact]
+    public void Classify_WithEmbeddedResourceTempCmdDropperDataFlow_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-resource-cmd",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Embedded resource extracted to %TEMP%/payload.cmd and executed via ShellExecuteEx",
+            "Suspicious.Mod.Loader");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:12",
+            "GetManifestResourceStream",
+            DataFlowNodeType.Source,
+            "embedded payload",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:27",
+            "PInvoke.ShellExecuteEx",
+            DataFlowNodeType.Sink,
+            "%TEMP%/payload.cmd",
+            27));
+
+        var finding = new ScanFinding(
+            "Suspicious.Mod.Loader",
+            "Embedded resource dropper launches %TEMP%/payload.cmd through ShellExecuteEx with nShow=0",
+            Severity.Critical)
+        {
+            RuleId = "DataFlowAnalysis",
+            DataFlowChain = dataFlow
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+    }
+
+    [Fact]
+    public void Classify_WithEmbeddedUpdaterExeDataFlowAndNoDropperMarkers_ReturnsClean()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-local-updater",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Extracts embedded updater executable and launches it from a local data directory",
+            "Benign.Updater.Run");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:12",
+            "GetManifestResourceStream",
+            DataFlowNodeType.Source,
+            "embedded updater resource",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:24",
+            "File.Create",
+            DataFlowNodeType.Sink,
+            "C:/AppData/Vendor/updater.exe",
+            24));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:36",
+            "Process.Start",
+            DataFlowNodeType.Sink,
+            "run local updater executable",
+            36));
+
+        var finding = new ScanFinding(
+            "Benign.Updater.Run",
+            "Embedded updater executable extracted and launched with Process.Start",
+            Severity.Critical)
+        {
+            RuleId = "DataFlowAnalysis",
+            DataFlowChain = dataFlow
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Clean);
+        result.RelatedFindings.Should().BeEmpty();
+        result.BlockingRecommended.Should().BeFalse();
+    }
+
+    [Fact]
     public void Classify_WithStandalonePrimitiveFinding_ReturnsClean()
     {
         var classifier = new ThreatDispositionClassifier();

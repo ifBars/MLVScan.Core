@@ -407,7 +407,7 @@ public class ScanResultMapperTests
         var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
 
         result.ThreatFamilies.Should().NotBeNullOrEmpty();
-        var family = result.ThreatFamilies!.First(match => match.FamilyId == "family-resource-shell32-tempcmd-v1");
+        var family = result.ThreatFamilies!.First(match => match.FamilyId == "family-resource-shell32-tempcmd-v2");
         family.Evidence.Should().Contain(e =>
             e.Kind == "call-chain" &&
             e.CallChainId == "cc-resource-shell32");

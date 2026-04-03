@@ -85,10 +85,11 @@ namespace MLVScan.Services.DataFlow
 
         public ScanFinding CreateFinding(DataFlowChain chain)
         {
+            var findingSeverity = DetermineFindingSeverity(chain);
             return new ScanFinding(
                 chain.MethodLocation,
                 chain.ToDetailedDescription(),
-                chain.Severity,
+                findingSeverity,
                 chain.ToCombinedCodeSnippet())
             {
                 RuleId = "DataFlowAnalysis",
@@ -102,6 +103,53 @@ namespace MLVScan.Services.DataFlow
                    pattern == DataFlowPattern.DownloadAndExecute ||
                    pattern == DataFlowPattern.DynamicCodeLoading ||
                    pattern == DataFlowPattern.ObfuscatedPersistence;
+        }
+
+        private static Severity DetermineFindingSeverity(DataFlowChain chain)
+        {
+            if (chain.Pattern != DataFlowPattern.EmbeddedResourceDropAndExecute)
+            {
+                return chain.Severity;
+            }
+
+            return HasEmbeddedDropperMarkers(chain)
+                ? chain.Severity
+                : Severity.Medium;
+        }
+
+        private static bool HasEmbeddedDropperMarkers(DataFlowChain chain)
+        {
+            var texts = EnumerateChainTexts(chain).Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+            return texts.Any(value =>
+                value.Contains(".cmd", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains(".bat", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("%TEMP%", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("temp script dropper pattern", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("nShow=0", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("WindowStyle=Hidden", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("CreateNoWindow=true", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IEnumerable<string> EnumerateChainTexts(DataFlowChain chain)
+        {
+            yield return chain.Summary;
+            yield return chain.MethodLocation;
+
+            foreach (var node in chain.Nodes)
+            {
+                yield return node.Location;
+                yield return node.Operation;
+                yield return node.DataDescription;
+
+                if (!string.IsNullOrWhiteSpace(node.CodeSnippet))
+                {
+                    yield return node.CodeSnippet;
+                }
+            }
         }
 
         private static bool HasNetworkSource(IEnumerable<DataFlowInterestingOperation> operations)

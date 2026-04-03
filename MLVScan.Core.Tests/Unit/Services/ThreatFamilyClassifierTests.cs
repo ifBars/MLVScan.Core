@@ -15,10 +15,10 @@ public class ThreatFamilyClassifierTests
 
         var findings = new List<ScanFinding>();
 
-        var matches = classifier.Classify(findings, "994124671953a3b08d805e5b402719760129a7d19678d85e432dcbac179d0224");
+        var matches = classifier.Classify(findings, "6c15802426e22e8a0376af1be8bb5caebb5b2e2f4f06a8e7944c80c647a548e6");
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-resource-shell32-tempcmd-v1");
+        matches[0].FamilyId.Should().Be("family-powershell-iwr-dlbat-v1");
         matches[0].MatchKind.Should().Be(ThreatMatchKind.ExactSampleHash);
         matches[0].ExactHashMatch.Should().BeTrue();
     }
@@ -94,7 +94,7 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, new[] { callChain }, new[] { dataFlow }, null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-resource-shell32-tempcmd-v1");
+        matches[0].FamilyId.Should().Be("family-resource-shell32-tempcmd-v2");
         matches[0].MatchedRules.Should().Contain(new[] { "DataFlowAnalysis", "DllImportRule" });
         matches[0].Evidence.Should().Contain(e => e.Kind == "pattern" && e.Value == DataFlowPattern.EmbeddedResourceDropAndExecute.ToString());
         matches[0].Evidence.Should().Contain(e =>
@@ -104,6 +104,81 @@ public class ThreatFamilyClassifierTests
             e.Kind == "data-flow-chain" &&
             e.DataFlowChainId == "df-resource-shell32" &&
             e.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute.ToString());
+    }
+
+    [Fact]
+    public void Classify_WithEmbeddedUpdaterProcessStartAndNoCmdOrShellExecute_ReturnsNoMatches()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-updater-process-start",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Extracts embedded updater and starts it from an application data folder",
+            "Benign.Updater.Run")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Benign.Updater.Run:12", "GetManifestResourceStream", DataFlowNodeType.Source, "embedded updater resource", 12),
+                new DataFlowNode("Benign.Updater.Run:24", "File.Create", DataFlowNodeType.Sink, "C:/AppData/Vendor/updater.exe", 24),
+                new DataFlowNode("Benign.Updater.Run:36", "Process.Start", DataFlowNodeType.Sink, "run local updater executable", 36)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("Benign.Updater.Run", "Embedded updater executable extracted and launched with Process.Start", Severity.Critical)
+            {
+                RuleId = "DataFlowAnalysis",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Classify_WithEmbeddedTempCmdAndProcessStart_ReturnsBehaviorMatch()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-resource-process-start",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Embedded resource extracted to %TEMP%/payload.cmd and executed with Process.Start",
+            "Malware.Loader.Run")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Malware.Loader.Run:12", "GetManifestResourceStream", DataFlowNodeType.Source, "embedded resource payload", 12),
+                new DataFlowNode("Malware.Loader.Run:24", "File.WriteAllBytes", DataFlowNodeType.Sink, "%TEMP%/payload.cmd", 24),
+                new DataFlowNode("Malware.Loader.Run:36", "Process.Start", DataFlowNodeType.Sink, "execute temp cmd", 36)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Run", "Embedded resource temp cmd execution chain", Severity.Critical)
+            {
+                RuleId = "DataFlowAnalysis",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Run:36", "Detected Process.Start call which could execute arbitrary programs. Target: " +
+                "\"cmd.exe\". Arguments: /c %TEMP%\\payload.cmd [Evasion: CreateNoWindow=true] [Process with evasion and temp path execution]", Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-resource-shell32-tempcmd-v2");
+        matches[0].VariantId.Should().Be("resource-shell32-tempcmd-process-start");
+        matches[0].MatchedRules.Should().Contain(new[] { "DataFlowAnalysis", "ProcessStartRule" });
     }
 
     [Fact]

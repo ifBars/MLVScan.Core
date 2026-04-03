@@ -15,13 +15,18 @@ public class ThreatFamilyQuarantineTests
         "CustomTV_IL2CPP.dll.di",
         "EndlessGraffiti.dll.di",
         "FasterGrowth.dll.di",
+        "LongLastingFertilizer.dll.di",
         "MelonLoaderMod55.dll.di",
         "MoreTrees.dll.di",
         "NoMoreTrash.dll.di",
         "NoPolice.dll.di",
         "RealRadio.dll.di",
+        "RentalCars.dll.di",
         "S1API.Il2Cpp.MelonLoader.dll.di",
-        "ScheduleIMoreNpcs.dll.di"
+        "ScheduleIMoreNpcs.dll.di",
+        "Skitching.dll.di",
+        "StorageHub.dll.di",
+        "vortex_backuprtilizer.dll.di"
     };
 
     private readonly ITestOutputHelper _output;
@@ -34,16 +39,21 @@ public class ThreatFamilyQuarantineTests
     }
 
     [SkippableTheory]
-    [InlineData("NoMoreTrash.dll.di", "family-resource-shell32-tempcmd-v1")]
-    [InlineData("CustomTV_IL2CPP.dll.di", "family-resource-shell32-tempcmd-v1")]
-    [InlineData("RealRadio.dll.di", "family-resource-shell32-tempcmd-v1")]
-    [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v1")]
+    [InlineData("NoMoreTrash.dll.di", "family-resource-shell32-tempcmd-v2")]
+    [InlineData("CustomTV_IL2CPP.dll.di", "family-resource-shell32-tempcmd-v2")]
+    [InlineData("RealRadio.dll.di", "family-resource-shell32-tempcmd-v2")]
+    [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v2")]
     [InlineData("EndlessGraffiti.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
+    [InlineData("LongLastingFertilizer.dll.di", "family-webclient-stage-exec-v1")]
     [InlineData("MoreTrees.dll.di", "family-webclient-stage-exec-v1")]
     [InlineData("MelonLoaderMod55.dll.di", "family-webclient-stage-exec-v1")]
     [InlineData("NoPolice.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("RentalCars.dll.di", "family-webclient-stage-exec-v1")]
     [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v1")]
+    [InlineData("Skitching.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("StorageHub.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("vortex_backuprtilizer.dll.di", "family-webclient-stage-exec-v1")]
     public void Scan_QuarantineSample_ShouldEmitExpectedThreatFamily(string filename, string expectedFamilyId)
     {
         var path = GetSamplePath(filename);
@@ -62,7 +72,7 @@ public class ThreatFamilyQuarantineTests
     }
 
     [SkippableFact]
-    public void Scan_ExactDuplicateSamples_ShouldShareExactHashFamilyMatch()
+    public void Scan_ExactDuplicateSamples_ShouldShareBehaviorFamilyMatchWithoutHashShortcut()
     {
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
 
@@ -79,8 +89,10 @@ public class ThreatFamilyQuarantineTests
         s1ApiDto.Disposition.Should().NotBeNull();
         realRadioDto.Disposition!.Classification.Should().Be("KnownThreat");
         s1ApiDto.Disposition!.Classification.Should().Be("KnownThreat");
-        realRadioDto.ThreatFamilies!.First().ExactHashMatch.Should().BeTrue();
-        s1ApiDto.ThreatFamilies!.First().ExactHashMatch.Should().BeTrue();
+        realRadioDto.ThreatFamilies!.First().FamilyId.Should().Be("family-resource-shell32-tempcmd-v2");
+        s1ApiDto.ThreatFamilies!.First().FamilyId.Should().Be("family-resource-shell32-tempcmd-v2");
+        realRadioDto.ThreatFamilies!.First().ExactHashMatch.Should().BeFalse();
+        s1ApiDto.ThreatFamilies!.First().ExactHashMatch.Should().BeFalse();
 
         WriteThreatFamilyLog("RealRadio.dll.di", realRadioDto.ThreatFamilies!, realRadioDto.Findings);
         WriteThreatFamilyLog("S1API.Il2Cpp.MelonLoader.dll.di", s1ApiDto.ThreatFamilies!, s1ApiDto.Findings);
