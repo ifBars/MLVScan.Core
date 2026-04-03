@@ -388,8 +388,14 @@ public class ScanResultMapperTests
             "df-resource-shell32",
             DataFlowPattern.EmbeddedResourceDropAndExecute,
             Severity.Critical,
-            "Embedded resource extracted to temp cmd and executed",
+            "Embedded resource extracted to %TEMP%/payload.cmd and executed",
             "Malware.Loader.ExtractPayload");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Malware.Loader.ExtractPayload:28",
+            "File.WriteAllBytes",
+            DataFlowNodeType.Sink,
+            "%TEMP%/payload.cmd",
+            28));
         dataFlow.AppendNode(new DataFlowNode(
             "Malware.Loader.ExtractPayload:41",
             "PInvoke.ShellExecuteEx",
