@@ -70,24 +70,27 @@ internal static class ThreatFamilyCatalog
         },
         new ThreatFamilyDefinition
         {
-            FamilyId = "family-webclient-stage-exec-v1",
-            DisplayName = "WebClient staged payload executor",
-            Summary = "Downloads a payload to TEMP with WebClient and then executes it via hidden or shell-assisted process launch.",
-            AdvisorySlugs = ["2026-02-malware-moretrees"],
-            ExactSampleHashes =
+            FamilyId = "family-webdownload-stage-exec-v2",
+            DisplayName = "Web download staged payload executor",
+            Summary = "Downloads a payload to TEMP through WebClient, HttpClient, or a similar network API and then executes it via hidden or shell-assisted process launch.",
+            AdvisorySlugs =
             [
-                "6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e",
-                "b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4"
+                "2026-02-malware-moretrees",
+                "2026-03-malware-customer-search-bar",
+                "2026-03-malware-longlastingfertilizer",
+                "2026-03-malware-nopolice",
+                "2026-03-malware-unlimitedgraffiti"
             ],
+            ExactSampleHashes = [],
             Variants =
             [
                 new ThreatFamilyVariantDefinition
                 {
-                    VariantId = "webclient-temp-download-execute",
-                    DisplayName = "WebClient download -> temp stage -> hidden execute",
-                    Summary = "Downloads a payload with WebClient, stages it in TEMP, then executes it through cmd.exe or direct Process.Start.",
+                    VariantId = "webdownload-temp-download-execute",
+                    DisplayName = "Web download staged payload executor",
+                    Summary = "Downloads a payload over the network, stages it in TEMP, then executes it through powershell.exe, cmd.exe, or a hidden direct process launch.",
                     Confidence = 0.96,
-                    Matcher = MatchWebClientStageExecute
+                    Matcher = MatchWebDownloadStageExecute
                 }
             ]
         },
@@ -225,19 +228,37 @@ internal static class ThreatFamilyCatalog
         };
     }
 
-    private static ThreatFamilyVariantMatch? MatchWebClientStageExecute(ThreatFamilyAnalysisContext context)
+    private static ThreatFamilyVariantMatch? MatchWebDownloadStageExecute(ThreatFamilyAnalysisContext context)
     {
         var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);
+        var downloadFinding = context.FindFinding("DataInfiltrationRule");
         var executionFinding = context.FindFinding("ProcessStartRule");
-        var hasWebClientSource = context.AnyDataFlowContainsAll("DownloadFileTaskAsync") ||
-                                 context.AnyDataFlowContainsAll("WebClient") ||
-                                 context.AnyFindingContainsAll("DownloadFileTaskAsync") ||
-                                 context.AnyCallChainContainsAll("WebClient");
+        var hasTempStaging = context.AnyContextContainsAll("%TEMP%") ||
+                             context.AnyContextContainsAll("WorkingDirectory=Temp") ||
+                             context.AnyContextContainsAll("GetTempPath");
+        var hasHiddenExecution = context.AnyContextContainsAll("CreateNoWindow") ||
+                                 context.AnyContextContainsAll("WindowStyle=Hidden") ||
+                                 context.AnyContextContainsAll("UseShellExecute=true") ||
+                                 context.AnyContextContainsAll("UseShellExecute set");
 
-        if (dataFlow == null || executionFinding == null || !hasWebClientSource)
+        if (dataFlow == null || downloadFinding == null || executionFinding == null || !hasTempStaging || !hasHiddenExecution)
         {
             return null;
         }
+
+        var downloadSource = context.AnyContextContainsAll("DownloadFileTaskAsync") ||
+                             context.AnyContextContainsAll("WebClient")
+            ? "WebClient download"
+            : context.AnyContextContainsAll("GetByteArrayAsync") ||
+              context.AnyContextContainsAll("HttpClient")
+                ? "HttpClient download"
+                : "network download";
+
+        var execution = context.AnyContextContainsAll("powershell.exe")
+            ? "hidden powershell.exe execution"
+            : context.AnyContextContainsAll("cmd.exe")
+                ? "hidden cmd.exe execution"
+                : "hidden staged payload execution";
 
         return new ThreatFamilyVariantMatch
         {
@@ -246,10 +267,11 @@ internal static class ThreatFamilyCatalog
             [
                 context.CreateDataFlowEvidence("pattern", DataFlowPattern.DownloadAndExecute.ToString(), dataFlow),
                 context.CreateDataFlowEvidence("data-flow-chain", dataFlow.ChainId, dataFlow),
-                context.CreateDataFlowEvidence("source", "WebClient download", dataFlow),
+                context.CreateDataFlowEvidence("source", downloadSource, dataFlow),
+                context.CreateRuleEvidence("rule", "DataInfiltrationRule", downloadFinding),
                 context.CreateRuleEvidence("rule", "ProcessStartRule", executionFinding),
                 Evidence("download", "network download to TEMP"),
-                Evidence("execution", "staged payload execution from TEMP")
+                Evidence("execution", execution)
             ]
         };
     }

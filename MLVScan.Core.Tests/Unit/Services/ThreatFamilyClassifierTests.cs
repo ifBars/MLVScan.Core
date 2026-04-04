@@ -182,7 +182,7 @@ public class ThreatFamilyClassifierTests
     }
 
     [Fact]
-    public void Classify_WithWebClientDownloadExecuteDataFlow_ReturnsBehaviorMatch()
+    public void Classify_WithWebDownloadExecuteDataFlow_ReturnsBehaviorMatch()
     {
         var classifier = new ThreatFamilyClassifier();
         var dataFlow = new DataFlowChain(
@@ -202,12 +202,12 @@ public class ThreatFamilyClassifierTests
 
         var findings = new List<ScanFinding>
         {
-            new("Malware.Loader.Stage", "Network staging activity", Severity.Critical)
+            new("Malware.Loader.Stage", "Read-only operation downloads executable or script payload from non-allowlisted domain.", Severity.High)
             {
                 RuleId = "DataInfiltrationRule",
                 DataFlowChain = dataFlow
             },
-            new("Malware.Loader.Stage", "Launches staged payload from TEMP", Severity.Critical)
+            new("Malware.Loader.Stage", "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /c %TEMP%\\d.bat [Evasion: UseShellExecute=true, CreateNoWindow=true, WindowStyle=Hidden, WorkingDirectory=Temp]", Severity.Critical)
             {
                 RuleId = "ProcessStartRule",
                 DataFlowChain = dataFlow
@@ -217,12 +217,53 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-webclient-stage-exec-v1");
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
         matches[0].MatchedRules.Should().Contain(new[] { "DataFlowAnalysis", "DataInfiltrationRule", "ProcessStartRule" });
         matches[0].Evidence.Should().Contain(e =>
             e.Kind == "source" &&
             e.DataFlowChainId == "df-webclient-stage" &&
             e.MethodLocation == "Malware.Loader.Stage");
+    }
+
+    [Fact]
+    public void Classify_WithHttpClientPowerShellStager_ReturnsBehaviorMatch()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-httpclient-stage",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads a PowerShell script and executes it from TEMP",
+            "Malware.Loader.Stage")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Malware.Loader.Stage:12", "HttpClient.GetByteArrayAsync", DataFlowNodeType.Source, "remote payload", 12),
+                new DataFlowNode("Malware.Loader.Stage:24", "File.WriteAllBytes", DataFlowNodeType.Sink, "%TEMP%/d.ps1", 24),
+                new DataFlowNode("Malware.Loader.Stage:36", "Process.Start", DataFlowNodeType.Sink, "execute staged PowerShell script", 36)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Stage", "Read-only operation downloads executable or script payload from non-allowlisted domain. URL(s): https://evil.test/da.ps1", Severity.High)
+            {
+                RuleId = "DataInfiltrationRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage", "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%TEMP%/d.ps1\" [Evasion: CreateNoWindow=true, UseShellExecute set]", Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].Evidence.Should().Contain(e => e.Kind == "source" && e.Value == "HttpClient download");
+        matches[0].Evidence.Should().Contain(e => e.Kind == "execution" && e.Value == "hidden powershell.exe execution");
     }
 
     [Fact]

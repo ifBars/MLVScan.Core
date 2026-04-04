@@ -25,6 +25,27 @@ public sealed class ThreatDispositionClassifier
         DataFlowPattern.EmbeddedResourceDropAndExecute
     };
 
+    private static readonly string[] LolbinMarkers =
+    [
+        "powershell.exe",
+        "cmd.exe",
+        "wscript.exe",
+        "cscript.exe",
+        "mshta.exe",
+        "rundll32.exe",
+        "regsvr32.exe"
+    ];
+
+    private static readonly string[] HiddenExecutionMarkers =
+    [
+        "CreateNoWindow=true",
+        "CreateNoWindow set",
+        "WindowStyle=Hidden",
+        "WindowStyle Hidden",
+        "UseShellExecute=true",
+        "UseShellExecute set"
+    ];
+
     public ThreatDispositionResult Classify(
         IEnumerable<ScanFinding> findings,
         IEnumerable<ThreatFamilyMatch>? threatFamilies)
@@ -201,6 +222,11 @@ public sealed class ThreatDispositionClassifier
             return true;
         }
 
+        if (IsHiddenLolbinDownloadExecuteSeed(finding))
+        {
+            return true;
+        }
+
         if (finding.HasCallChain && finding.HasDataFlow)
         {
             return true;
@@ -281,6 +307,19 @@ public sealed class ThreatDispositionClassifier
                 yield return node.CodeSnippet;
             }
         }
+    }
+
+    private static bool IsHiddenLolbinDownloadExecuteSeed(ScanFinding finding)
+    {
+        if (!string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) ||
+            !finding.HasDataFlow ||
+            !IsSuspiciousDataFlowSeed(finding))
+        {
+            return false;
+        }
+
+        var texts = EnumerateEmbeddedDataFlowTexts(finding).ToList();
+        return ContainsAny(texts, LolbinMarkers) && ContainsAny(texts, HiddenExecutionMarkers);
     }
 
     private static bool ContainsAny(IEnumerable<string> haystacks, params string[] needles)

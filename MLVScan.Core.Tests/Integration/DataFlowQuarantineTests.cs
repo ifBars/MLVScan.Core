@@ -93,10 +93,19 @@ public class DataFlowQuarantineTests
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]
     [InlineData("EndlessGraffiti.dll.di")]
+    [InlineData("FasterGrowth.dll.di")]
+    [InlineData("LongLastingFertilizer.dll.di")]
+    [InlineData("MoreTrees.dll.di")]
+    [InlineData("NoPolice.dll.di")]
     [InlineData("RealRadio.dll.di")]
+    [InlineData("RentalCars.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
+    [InlineData("Skitching.dll.di")]
+    [InlineData("StorageHub.dll.di")]
     [InlineData("MelonLoaderMod55.dll.di")]
+    [InlineData("UnlimitedGraffiti.dll.di")]
+    [InlineData("vortex_backuprtilizer.dll.di")]
     public void Scan_QuarantineSample_ShouldAnalyzeDataFlows(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
@@ -125,10 +134,19 @@ public class DataFlowQuarantineTests
             "NoMoreTrash.dll.di",
             "CustomTV_IL2CPP.dll.di",
             "EndlessGraffiti.dll.di",
+            "FasterGrowth.dll.di",
+            "LongLastingFertilizer.dll.di",
+            "MoreTrees.dll.di",
+            "NoPolice.dll.di",
             "RealRadio.dll.di",
+            "RentalCars.dll.di",
             "S1API.Il2Cpp.MelonLoader.dll.di",
             "ScheduleIMoreNpcs.dll.di",
-            "MelonLoaderMod55.dll.di"
+            "Skitching.dll.di",
+            "StorageHub.dll.di",
+            "MelonLoaderMod55.dll.di",
+            "UnlimitedGraffiti.dll.di",
+            "vortex_backuprtilizer.dll.di"
         };
 
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
@@ -193,9 +211,19 @@ public class DataFlowQuarantineTests
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]
     [InlineData("EndlessGraffiti.dll.di")]
+    [InlineData("FasterGrowth.dll.di")]
+    [InlineData("LongLastingFertilizer.dll.di")]
+    [InlineData("MoreTrees.dll.di")]
+    [InlineData("NoPolice.dll.di")]
     [InlineData("RealRadio.dll.di")]
+    [InlineData("RentalCars.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
+    [InlineData("Skitching.dll.di")]
+    [InlineData("StorageHub.dll.di")]
+    [InlineData("MelonLoaderMod55.dll.di")]
+    [InlineData("UnlimitedGraffiti.dll.di")]
+    [InlineData("vortex_backuprtilizer.dll.di")]
     public void Scan_QuarantineSample_DataFlowChainsArePresentWhenDetected(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
@@ -264,14 +292,46 @@ public class DataFlowQuarantineTests
             node.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase));
     }
 
+    [SkippableFact]
+    public void Scan_UnlimitedGraffiti_ShouldProduceDownloadAndExecuteDataFlow()
+    {
+        var path = GetSamplePath("UnlimitedGraffiti.dll.di");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dataFlowFindings = findings.Where(f => f.HasDataFlow).ToList();
+
+        dataFlowFindings.Should().Contain(f =>
+            f.DataFlowChain!.Pattern == DataFlowPattern.DownloadAndExecute);
+
+        var chain = dataFlowFindings
+            .Select(f => f.DataFlowChain!)
+            .First(c => c.Pattern == DataFlowPattern.DownloadAndExecute);
+
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase));
+        chain.Nodes.Should().Contain(node =>
+            node.Operation.Contains("Process.Start", StringComparison.OrdinalIgnoreCase));
+    }
+
     [SkippableTheory]
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]
     [InlineData("EndlessGraffiti.dll.di")]
+    [InlineData("FasterGrowth.dll.di")]
+    [InlineData("LongLastingFertilizer.dll.di")]
+    [InlineData("MoreTrees.dll.di")]
+    [InlineData("NoPolice.dll.di")]
     [InlineData("RealRadio.dll.di")]
+    [InlineData("RentalCars.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
     [InlineData("MelonLoaderMod55.dll.di")]
+    [InlineData("Skitching.dll.di")]
+    [InlineData("StorageHub.dll.di")]
+    [InlineData("UnlimitedGraffiti.dll.di")]
+    [InlineData("vortex_backuprtilizer.dll.di")]
     public void Scan_QuarantineSample_DataFlowFindingsHaveRequiredProperties(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)
@@ -327,10 +387,19 @@ public class DataFlowQuarantineTests
     [InlineData("NoMoreTrash.dll.di")]
     [InlineData("CustomTV_IL2CPP.dll.di")]
     [InlineData("EndlessGraffiti.dll.di")]
+    [InlineData("FasterGrowth.dll.di")]
+    [InlineData("LongLastingFertilizer.dll.di")]
+    [InlineData("MoreTrees.dll.di")]
+    [InlineData("NoPolice.dll.di")]
     [InlineData("RealRadio.dll.di")]
+    [InlineData("RentalCars.dll.di")]
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di")]
     [InlineData("ScheduleIMoreNpcs.dll.di")]
     [InlineData("MelonLoaderMod55.dll.di")]
+    [InlineData("Skitching.dll.di")]
+    [InlineData("StorageHub.dll.di")]
+    [InlineData("UnlimitedGraffiti.dll.di")]
+    [InlineData("vortex_backuprtilizer.dll.di")]
     public void Scan_QuarantineSample_NoExceptionsThrown(string filename)
     {
         // Skip if QUARANTINE not available (CI environment)

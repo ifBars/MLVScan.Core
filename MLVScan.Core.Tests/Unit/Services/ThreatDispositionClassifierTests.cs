@@ -231,4 +231,49 @@ public class ThreatDispositionClassifierTests
         result.Classification.Should().Be(ThreatDispositionClassification.Clean);
         result.RelatedFindings.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Classify_WithHiddenLolbinDownloadExecuteProcessStart_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-hidden-lolbin",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads and executes a staged payload",
+            "Suspicious.Mod.Loader");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:12",
+            "HttpClient.GetByteArrayAsync",
+            DataFlowNodeType.Source,
+            "Remote payload",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:24",
+            "File.WriteAllBytes",
+            DataFlowNodeType.Sink,
+            "%TEMP%/d.ps1",
+            24));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:36",
+            "Process.Start",
+            DataFlowNodeType.Sink,
+            "Execute staged PowerShell script",
+            36));
+
+        var finding = new ScanFinding(
+            "Suspicious.Mod.Loader:36",
+            "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%TEMP%/d.ps1\" [Evasion: CreateNoWindow=true, UseShellExecute set] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (3 operations).",
+            Severity.Critical)
+        {
+            RuleId = "ProcessStartRule",
+            DataFlowChain = dataFlow
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
+    }
 }

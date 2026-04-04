@@ -7,7 +7,7 @@ namespace MLVScan;
 /// </summary>
 public static class MLVScanVersions
 {
-    internal const string DeclaredCoreVersion = "1.3.6";
+    internal const string DeclaredCoreVersion = "1.3.8";
 
     /// <summary>
     /// The JSON schema version (semver).

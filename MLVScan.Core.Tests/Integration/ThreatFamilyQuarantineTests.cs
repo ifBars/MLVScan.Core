@@ -26,6 +26,7 @@ public class ThreatFamilyQuarantineTests
         "ScheduleIMoreNpcs.dll.di",
         "Skitching.dll.di",
         "StorageHub.dll.di",
+        "UnlimitedGraffiti.dll.di",
         "vortex_backuprtilizer.dll.di"
     };
 
@@ -45,15 +46,16 @@ public class ThreatFamilyQuarantineTests
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v2")]
     [InlineData("EndlessGraffiti.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
-    [InlineData("LongLastingFertilizer.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("MoreTrees.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("MelonLoaderMod55.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("NoPolice.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("RentalCars.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("LongLastingFertilizer.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("MoreTrees.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("NoPolice.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("RentalCars.dll.di", "family-webdownload-stage-exec-v2")]
     [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v1")]
-    [InlineData("Skitching.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("StorageHub.dll.di", "family-webclient-stage-exec-v1")]
-    [InlineData("vortex_backuprtilizer.dll.di", "family-webclient-stage-exec-v1")]
+    [InlineData("Skitching.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("StorageHub.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("UnlimitedGraffiti.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("vortex_backuprtilizer.dll.di", "family-webdownload-stage-exec-v2")]
     public void Scan_QuarantineSample_ShouldEmitExpectedThreatFamily(string filename, string expectedFamilyId)
     {
         var path = GetSamplePath(filename);
