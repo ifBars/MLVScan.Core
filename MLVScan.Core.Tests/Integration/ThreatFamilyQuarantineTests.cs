@@ -13,6 +13,7 @@ public class ThreatFamilyQuarantineTests
     private static readonly HashSet<string> TrackedQuarantineSamples = new(StringComparer.OrdinalIgnoreCase)
     {
         "CustomTV_IL2CPP.dll.di",
+        "DynamicOrders.dll.di",
         "EndlessGraffiti.dll.di",
         "FasterGrowth.dll.di",
         "LongLastingFertilizer.dll.di",
@@ -46,6 +47,7 @@ public class ThreatFamilyQuarantineTests
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v2")]
     [InlineData("EndlessGraffiti.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
+    [InlineData("DynamicOrders.dll.di", "family-webdownload-stage-exec-v2")]
     [InlineData("LongLastingFertilizer.dll.di", "family-webdownload-stage-exec-v2")]
     [InlineData("MoreTrees.dll.di", "family-webdownload-stage-exec-v2")]
     [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v2")]
@@ -69,6 +71,29 @@ public class ThreatFamilyQuarantineTests
         dto.ThreatFamilies!.Should().Contain(match => match.FamilyId == expectedFamilyId);
         dto.Disposition.Should().NotBeNull();
         dto.Disposition!.Classification.Should().Be("KnownThreat");
+
+        WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
+    [SkippableTheory]
+    [InlineData("DynamicOrders.dll.di", "webdownload-temp-ps1-hidden-powershell")]
+    [InlineData("LongLastingFertilizer.dll.di", "webdownload-temp-ps1-hidden-powershell")]
+    [InlineData("MoreTrees.dll.di", "webdownload-temp-batch-hidden-cmd")]
+    [InlineData("MelonLoaderMod55.dll.di", "webdownload-temp-exe-direct-launch")]
+    [InlineData("StorageHub.dll.di", "webdownload-temp-ps1-hidden-powershell")]
+    public void Scan_QuarantineSample_ShouldEmitExpectedThreatVariant(string filename, string expectedVariantId)
+    {
+        var path = GetSamplePath(filename);
+        var assemblyBytes = File.ReadAllBytes(path);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+
+        dto.ThreatFamilies.Should().NotBeNullOrEmpty();
+        dto.ThreatFamilies!.Should().Contain(match =>
+            match.FamilyId == "family-webdownload-stage-exec-v2" &&
+            match.VariantId == expectedVariantId);
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
     }

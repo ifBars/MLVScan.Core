@@ -218,6 +218,7 @@ public class ThreatFamilyClassifierTests
 
         matches.Should().ContainSingle();
         matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].VariantId.Should().Be("webdownload-temp-batch-hidden-cmd");
         matches[0].MatchedRules.Should().Contain(new[] { "DataFlowAnalysis", "DataInfiltrationRule", "ProcessStartRule" });
         matches[0].Evidence.Should().Contain(e =>
             e.Kind == "source" &&
@@ -262,8 +263,101 @@ public class ThreatFamilyClassifierTests
 
         matches.Should().ContainSingle();
         matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].VariantId.Should().Be("webdownload-temp-ps1-hidden-powershell");
         matches[0].Evidence.Should().Contain(e => e.Kind == "source" && e.Value == "HttpClient download");
-        matches[0].Evidence.Should().Contain(e => e.Kind == "execution" && e.Value == "hidden powershell.exe execution");
+        matches[0].Evidence.Should().Contain(e => e.Kind == "execution" && e.Value == "hidden powershell.exe script execution");
+    }
+
+    [Fact]
+    public void Classify_WithResolvedPowerShellFallbackStager_ReturnsPowerShellVariant()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-resolved-powershell-stage",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads a PowerShell script and resolves a launcher before executing it from TEMP",
+            "Malware.Loader.Stage")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Malware.Loader.Stage:12", "DownloadFileTaskAsync", DataFlowNodeType.Source, "remote payload", 12),
+                new DataFlowNode("Malware.Loader.Stage:24", "File.WriteAllBytes", DataFlowNodeType.Sink, "%TEMP%/d.ps1", 24),
+                new DataFlowNode("Malware.Loader.Stage:36", "Process.Start", DataFlowNodeType.Sink, "resolve powershell path", 36),
+                new DataFlowNode("Malware.Loader.Stage:48", "Process.Start", DataFlowNodeType.Sink, "execute staged PowerShell script", 48)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Stage", "Read-only operation downloads executable or script payload from non-allowlisted domain. URL(s): https://evil.test/da.ps1", Severity.High)
+            {
+                RuleId = "DataInfiltrationRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage:36", "Detected Process.Start call which could execute arbitrary programs. Target: \"where.exe\". Arguments: powershell [Evasion: UseShellExecute set, CreateNoWindow=true] [Controlled child process with redirected I/O]", Severity.Medium)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage:48", "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%TEMP%/d.ps1\" [Evasion: UseShellExecute set, CreateNoWindow=true, WindowStyle=Hidden, WorkingDirectory=Temp] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden, WorkingDirectory=Temp)] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (4 operations).", Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage:60", "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /c powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%TEMP%/d.ps1\" [Evasion: UseShellExecute set, CreateNoWindow=true, WindowStyle=Hidden, WorkingDirectory=Temp] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden, WorkingDirectory=Temp)]", Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].VariantId.Should().Be("webdownload-temp-ps1-hidden-powershell");
+        matches[0].Evidence.Should().Contain(e => e.Kind == "launcher" && e.Value == "PowerShell path resolution before execution");
+    }
+
+    [Fact]
+    public void Classify_WithDirectExecutableDropper_ReturnsDirectExecutableVariant()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-direct-exe-stage",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads an executable and launches it from TEMP",
+            "Malware.Loader.Stage")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Malware.Loader.Stage:12", "DownloadFileTaskAsync", DataFlowNodeType.Source, "remote executable payload", 12),
+                new DataFlowNode("Malware.Loader.Stage:24", "File.WriteAllBytes", DataFlowNodeType.Sink, "%TEMP%/payload.exe", 24),
+                new DataFlowNode("Malware.Loader.Stage:36", "Process.Start", DataFlowNodeType.Sink, "launch staged executable", 36)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Stage", "Read-only operation downloads executable or script payload from non-allowlisted domain. URL(s): https://evil.test/payload.exe", Severity.High)
+            {
+                RuleId = "DataInfiltrationRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage:36", "Detected Process.Start call which could execute arbitrary programs. Target: \"payload.exe\". Arguments: <unknown/no-arguments> [Evasion: UseShellExecute=true, CreateNoWindow set, WindowStyle set, WorkingDirectory=Temp] [Hidden process execution (UseShellExecute, WorkingDirectory=Temp)] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (3 operations).", Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].VariantId.Should().Be("webdownload-temp-exe-direct-launch");
     }
 
     [Fact]

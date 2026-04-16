@@ -6,7 +6,7 @@ namespace MLVScan.Services.ThreatIntel;
 /// <summary>
 /// Built-in catalog of threat families used by the classifier.
 /// </summary>
-internal static class ThreatFamilyCatalog
+internal static partial class ThreatFamilyCatalog
 {
     /// <summary>
     /// Gets the built-in threat families recognized by the classifier.
@@ -86,10 +86,34 @@ internal static class ThreatFamilyCatalog
             [
                 new ThreatFamilyVariantDefinition
                 {
-                    VariantId = "webdownload-temp-download-execute",
+                    VariantId = "webdownload-temp-ps1-hidden-powershell",
+                    DisplayName = "Web download -> temp .ps1 -> hidden PowerShell",
+                    Summary = "Downloads a script payload into TEMP and launches it through a hidden powershell.exe chain, which helps platforms quickly cluster trojanized mod loaders using the same script-stager tradecraft.",
+                    Confidence = 0.98,
+                    Matcher = MatchWebDownloadTempPowerShellScript
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "webdownload-temp-batch-hidden-cmd",
+                    DisplayName = "Web download -> temp batch -> hidden cmd.exe",
+                    Summary = "Downloads a batch payload into TEMP and pivots through hidden cmd.exe execution, separating command-shell stagers from PowerShell-script variants during triage.",
+                    Confidence = 0.97,
+                    Matcher = MatchWebDownloadTempBatchCmd
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "webdownload-temp-exe-direct-launch",
+                    DisplayName = "Web download -> temp executable -> direct launch",
+                    Summary = "Downloads an executable payload and launches it directly from a temporary working directory, distinguishing direct binary droppers from script-based stagers.",
+                    Confidence = 0.97,
+                    Matcher = MatchWebDownloadTempExecutable
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "webdownload-temp-hidden-launch-generic",
                     DisplayName = "Web download staged payload executor",
                     Summary = "Downloads a payload over the network, stages it in TEMP, then executes it through powershell.exe, cmd.exe, or a hidden direct process launch.",
-                    Confidence = 0.96,
+                    Confidence = 0.95,
                     Matcher = MatchWebDownloadStageExecute
                 }
             ]
@@ -224,54 +248,6 @@ internal static class ThreatFamilyCatalog
                 Evidence("download", "Invoke-WebRequest / iwr"),
                 Evidence("staging", "%TEMP%/dl.bat"),
                 Evidence("cleanup", "sleep then remove temp batch")
-            ]
-        };
-    }
-
-    private static ThreatFamilyVariantMatch? MatchWebDownloadStageExecute(ThreatFamilyAnalysisContext context)
-    {
-        var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);
-        var downloadFinding = context.FindFinding("DataInfiltrationRule");
-        var executionFinding = context.FindFinding("ProcessStartRule");
-        var hasTempStaging = context.AnyContextContainsAll("%TEMP%") ||
-                             context.AnyContextContainsAll("WorkingDirectory=Temp") ||
-                             context.AnyContextContainsAll("GetTempPath");
-        var hasHiddenExecution = context.AnyContextContainsAll("CreateNoWindow") ||
-                                 context.AnyContextContainsAll("WindowStyle=Hidden") ||
-                                 context.AnyContextContainsAll("UseShellExecute=true") ||
-                                 context.AnyContextContainsAll("UseShellExecute set");
-
-        if (dataFlow == null || downloadFinding == null || executionFinding == null || !hasTempStaging || !hasHiddenExecution)
-        {
-            return null;
-        }
-
-        var downloadSource = context.AnyContextContainsAll("DownloadFileTaskAsync") ||
-                             context.AnyContextContainsAll("WebClient")
-            ? "WebClient download"
-            : context.AnyContextContainsAll("GetByteArrayAsync") ||
-              context.AnyContextContainsAll("HttpClient")
-                ? "HttpClient download"
-                : "network download";
-
-        var execution = context.AnyContextContainsAll("powershell.exe")
-            ? "hidden powershell.exe execution"
-            : context.AnyContextContainsAll("cmd.exe")
-                ? "hidden cmd.exe execution"
-                : "hidden staged payload execution";
-
-        return new ThreatFamilyVariantMatch
-        {
-            MatchedRules = context.BuildMatchedRules("DataFlowAnalysis", "DataInfiltrationRule", "ProcessStartRule"),
-            Evidence =
-            [
-                context.CreateDataFlowEvidence("pattern", DataFlowPattern.DownloadAndExecute.ToString(), dataFlow),
-                context.CreateDataFlowEvidence("data-flow-chain", dataFlow.ChainId, dataFlow),
-                context.CreateDataFlowEvidence("source", downloadSource, dataFlow),
-                context.CreateRuleEvidence("rule", "DataInfiltrationRule", downloadFinding),
-                context.CreateRuleEvidence("rule", "ProcessStartRule", executionFinding),
-                Evidence("download", "network download to TEMP"),
-                Evidence("execution", execution)
             ]
         };
     }
