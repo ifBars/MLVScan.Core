@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Models;
 using MLVScan.Models.Dto;
 using MLVScan.Services;
+using Mono.Cecil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Services;
@@ -34,6 +35,38 @@ public class ScanResultMapperTests
         result.Input.FileName.Should().Be("TestAssembly.dll");
         result.Input.SizeBytes.Should().Be(_testAssemblyBytes.Length);
         result.Input.Sha256Hash.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void ToDto_WithAssemblyMetadata_ExtractsAssemblyIdentityVersionsAndReferences()
+    {
+        var assemblyBytes = BuildAssemblyBytes(
+            "Sample.Mod",
+            new Version(2, 1, 0, 0),
+            ".NETFramework,Version=v4.7.2",
+            "2.1.0+build.7",
+            "2.1.0.7",
+            "BepInEx.Core",
+            "Il2CppInterop.Runtime");
+
+        var result = ScanResultMapper.ToDto(Array.Empty<ScanFinding>(), "Sample.Mod.dll", assemblyBytes, false);
+
+        result.Assembly.Should().NotBeNull();
+        result.Assembly!.Name.Should().Be("Sample.Mod");
+        result.Assembly.AssemblyVersion.Should().Be("2.1.0.0");
+        result.Assembly.FileVersion.Should().Be("2.1.0.7");
+        result.Assembly.InformationalVersion.Should().Be("2.1.0+build.7");
+        result.Assembly.TargetFramework.Should().Be(".NETFramework,Version=v4.7.2");
+        result.Assembly.ModuleRuntimeVersion.Should().StartWith("v");
+        result.Assembly.ReferencedAssemblies.Should().Contain(new[] { "BepInEx.Core", "Il2CppInterop.Runtime" });
+    }
+
+    [Fact]
+    public void ToDto_WithInvalidAssemblyBytes_LeavesAssemblyMetadataNull()
+    {
+        var result = ScanResultMapper.ToDto(Array.Empty<ScanFinding>(), "broken.dll", _testAssemblyBytes, false);
+
+        result.Assembly.Should().BeNull();
     }
 
     [Fact]
@@ -478,5 +511,68 @@ public class ScanResultMapperTests
         result.Findings.Should().ContainSingle();
         result.Findings[0].Visibility.Should().Be("Default");
         result.Disposition.RelatedFindingIds.Should().Contain(result.Findings[0].Id);
+    }
+
+    private static byte[] BuildAssemblyBytes(
+        string assemblyName,
+        Version version,
+        string targetFramework,
+        string informationalVersion,
+        string fileVersion,
+        params string[] referencedAssemblies)
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition(assemblyName, version),
+            assemblyName,
+            ModuleKind.Dll);
+
+        AddStringAssemblyAttribute(
+            assembly,
+            "System.Runtime.Versioning",
+            "TargetFrameworkAttribute",
+            targetFramework);
+        AddStringAssemblyAttribute(
+            assembly,
+            "System.Reflection",
+            "AssemblyInformationalVersionAttribute",
+            informationalVersion);
+        AddStringAssemblyAttribute(
+            assembly,
+            "System.Reflection",
+            "AssemblyFileVersionAttribute",
+            fileVersion);
+
+        foreach (var referenceName in referencedAssemblies)
+        {
+            assembly.MainModule.AssemblyReferences.Add(
+                new AssemblyNameReference(referenceName, new Version(1, 0, 0, 0)));
+        }
+
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        return stream.ToArray();
+    }
+
+    private static void AddStringAssemblyAttribute(
+        AssemblyDefinition assembly,
+        string attributeNamespace,
+        string attributeName,
+        string value)
+    {
+        var attributeType = new TypeReference(
+            attributeNamespace,
+            attributeName,
+            assembly.MainModule,
+            assembly.MainModule.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", assembly.MainModule.TypeSystem.Void, attributeType)
+        {
+            HasThis = true
+        };
+        constructor.Parameters.Add(new ParameterDefinition(assembly.MainModule.TypeSystem.String));
+
+        var attribute = new CustomAttribute(constructor);
+        attribute.ConstructorArguments.Add(
+            new CustomAttributeArgument(assembly.MainModule.TypeSystem.String, value));
+        assembly.CustomAttributes.Add(attribute);
     }
 }

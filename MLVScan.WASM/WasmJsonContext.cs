@@ -6,6 +6,7 @@ namespace MLVScan.WASM;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ScanResultDto))]
+[JsonSerializable(typeof(AssemblyMetadataDto))]
 [JsonSerializable(typeof(ScanMetadataDto))]
 [JsonSerializable(typeof(ScanInputDto))]
 [JsonSerializable(typeof(ScanSummaryDto))]

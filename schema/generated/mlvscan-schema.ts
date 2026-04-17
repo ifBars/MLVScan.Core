@@ -26,6 +26,7 @@ export interface ScanResult {
   schemaVersion: SchemaVersion
   metadata: ScanMetadata
   input: ScanInput
+  assembly?: AssemblyMetadata | null
   summary: ScanSummary
   findings: Finding[]
   callChains?: CallChain[] | null
@@ -33,6 +34,16 @@ export interface ScanResult {
   developerGuidance?: DeveloperGuidance[] | null
   threatFamilies?: ThreatFamily[] | null
   disposition?: ThreatDisposition | null
+}
+
+export interface AssemblyMetadata {
+  name?: string | null
+  assemblyVersion?: string | null
+  fileVersion?: string | null
+  informationalVersion?: string | null
+  targetFramework?: string | null
+  moduleRuntimeVersion?: string | null
+  referencedAssemblies?: string[] | null
 }
 
 export interface CallChain {

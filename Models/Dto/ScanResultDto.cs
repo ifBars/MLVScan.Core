@@ -21,6 +21,11 @@ public class ScanResultDto
     public ScanInputDto Input { get; set; } = new();
 
     /// <summary>
+    /// Generic assembly metadata extracted from the scanned binary when available.
+    /// </summary>
+    public AssemblyMetadataDto? Assembly { get; set; }
+
+    /// <summary>
     /// Summary statistics for the scan.
     /// </summary>
     public ScanSummaryDto Summary { get; set; } = new();

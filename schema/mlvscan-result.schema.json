@@ -10,6 +10,16 @@
     "input": {
       "$ref": "#/$defs/ScanInput"
     },
+    "assembly": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AssemblyMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "summary": {
       "$ref": "#/$defs/ScanSummary"
     },
@@ -178,6 +188,84 @@
         "ExactSampleHash",
         "BehaviorVariant"
       ]
+    },
+    "AssemblyMetadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "assemblyVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fileVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "informationalVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetFramework": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "moduleRuntimeVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "referencedAssemblies": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "CallChain": {
       "type": "object",

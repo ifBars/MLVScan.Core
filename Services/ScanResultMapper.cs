@@ -4,6 +4,7 @@ using MLVScan.Models;
 using MLVScan.Models.Dto;
 using MLVScan.Models.ThreatIntel;
 using MLVScan.Services.ThreatIntel;
+using Mono.Cecil;
 
 namespace MLVScan.Services;
 
@@ -70,6 +71,7 @@ public static class ScanResultMapper
             {
                 FileName = fileName, SizeBytes = assemblyBytes.Length, Sha256Hash = sha256Hash
             },
+            Assembly = ExtractAssemblyMetadata(assemblyBytes),
             Summary = BuildSummary(findingsList),
             Findings = findingDtos,
             Disposition = ToThreatDispositionDto(disposition, findingIdsByReference)
@@ -138,6 +140,62 @@ public static class ScanResultMapper
             IncludeDeveloperGuidance = developerMode, ScanMode = developerMode ? "developer" : "detailed"
         };
         return ToDto(findings, fileName, assemblyBytes, options);
+    }
+
+    private static AssemblyMetadataDto? ExtractAssemblyMetadata(byte[] assemblyBytes)
+    {
+        if (assemblyBytes.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes, writable: false);
+            using var assembly = AssemblyDefinition.ReadAssembly(stream, new ReaderParameters
+            {
+                ReadSymbols = false
+            });
+
+            var referencedAssemblies = assembly.MainModule.AssemblyReferences
+                .Select(static reference => reference.Name)
+                .Where(static name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new AssemblyMetadataDto
+            {
+                Name = NullIfWhiteSpace(assembly.Name?.Name),
+                AssemblyVersion = assembly.Name?.Version?.ToString(),
+                FileVersion = GetAssemblyAttributeValue(assembly, "System.Reflection.AssemblyFileVersionAttribute"),
+                InformationalVersion = GetAssemblyAttributeValue(assembly, "System.Reflection.AssemblyInformationalVersionAttribute"),
+                TargetFramework = GetAssemblyAttributeValue(assembly, "System.Runtime.Versioning.TargetFrameworkAttribute"),
+                ModuleRuntimeVersion = NullIfWhiteSpace(assembly.MainModule.RuntimeVersion),
+                ReferencedAssemblies = referencedAssemblies.Count > 0 ? referencedAssemblies : null
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? GetAssemblyAttributeValue(AssemblyDefinition assembly, string fullAttributeName)
+    {
+        var attribute = assembly.CustomAttributes.FirstOrDefault(candidate =>
+            string.Equals(candidate.AttributeType.FullName, fullAttributeName, StringComparison.Ordinal));
+        if (attribute == null || attribute.ConstructorArguments.Count == 0)
+        {
+            return null;
+        }
+
+        return NullIfWhiteSpace(attribute.ConstructorArguments[0].Value?.ToString());
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static ScanSummaryDto BuildSummary(List<ScanFinding> findings)
