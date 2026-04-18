@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using FluentAssertions;
 using MLVScan;
 using Xunit;
@@ -94,5 +95,37 @@ public class MLVScanVersionsTests
         var match = Regex.Match(MLVScanVersions.CoreVersion, @"^\d+\.\d+\.\d+");
 
         match.Success.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CoreVersion_MatchesDirectoryBuildPropsVersion()
+    {
+        var propsVersion = XDocument.Load(FindRepositoryFile("Directory.Build.props"))
+            .Root?
+            .Elements("PropertyGroup")
+            .Elements("Version")
+            .Select(element => element.Value.Trim())
+            .FirstOrDefault();
+
+        propsVersion.Should().NotBeNullOrWhiteSpace();
+        MLVScanVersions.CoreVersion.Should().Be(propsVersion);
+    }
+
+    private static string FindRepositoryFile(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find {fileName} from {AppContext.BaseDirectory}.");
     }
 }
