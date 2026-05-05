@@ -84,11 +84,25 @@ jobs:
       with:
         token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         fetch-depth: 0
+
+    - name: Pin .NET SDK for CI
+      run: |
+        cat > global.json <<'EOF'
+        {
+          "sdk": {
+            "version": "8.0.100",
+            "rollForward": "latestFeature"
+          }
+        }
+        EOF
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '8.0.x'
+
+    - name: Restore .NET workloads
+      run: dotnet workload restore MLVScan.WASM/MLVScan.WASM.csproj
 
     - name: Verify version drift guard
       run: dotnet test MLVScan.Core.Tests/MLVScan.Core.Tests.csproj --filter "FullyQualifiedName~MLVScanVersionsTests.CoreVersion_MatchesDirectoryBuildPropsVersion"

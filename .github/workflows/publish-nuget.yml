@@ -17,11 +17,25 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+
+    - name: Pin .NET SDK for CI
+      run: |
+        cat > global.json <<'EOF'
+        {
+          "sdk": {
+            "version": "8.0.100",
+            "rollForward": "latestFeature"
+          }
+        }
+        EOF
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '8.0.x'
+
+    - name: Restore .NET workloads
+      run: dotnet workload restore MLVScan.WASM/MLVScan.WASM.csproj
         
     - name: Restore dependencies
       run: dotnet restore MLVScan.Core.csproj
