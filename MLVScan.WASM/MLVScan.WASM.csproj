@@ -11,8 +11,8 @@
     <!-- Package metadata -->
     <PackageId>MLVScan.WASM</PackageId>
     <Authors>Bars</Authors>
-    <Description>WebAssembly adapter for MLVScan.Core - enables in-browser scanning of Unity mod assemblies.</Description>
-    <PackageTags>security;malware;scanner;wasm;webassembly;browser;melonloader;bepinex</PackageTags>
+    <Description>WebAssembly adapter for MLVScan.Core - enables in-browser scanning of managed .NET assemblies and mod DLLs.</Description>
+    <PackageTags>security;malware;scanner;wasm;webassembly;browser;dotnet;csharp;mods</PackageTags>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <AssemblyName>MLVScan.WASM</AssemblyName>

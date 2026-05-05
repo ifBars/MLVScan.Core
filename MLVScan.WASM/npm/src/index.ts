@@ -2,7 +2,7 @@
  * @packageDocumentation
  *
  * WebAssembly core for MLVScan. Loads the .NET WASM runtime and MLVScan.WASM assembly
- * to scan Unity mod assemblies (e.g. MelonLoader/BepInEx DLLs) in the browser.
+ * to scan managed .NET assemblies and mod DLLs in the browser.
  *
  * Call {@link initScanner} before scanning (or let {@link scanAssembly} init automatically).
  * Use {@link getScannerStatus} or {@link getInitError} to detect mock fallback and show
@@ -193,7 +193,7 @@ export async function initScanner(options: ScannerInitOptions = {}): Promise<voi
 }
 
 /**
- * Scans a .NET assembly (e.g. a Unity mod DLL) and returns structured findings.
+ * Scans a managed .NET assembly or mod DLL and returns structured findings.
  * Initializes the scanner if not yet initialized. In mock mode returns a result
  * with zero findings and scanner version `1.0.0-mock`.
  *

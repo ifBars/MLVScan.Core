@@ -212,7 +212,7 @@ namespace MLVScan.Services
             {
                 findings.Add(new ScanFinding(
                     virtualPath ?? "Assembly scanning",
-                    "Warning: Some parts of the assembly could not be scanned. Please ensure this is a valid Unity mod. This doesn't necessarily mean the mod is malicious.",
+                    "Warning: Some parts of the assembly could not be scanned. Please ensure this is a valid managed .NET assembly. This doesn't necessarily mean the assembly is malicious.",
                     Severity.Low) { RuleId = "AssemblyScanner" });
             }
 
