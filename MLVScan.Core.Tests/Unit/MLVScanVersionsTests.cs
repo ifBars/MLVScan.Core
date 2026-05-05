@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using System.Xml.Linq;
 using FluentAssertions;
 using MLVScan;
@@ -100,6 +101,41 @@ public class MLVScanVersionsTests
     [Fact]
     public void CoreVersion_MatchesDirectoryBuildPropsVersion()
     {
+        var propsVersion = ReadDirectoryBuildPropsVersion();
+
+        MLVScanVersions.CoreVersion.Should().Be(propsVersion);
+    }
+
+    [Fact]
+    public void CoreVersion_MatchesWasmNpmPackageVersion()
+    {
+        var propsVersion = ReadDirectoryBuildPropsVersion();
+        var packageVersion = ReadJsonStringProperty(
+            FindRepositoryPath("MLVScan.WASM", "npm", "package.json"),
+            "version");
+
+        packageVersion.Should().Be(propsVersion);
+    }
+
+    [Fact]
+    public void CoreVersion_MatchesWasmNpmPackageLockRootVersions()
+    {
+        var propsVersion = ReadDirectoryBuildPropsVersion();
+        var packageLockPath = FindRepositoryPath("MLVScan.WASM", "npm", "package-lock.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(packageLockPath));
+
+        document.RootElement.GetProperty("version").GetString().Should().Be(propsVersion);
+        document.RootElement
+            .GetProperty("packages")
+            .GetProperty("")
+            .GetProperty("version")
+            .GetString()
+            .Should()
+            .Be(propsVersion);
+    }
+
+    private static string ReadDirectoryBuildPropsVersion()
+    {
         var propsVersion = XDocument.Load(FindRepositoryFile("Directory.Build.props"))
             .Root?
             .Elements("PropertyGroup")
@@ -108,16 +144,28 @@ public class MLVScanVersionsTests
             .FirstOrDefault();
 
         propsVersion.Should().NotBeNullOrWhiteSpace();
-        MLVScanVersions.CoreVersion.Should().Be(propsVersion);
+        return propsVersion!;
+    }
+
+    private static string ReadJsonStringProperty(string path, string propertyName)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var value = document.RootElement.GetProperty(propertyName).GetString();
+
+        value.Should().NotBeNullOrWhiteSpace();
+        return value!;
     }
 
     private static string FindRepositoryFile(string fileName)
+        => FindRepositoryPath(fileName);
+
+    private static string FindRepositoryPath(params string[] pathSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (directory is not null)
         {
-            var candidate = Path.Combine(directory.FullName, fileName);
+            var candidate = Path.Combine(new[] { directory.FullName }.Concat(pathSegments).ToArray());
             if (File.Exists(candidate))
             {
                 return candidate;
@@ -126,6 +174,6 @@ public class MLVScanVersionsTests
             directory = directory.Parent;
         }
 
-        throw new FileNotFoundException($"Could not find {fileName} from {AppContext.BaseDirectory}.");
+        throw new FileNotFoundException($"Could not find {Path.Combine(pathSegments)} from {AppContext.BaseDirectory}.");
     }
 }
