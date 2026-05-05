@@ -181,6 +181,44 @@ public sealed class InstructionValueResolverBranchTests
     }
 
     [Fact]
+    public void TryResolveProcessTarget_WithStringFormatExecutableName_RecoversFormattedLolBin()
+    {
+        var method = CreateMethod();
+        var il = method.Body!.GetILProcessor();
+
+        il.Append(Instruction.Create(OpCodes.Ldstr, "{0}.{1}"));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "powershell"));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "exe"));
+        il.Append(Instruction.Create(OpCodes.Call, CreateStringFormatMethodRef(method.Module)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
+        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+
+        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
+
+        result.Should().BeTrue();
+        args[4].Should().Be("\"powershell.exe\"");
+    }
+
+    [Fact]
+    public void TryResolveProcessTarget_WithPathGetFileName_ExtractsExecutableFromFullPath()
+    {
+        var method = CreateMethod();
+        var il = method.Body!.GetILProcessor();
+
+        il.Append(Instruction.Create(OpCodes.Ldstr, @"C:\Windows\System32\cmd.exe"));
+        il.Append(Instruction.Create(OpCodes.Call, CreatePathStringMethodRef(method.Module, "GetFileName")));
+        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
+        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+
+        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
+
+        result.Should().BeTrue();
+        args[4].Should().Be("\"cmd.exe\"");
+    }
+
+    [Fact]
     public void TryResolveProcessTarget_WithSingleArgumentNonStartCall_ReturnsUnknown()
     {
         var method = CreateMethod();
@@ -250,11 +288,30 @@ public sealed class InstructionValueResolverBranchTests
         };
     }
 
+    private static MethodReference CreatePathStringMethodRef(ModuleDefinition module, string methodName)
+    {
+        var method = CreatePathMethodRef(module, methodName);
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        return method;
+    }
+
     private static MethodReference CreateGuidMethodRef(ModuleDefinition module, string methodName)
     {
         return new MethodReference(methodName, new TypeReference("System", "Guid", module, module.TypeSystem.CoreLibrary), new TypeReference("System", "Guid", module, module.TypeSystem.CoreLibrary))
         {
             HasThis = false
         };
+    }
+
+    private static MethodReference CreateStringFormatMethodRef(ModuleDefinition module)
+    {
+        var method = new MethodReference("Format", module.TypeSystem.String, new TypeReference("System", "String", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = false
+        };
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        return method;
     }
 }
