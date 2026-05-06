@@ -123,7 +123,7 @@ async function loadDotnet(baseUrl: string): Promise<any> {
     return dotnetModule
   } catch (err) {
     initError = err instanceof Error ? err : new Error(String(err))
-    console.warn('Blazor WASM not available, using mock scanner', initError)
+    console.warn('MLVScan WASM not available, using mock scanner', initError)
     useMockScanner = true
     return null
   }
@@ -313,7 +313,7 @@ export function getScannerStatus(): ScannerStatus {
 }
 
 /**
- * Returns the scanner engine version (e.g. `"1.1.7"`). In mock mode returns
+ * Returns the scanner engine version (e.g. `"1.4.1"`). In mock mode returns
  * `"1.0.0-mock"`. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the version call fails.

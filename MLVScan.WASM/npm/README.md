@@ -2,17 +2,17 @@
 
 [![npm](https://img.shields.io/npm/v/@mlvscan/wasm-core.svg?color=red)](https://www.npmjs.com/package/@mlvscan/wasm-core)
 
-WebAssembly scanning engine for [MLVScan](https://github.com/ifBars/MLVScan). Runs the full [MLVScan.Core](https://github.com/ifBars/MLVScan.Core) malware detection engine entirely in the browser — no server, no uploads, no tracking.
+WebAssembly scanning engine for [MLVScan](https://github.com/ifBars/MLVScan). It runs the MLVScan.Core malware detection engine in the browser with no server-side scan step.
 
 ## Installation
 
 ```bash
-npm install @mlvscan/wasm-core
+bun add @mlvscan/wasm-core
 ```
 
-## Serving the Framework Files
+## Serving The Framework Files
 
-The package ships with a `dist/_framework` directory containing the .NET WASM runtime. **Your build tool must serve these files at runtime.** With Vite, use `vite-plugin-static-copy`:
+The package ships with a `dist/_framework` directory containing the .NET WASM runtime. Your build tool must serve these files at runtime. With Vite, use `vite-plugin-static-copy`:
 
 ```ts
 // vite.config.ts
@@ -30,24 +30,24 @@ export default {
 }
 ```
 
-Then initialize with `baseUrl: '/'` (the default).
+Then initialize with `baseUrl: '/'`, or set `baseUrl` to the route where `_framework/dotnet.js` is served.
 
 ## Quick Start
 
 ```ts
 import { initScanner, scanAssembly } from '@mlvscan/wasm-core'
 
-// Initialize once at app startup
 await initScanner({ baseUrl: '/' })
 
-// Scan a DLL from a file input
 const file = event.target.files[0]
 const bytes = new Uint8Array(await file.arrayBuffer())
 const result = await scanAssembly(bytes, file.name)
 
-console.log(`Found ${result.summary.totalFindings} issue(s)`)
-for (const finding of result.findings) {
-  console.log(`[${finding.severity}] ${finding.description} @ ${finding.location}`)
+console.log(`${result.disposition?.classification}: ${result.disposition?.headline}`)
+console.log(`Found ${result.summary.totalFindings} finding(s)`)
+
+for (const family of result.threatFamilies ?? []) {
+  console.log(`Matched family: ${family.displayName} (${family.matchKind})`)
 }
 ```
 
@@ -55,67 +55,68 @@ for (const finding of result.findings) {
 
 ### `initScanner(options?)`
 
-Loads the .NET WASM runtime. Call once at app startup before scanning. Safe to call multiple times — subsequent calls are no-ops if already initialized.
+Loads the .NET WASM runtime. Call once at app startup before scanning, or let `scanAssembly` initialize on first use. Repeated calls are no-ops after initialization.
 
 ```ts
 await initScanner({
   baseUrl: '/',             // Where _framework is served. Defaults to '/'.
-  useMock: false,           // Force mock mode (useful for testing). Defaults to false.
+  useMock: false,           // Force mock mode for tests. Defaults to false.
   throwOnInitFailure: false // Throw instead of falling back to mock on load failure.
 })
 ```
 
-If `throwOnInitFailure` is not set and WASM fails to load, the scanner silently falls back to mock mode (returning zero findings). Use `getScannerStatus()` to detect this.
-
----
+If `throwOnInitFailure` is not set and WASM fails to load, the scanner falls back to mock mode and returns zero findings. Use `getScannerStatus()` or `getInitError()` to detect that state.
 
 ### `scanAssembly(fileBytes, fileName)`
 
-Scans a .NET assembly and returns a [`ScanResult`](#scanresult). Auto-initializes if `initScanner` was not called first.
+Scans a managed .NET assembly and returns a `ScanResult`. It auto-initializes the scanner if `initScanner` was not called first.
 
 ```ts
 const result = await scanAssembly(bytes, 'MyMod.dll')
 ```
 
----
-
 ### `scanAssemblyWithConfig(fileBytes, fileName, config)`
 
-Scans with explicit options for call chains, data flows, and developer guidance.
+Scans with explicit Core scan configuration. Omitted values use the WASM scanner defaults.
 
 ```ts
 const result = await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
   developerMode: true,
-  enableCrossMethodAnalysis: true
+  enableCrossMethodAnalysis: true,
+  enableReturnValueTracking: true
 })
 ```
 
----
-
-### Status & Utility
+### Status And Utility
 
 | Function | Returns | Description |
 |---|---|---|
-| `isScannerReady()` | `boolean` | True when init has completed (real or mock). Use to gate the scan button. |
+| `isScannerReady()` | `boolean` | True when init has completed with either real WASM or mock fallback. |
 | `isMockScanner()` | `boolean` | True when running in mock mode. |
-| `getScannerStatus()` | `ScannerStatus` | Full status snapshot — ready, mock, explicit mock, and init error. |
-| `getScannerVersion()` | `Promise<string>` | Scanner engine version (e.g. `"1.1.7"`). Returns `"1.0.0-mock"` in mock mode. |
-| `getSchemaVersion()` | `Promise<string>` | Result schema version (e.g. `"1.1.0"`). |
+| `getScannerStatus()` | `ScannerStatus` | Full status snapshot: ready, mock, explicit mock, and init error. |
+| `getScannerVersion()` | `Promise<string>` | Scanner engine version, such as `"1.4.1"`. Returns `"1.0.0-mock"` in mock mode. |
+| `getSchemaVersion()` | `Promise<string>` | Result schema version, currently `"1.2.0"`. |
 | `getInitError()` | `Error \| null` | The error that caused WASM fallback, or null if healthy. |
 
-## Scan Modes
+## Configuration And Result Detail
 
-The `scanMode` in [`ScanConfigInput`](#scanassemblywithconfig) controls the depth of analysis and what is included in the result:
+`scanAssemblyWithConfig` accepts `ScanConfigInput`, which mirrors the public Core scan options in a JSON-friendly shape:
 
-| Mode | Description |
-|---|---|
-| `summary` (default) | Fast scan. Returns findings with severity and location. |
-| `detailed` | Includes `callChains` — the execution path from entry point to suspicious code. |
-| `developer` | Includes `dataFlows` and `developerGuidance` with remediation suggestions. |
+```ts
+await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
+  developerMode: true,
+  enableCrossMethodAnalysis: true,
+  maxCallChainDepth: 5,
+  enableReturnValueTracking: true,
+  detectAssemblyMetadata: true,
+  enableRecursiveResourceScanning: true,
+  maxRecursiveResourceSizeMB: 10
+})
+```
+
+The default result mode is `detailed`. Setting `developerMode: true` uses developer mode and includes developer guidance when available.
 
 ## Handling WASM Load Failures
-
-If the WASM runtime fails to load (e.g. COOP/COEP headers not set, browser incompatibility), the scanner falls back to mock mode automatically. Check the status after init to show an appropriate message:
 
 ```ts
 await initScanner({ baseUrl: '/' })
@@ -126,7 +127,7 @@ if (status.initError) {
 }
 ```
 
-To throw instead of falling back silently:
+To throw instead of falling back:
 
 ```ts
 await initScanner({ baseUrl: '/', throwOnInitFailure: true })
@@ -136,19 +137,19 @@ await initScanner({ baseUrl: '/', throwOnInitFailure: true })
 
 ### `ScanResult`
 
-The root object returned by all scan functions.
-
 ```ts
 interface ScanResult {
-  schemaVersion: string
-  metadata: ScanMetadata       // Core/platform/scanner versions, timestamp, scan mode, platform
-  input: ScanInput             // File name, size, optional SHA-256
-  summary: ScanSummary         // Total findings and counts by severity
-  findings: Finding[]          // Individual security findings
-  callChains?: CallChain[]     // Detailed mode: execution paths
-  dataFlows?: DataFlowChain[]  // Developer mode: source-to-sink data flows
-  developerGuidance?: DeveloperGuidance[] // Developer mode: remediation suggestions
-  threatFamilies?: ThreatFamily[] // Optional malware family classification matches
+  schemaVersion: '1.2.0'
+  metadata: ScanMetadata
+  input: ScanInput
+  assembly?: AssemblyMetadata | null
+  summary: ScanSummary
+  findings: Finding[]
+  callChains?: CallChain[] | null
+  dataFlows?: DataFlowChain[] | null
+  developerGuidance?: DeveloperGuidance[] | null
+  threatFamilies?: ThreatFamily[] | null
+  disposition?: ThreatDisposition | null
 }
 ```
 
@@ -156,29 +157,32 @@ interface ScanResult {
 
 ```ts
 interface Finding {
-  id?: string
-  ruleId?: string
+  id?: string | null
+  ruleId?: string | null
   description: string
   severity: 'Low' | 'Medium' | 'High' | 'Critical'
-  location: string       // Type/method name or file:line
-  codeSnippet?: string
-  riskScore?: number
-  callChainId?: string
-  dataFlowChainId?: string
-  developerGuidance?: DeveloperGuidance
-  callChain?: CallChain
-  dataFlowChain?: DataFlowChain
+  location: string
+  codeSnippet?: string | null
+  riskScore?: number | null
+  callChainId?: string | null
+  dataFlowChainId?: string | null
+  developerGuidance?: DeveloperGuidance | null
+  callChain?: CallChain | null
+  dataFlowChain?: DataFlowChain | null
+  visibility?: 'Default' | 'Advanced' | null
 }
 ```
 
-### `ScannerStatus`
+### `ThreatDisposition`
 
 ```ts
-interface ScannerStatus {
-  ready: boolean
-  isMock: boolean
-  mockRequestedExplicitly: boolean
-  initError: Error | null
+interface ThreatDisposition {
+  classification: 'Clean' | 'Suspicious' | 'KnownThreat'
+  headline: string
+  summary: string
+  blockingRecommended: boolean
+  primaryThreatFamilyId?: string | null
+  relatedFindingIds: string[]
 }
 ```
 
@@ -186,13 +190,14 @@ For the full type definitions, see [`types.ts`](https://github.com/ifBars/MLVSca
 
 ## Related
 
-*   [MLVScan.Core](https://github.com/ifBars/MLVScan.Core) — The detection engine (NuGet package, CLI, WASM source)
-*   [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) — React web app built on this package
-*   [MLVScan](https://github.com/ifBars/MLVScan) — MelonLoader/BepInEx plugin
+- [MLVScan.Core](https://github.com/ifBars/MLVScan.Core) - The detection engine and shared schema source.
+- [MLVScan.Web](https://github.com/ifBars/MLVScan.Web) - React web app built on this package.
+- [MLVScan](https://github.com/ifBars/MLVScan) - MelonLoader/BepInEx plugin.
 
 ## Architecture Notes
 
-MLVScan.Core is designed to be **environment-agnostic**. It powers multiple integration points (MelonLoader, BepInEx, WASM, CLI) without containing any mod loader-specific code.
+MLVScan.Core is environment-agnostic. It powers multiple integration points without containing mod loader-specific code.
 
 ---
-*Licensed under GPL-3.0*
+
+Licensed under GPL-3.0.
