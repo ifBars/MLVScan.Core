@@ -289,6 +289,66 @@ namespace MLVScan.Core.Tests.Unit.Rules
             findings[0].Description.Should().Contain("invisible Unicode payload");
         }
 
+        [Fact]
+        public void PostAnalysisRefine_DetectsScheduleIMoreNpcsStyleSplitReflectionStagingCluster()
+        {
+            AssemblyDefinition assembly = CreateSplitReflectionStagingAssembly();
+            var existingFindings = new[]
+            {
+                new ScanFinding(
+                    "Microsoft.Compilation.Load.Patch:0",
+                    "Decoded numeric payload contains ProcessStartInfo, cmd.exe, powershell.exe and hidden process launch arguments.",
+                    Severity.Critical)
+                {
+                    RuleId = "EncodedStringLiteralRule"
+                }
+            };
+
+            List<ScanFinding> findings = _rule.PostAnalysisRefine(assembly.MainModule, existingFindings).ToList();
+
+            findings.Should().ContainSingle();
+            findings[0].Severity.Should().Be(Severity.Critical);
+            findings[0].RuleId.Should().Be(_rule.RuleId);
+            findings[0].Description.Should().Contain("cross-method");
+            findings[0].Description.Should().Contain("numeric string reconstruction");
+            findings[0].Description.Should().Contain("reflected property assignment");
+            findings[0].Description.Should().Contain("MethodInfo.Invoke");
+            findings[0].BypassCompanionCheck.Should().BeTrue();
+        }
+
+        [Fact]
+        public void PostAnalysisRefine_DoesNotDetectBenignReflectionHelpersWithoutDecodeOrRuntimeTypeEnumeration()
+        {
+            var assembly = TestAssemblyBuilder.Create("BenignReflection")
+                .AddType("ModConfig.ReflectionBinder")
+                    .AddMethod("ApplySettings", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitString("Volume")
+                        .EmitCall("System.Type", "GetProperty")
+                        .EmitCallVirt("System.Reflection.PropertyInfo", "SetValue")
+                        .EndMethod()
+                    .AddMethod("InvokeLifecycle", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitString("OnLoaded")
+                        .EmitCall("System.Type", "GetMethod")
+                        .EmitCallVirt("System.Reflection.MethodInfo", "Invoke")
+                        .EndMethod()
+                    .EndType()
+                .Build();
+
+            List<ScanFinding> findings = _rule.PostAnalysisRefine(assembly.MainModule, Enumerable.Empty<ScanFinding>()).ToList();
+
+            findings.Should().BeEmpty();
+        }
+
+        [Fact]
+        public void PostAnalysisRefine_DoesNotDetectSplitReflectionClusterWithoutDecodedExecutionPayload()
+        {
+            AssemblyDefinition assembly = CreateSplitReflectionStagingAssembly();
+
+            List<ScanFinding> findings = _rule.PostAnalysisRefine(assembly.MainModule, Enumerable.Empty<ScanFinding>()).ToList();
+
+            findings.Should().BeEmpty();
+        }
+
         private static (MethodDefinition Method, ModuleDefinition Module) CreateTestMethod()
         {
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
@@ -309,6 +369,50 @@ namespace MLVScan.Core.Tests.Unit.Rules
             testType.Methods.Add(method);
 
             return (method, module);
+        }
+
+        private static AssemblyDefinition CreateSplitReflectionStagingAssembly()
+        {
+            TestAssemblyBuilder builder = TestAssemblyBuilder.Create("ScheduleIMoreNpcsStyle");
+
+            builder
+                .AddType("Microsoft.Compilation.UnityLoader")
+                    .AddMethod("UnityCoreEngine", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitString("83-116-97-114-116`99-109-100-46-101-120-101")
+                        .EmitCall("System.Int32", "Parse")
+                        .Emit(OpCodes.Conv_U2)
+                        .EmitCall("System.Linq.Enumerable", "Select")
+                        .EmitCall("System.String", "Concat", builder.Module.TypeSystem.String)
+                        .EndMethod()
+                    .EndType()
+                .AddType("Microsoft.Compilation.EditPatcher")
+                    .AddMethod("GameLoading", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitCall("System.AppDomain", "get_CurrentDomain")
+                        .EmitCallVirt("System.AppDomain", "GetAssemblies")
+                        .EmitCall("System.Linq.Enumerable", "SelectMany")
+                        .EmitCall("System.Linq.Enumerable", "FirstOrDefault")
+                        .EndMethod()
+                    .EndType()
+                .AddType("Microsoft.Compilation.Edit")
+                    .AddMethod("CreateProcessStartInfo", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitCall("System.Activator", "CreateInstance")
+                        .EmitCall("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String)
+                        .EndMethod()
+                    .EndType()
+                .AddType("Microsoft.Compilation.Initialize")
+                    .AddMethod("PutData", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitCall("System.Type", "GetProperty")
+                        .EmitCallVirt("System.Reflection.PropertyInfo", "SetValue")
+                        .EndMethod()
+                    .EndType()
+                .AddType("Microsoft.Compilation.UnityCoreModule")
+                    .AddMethod("CallQuiet", MethodAttributes.Public | MethodAttributes.Static)
+                        .EmitCall("System.Type", "GetMethod")
+                        .EmitCallVirt("System.Reflection.MethodInfo", "Invoke")
+                        .EndMethod()
+                    .EndType();
+
+            return builder.Build();
         }
 
         private static MethodReference CreateMethodReference(

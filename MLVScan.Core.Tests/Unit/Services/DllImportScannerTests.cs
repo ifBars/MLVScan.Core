@@ -130,6 +130,34 @@ public class DllImportScannerTests
     }
 
     [Fact]
+    public void ScanForDllImports_WithExtensionlessElevatedRiskDll_ReturnsHighSeverity()
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("RegSetValueEx",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Int32);
+
+        var moduleRef = new ModuleReference("advapi32");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "RegSetValueExW", moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("advapi32");
+    }
+
+    [Fact]
     public void ScanForDllImports_WithGetProcAddressPInvoke_ReturnsMediumSeverity()
     {
         var rules = new List<IScanRule> { new DllImportRule() };

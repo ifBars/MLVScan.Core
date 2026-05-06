@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -18,9 +19,26 @@ namespace MLVScan.Models.Rules
             "minecraftmods.xyz"
         };
 
+        private static readonly HashSet<string> UrlShortenerDomains = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "bit.ly",
+            "tinyurl.com",
+            "t.co",
+            "goo.gl",
+            "is.gd",
+            "cutt.ly",
+            "rebrand.ly",
+            "shorturl.at"
+        };
+
         private static readonly HashSet<string> SuspiciousPayloadExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
+        };
+
+        private static readonly HashSet<string> CommonHostingPayloadExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".hta", ".scr", ".com"
         };
 
         /// <summary>
@@ -113,15 +131,7 @@ namespace MLVScan.Models.Rules
             // Sweep nearby string literals for indicators
             int windowStart = Math.Max(0, instructionIndex - 25);
             int windowEnd = Math.Min(instructions.Count, instructionIndex + 26);
-            var literals = new List<string>();
-            for (int k = windowStart; k < windowEnd; k++)
-            {
-                if (instructions[k].OpCode == OpCodes.Ldstr && instructions[k].Operand is string s &&
-                    !string.IsNullOrEmpty(s))
-                {
-                    literals.Add(s);
-                }
-            }
+            var literals = UrlLiteralCollector.CollectCandidates(instructions, windowStart, windowEnd);
 
             if (literals.Count == 0)
                 yield break;
@@ -137,43 +147,14 @@ namespace MLVScan.Models.Rules
                 s.Contains("telegram", StringComparison.OrdinalIgnoreCase));
 
             // Check for legitimate sources (GitHub releases, mod hosting sites, common CDNs)
-            bool isLegitimateSource = literals.Any(s =>
-                ((s.Contains("github.com", StringComparison.OrdinalIgnoreCase) &&
-                  s.Contains("/releases", StringComparison.OrdinalIgnoreCase)) ||
-                 (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) &&
-                  s.Contains("/release", StringComparison.OrdinalIgnoreCase)) ||
-                 s.Contains("api.github.com/repos", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("github.io", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("modrinth.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("curseforge.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("nexusmods.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("cdn.jsdelivr.net", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("unpkg.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("cdnjs.cloudflare.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("googleapis.com", StringComparison.OrdinalIgnoreCase)) &&
-                !s.Contains("discord.com", StringComparison.OrdinalIgnoreCase));
+            bool isLegitimateSource = literals.Any(IsLegitimateSourceLiteral);
 
             // Detect specific legitimate source types for more detailed reporting
-            bool isGitHubSource = literals.Any(s =>
-                (s.Contains("github.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
-                 s.Contains("github.io", StringComparison.OrdinalIgnoreCase)) &&
-                !s.Contains("discord.com", StringComparison.OrdinalIgnoreCase));
+            bool isGitHubSource = literals.Any(IsGitHubSourceLiteral);
 
-            bool isModHostingSource = literals.Any(s =>
-                s.Contains("modrinth.com", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("curseforge.com", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("nexusmods.com", StringComparison.OrdinalIgnoreCase));
+            bool isModHostingSource = literals.Any(IsModHostingSourceLiteral);
 
-            bool isCDNSource = literals.Any(s =>
-                s.Contains("cdn.jsdelivr.net", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("unpkg.com", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("cdnjs.cloudflare.com", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("googleapis.com", StringComparison.OrdinalIgnoreCase));
+            bool isCDNSource = literals.Any(IsCdnSourceLiteral);
 
             // Extract URLs from literals
             var urls = new List<string>();
@@ -202,6 +183,8 @@ namespace MLVScan.Models.Rules
 
             bool targetsKnownMaliciousDomain = urls.Any(IsKnownMaliciousDomain);
             bool targetsDirectPayload = urls.Any(IsDirectPayloadUrl);
+            bool targetsCommonHostingPayload = urls.Any(IsCommonHostingPayloadUrl);
+            bool targetsUrlShortener = urls.Any(IsUrlShortenerDomain);
 
             string urlList = urls.Count > 0
                 ? $" URL(s): {string.Join(", ", urls)}"
@@ -222,7 +205,15 @@ namespace MLVScan.Models.Rules
             }
 
             // For GET operations: legitimate sources get Low severity (always allowed)
-            if (isLegitimateSource)
+            if (targetsCommonHostingPayload && isLegitimateSource)
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    $"Read-only operation downloads executable or script payload from common hosting source.{urlList}",
+                    Severity.Medium,
+                    snippetBuilder.ToString().TrimEnd());
+            }
+            else if (isLegitimateSource)
             {
                 string sourceType = isGitHubSource ? "GitHub" :
                     isModHostingSource ? "mod hosting site" :
@@ -244,6 +235,14 @@ namespace MLVScan.Models.Rules
                 {
                     BypassCompanionCheck = true
                 };
+            }
+            else if (targetsUrlShortener)
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType?.FullName ?? "Unknown"}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    $"Read-only operation uses URL shortener for download endpoint (destination hidden from static scan).{urlList}",
+                    Severity.High,
+                    snippetBuilder.ToString().TrimEnd());
             }
             else if (targetsDirectPayload)
             {
@@ -276,6 +275,104 @@ namespace MLVScan.Models.Rules
                    KnownMaliciousDomains.Any(domain => uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
         }
 
+        private static bool IsUrlShortenerDomain(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Host))
+                return false;
+
+            return UrlShortenerDomains.Contains(uri.Host);
+        }
+
+        private static bool IsLegitimateSourceLiteral(string literal)
+        {
+            return ExtractUrls(literal).Any(IsLegitimateSourceUrl);
+        }
+
+        private static bool IsGitHubSourceLiteral(string literal)
+        {
+            return ExtractUrls(literal).Any(url =>
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    return false;
+
+                return IsGitHubSource(uri);
+            });
+        }
+
+        private static bool IsModHostingSourceLiteral(string literal)
+        {
+            return ExtractUrls(literal).Any(url =>
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    return false;
+
+                return HostMatches(uri.Host, "modrinth.com") ||
+                       HostMatches(uri.Host, "curseforge.com") ||
+                       HostMatches(uri.Host, "nexusmods.com");
+            });
+        }
+
+        private static bool IsCdnSourceLiteral(string literal)
+        {
+            return ExtractUrls(literal).Any(url =>
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    return false;
+
+                return IsCdnSource(uri);
+            });
+        }
+
+        private static bool IsLegitimateSourceUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return false;
+
+            if (HostMatches(uri.Host, "discord.com") || HostMatches(uri.Host, "discordapp.com"))
+                return false;
+
+            return IsGitHubSource(uri) ||
+                   HostMatches(uri.Host, "modrinth.com") ||
+                   HostMatches(uri.Host, "curseforge.com") ||
+                   HostMatches(uri.Host, "nexusmods.com") ||
+                   IsCdnSource(uri);
+        }
+
+        private static bool IsGitHubSource(Uri uri)
+        {
+            return (HostMatches(uri.Host, "github.com") &&
+                    (uri.AbsolutePath.Contains("/releases", StringComparison.OrdinalIgnoreCase) ||
+                     uri.AbsolutePath.Contains("/release", StringComparison.OrdinalIgnoreCase))) ||
+                   (HostMatches(uri.Host, "api.github.com") &&
+                    uri.AbsolutePath.StartsWith("/repos", StringComparison.OrdinalIgnoreCase)) ||
+                   HostMatches(uri.Host, "raw.githubusercontent.com") ||
+                   HostMatches(uri.Host, "githubusercontent.com") ||
+                   HostMatches(uri.Host, "github.io");
+        }
+
+        private static bool IsCdnSource(Uri uri)
+        {
+            return HostMatches(uri.Host, "cdn.jsdelivr.net") ||
+                   HostMatches(uri.Host, "unpkg.com") ||
+                   HostMatches(uri.Host, "cdnjs.cloudflare.com") ||
+                   HostMatches(uri.Host, "gstatic.com") ||
+                   HostMatches(uri.Host, "googleapis.com");
+        }
+
+        private static bool HostMatches(string host, string domain)
+        {
+            return host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
+                   host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static IEnumerable<string> ExtractUrls(string literal)
+        {
+            foreach (Match match in Regex.Matches(literal, @"(https?://[^\s""'<>]+)", RegexOptions.IgnoreCase))
+            {
+                yield return match.Groups[1].Value;
+            }
+        }
+
         private static bool IsDirectPayloadUrl(string url)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -286,6 +383,16 @@ namespace MLVScan.Models.Rules
 
             string path = uri.AbsolutePath;
             return SuspiciousPayloadExtensions.Any(ext =>
+                path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsCommonHostingPayloadUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return false;
+
+            string path = uri.AbsolutePath;
+            return CommonHostingPayloadExtensions.Any(ext =>
                 path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
         }
     }

@@ -241,14 +241,14 @@ namespace MLVScan.Models.Rules
             }
 
             // Check for elevated-risk DLLs
-            if (ElevatedRiskDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
+            if (MatchesKnownDll(lowerDllName, ElevatedRiskDlls))
             {
                 _severity = Severity.High;
                 _description = $"Detected high-risk DllImport of {dllName}";
                 return true;
             }
 
-            if (CommonNativeRuntimeDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
+            if (MatchesKnownDll(lowerDllName, CommonNativeRuntimeDlls))
             {
                 _severity = Severity.Medium;
                 _description = $"Detected native runtime DllImport of {dllName} ({entryPoint})";
@@ -256,7 +256,7 @@ namespace MLVScan.Models.Rules
             }
 
             // Check for medium-risk DLLs
-            if (MediumRiskDlls.Any(dll => lowerDllName.Contains(dll.ToLower())))
+            if (MatchesKnownDll(lowerDllName, MediumRiskDlls))
             {
                 _severity = Severity.Medium;
                 _description = $"Detected medium-risk DllImport of {dllName}";
@@ -327,6 +327,24 @@ namespace MLVScan.Models.Rules
 
                 if (normalizedDllName == normalizedAudioDll)
                     return true;
+            }
+
+            return false;
+        }
+
+        private static bool MatchesKnownDll(string lowerDllName, IEnumerable<string> knownDlls)
+        {
+            var normalizedDllName = NormalizeDllName(lowerDllName);
+
+            foreach (var dll in knownDlls)
+            {
+                var normalizedKnownDll = NormalizeDllName(dll);
+                if (normalizedDllName.Equals(normalizedKnownDll, StringComparison.Ordinal) ||
+                    normalizedDllName.EndsWith("\\" + normalizedKnownDll, StringComparison.Ordinal) ||
+                    normalizedDllName.EndsWith("/" + normalizedKnownDll, StringComparison.Ordinal))
+                {
+                    return true;
+                }
             }
 
             return false;

@@ -104,6 +104,41 @@ public class DataExfiltrationRuleTests
     }
 
     [Fact]
+    public void AnalyzeContextualPattern_FragmentedDiscordWebhookPost_ReturnsCriticalFinding()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "PostAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://discord.com/api/"));
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "webhooks/123456/abcdef"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 2, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Discord webhook");
+    }
+
+    [Theory]
+    [InlineData("https://discordapp.com/api/webhooks/123456/abcdef")]
+    [InlineData("https://webhook.site/12345678-1234-1234-1234-123456789abc")]
+    public void AnalyzeContextualPattern_AlternateWebhookPost_ReturnsCriticalFinding(string endpoint)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "PostAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, endpoint));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("webhook");
+    }
+
+    [Fact]
     public void AnalyzeContextualPattern_RawPastebinPost_ReturnsCriticalFinding()
     {
         var methodRef = MethodReferenceFactory.Create("System.Net.WebClient", "UploadString");
@@ -170,6 +205,26 @@ public class DataExfiltrationRuleTests
         findings[0].Severity.Should().Be(Severity.Critical);
     }
 
+    [Theory]
+    [InlineData("UploadFile")]
+    [InlineData("UploadFileTaskAsync")]
+    [InlineData("UploadValues")]
+    [InlineData("UploadValuesTaskAsync")]
+    public void AnalyzeContextualPattern_WebClientUploadVariantsToSuspiciousEndpoint_ReturnCriticalFinding(string methodName)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.WebClient", methodName);
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "http://192.168.1.100:8080/collect"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Data-sending operation");
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_UnknownOperationWithSuspiciousUrl_ReturnsMediumSeverity()
     {
@@ -204,6 +259,20 @@ public class DataExfiltrationRuleTests
         findings.Should().HaveCount(1);
         findings[0].Severity.Should().Be(Severity.Low);
         findings[0].Description.Should().Contain("Data-sending operation to GitHub");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_MasqueradedGitHubHostPost_DoesNotGetLegitimateSourceFinding()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "PostAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://api.github.com.evil.test/repos/user/repo/issues"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
     }
 
     [Fact]

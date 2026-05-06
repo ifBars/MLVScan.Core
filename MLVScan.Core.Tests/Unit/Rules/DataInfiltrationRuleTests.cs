@@ -226,6 +226,24 @@ public class DataInfiltrationRuleTests
     }
 
     [Fact]
+    public void AnalyzeContextualPattern_FragmentedExecutablePayloadUrl_ReturnsHighSeverityAndBypassesCompanionCheck()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://downloads.example.com/"));
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "payload.dll"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 2, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].BypassCompanionCheck.Should().BeTrue();
+        findings[0].Description.Should().Contain("executable or script payload");
+    }
+
+    [Fact]
     public void AnalyzeContextualPattern_DownloadFileFromKnownMaliciousDomain_ReturnsHighSeverityAndBypassesCompanionCheck()
     {
         var methodRef = MethodReferenceFactory.Create("System.Net.WebClient", "DownloadFileTaskAsync");
@@ -288,6 +306,60 @@ public class DataInfiltrationRuleTests
 
         findings.Should().HaveCount(1);
         findings[0].Severity.Should().Be(Severity.Low);
+    }
+
+    [Theory]
+    [InlineData("https://raw.githubusercontent.com/user/repo/main/payload.dll")]
+    [InlineData("https://cdn.jsdelivr.net/gh/user/repo/payload.ps1")]
+    public void AnalyzeContextualPattern_CommonHostingDirectPayload_ReturnsMediumSeverity(string url)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, url));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].BypassCompanionCheck.Should().BeFalse();
+        findings[0].Description.Should().Contain("executable or script payload");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_MasqueradedRawGitHubPayload_ReturnsHighSeverityAndBypassesCompanionCheck()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://raw.githubusercontent.com.evil.test/user/repo/main/payload.dll"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].BypassCompanionCheck.Should().BeTrue();
+        findings[0].Description.Should().Contain("non-allowlisted");
+    }
+
+    [Theory]
+    [InlineData("https://bit.ly/3payload")]
+    [InlineData("https://tinyurl.com/dropper123")]
+    public void AnalyzeContextualPattern_UrlShortenerDownload_ReturnsHighSeverity(string url)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetStringAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, url));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("URL shortener");
     }
 
     [Fact]

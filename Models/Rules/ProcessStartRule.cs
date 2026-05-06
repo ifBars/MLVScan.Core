@@ -45,20 +45,35 @@ namespace MLVScan.Models.Rules
         private static readonly HashSet<string> LolBinExecutables = new(StringComparer.OrdinalIgnoreCase)
         {
             "powershell.exe",
+            "powershell",
             "pwsh.exe",
+            "pwsh",
             "cmd.exe",
+            "cmd",
             "mshta.exe",
+            "mshta",
             "wscript.exe",
+            "wscript",
             "cscript.exe",
+            "cscript",
             "regsvr32.exe",
+            "regsvr32",
             "rundll32.exe",
+            "rundll32",
             "certutil.exe",
+            "certutil",
             "bitsadmin.exe",
+            "bitsadmin",
             "msiexec.exe",
+            "msiexec",
             "svchost.exe",
+            "svchost",
             "sc.exe",
+            "sc",
             "schtasks.exe",
-            "wmic.exe"
+            "schtasks",
+            "wmic.exe",
+            "wmic"
         };
 
         private static readonly HashSet<string> KnownSafeTools = new(StringComparer.OrdinalIgnoreCase)
@@ -82,7 +97,7 @@ namespace MLVScan.Models.Rules
         };
 
         private static readonly Regex SuspiciousArgumentPattern = new Regex(
-            @"(?i)(-ep\s+bypass|-enc\s+[A-Za-z0-9+/=]|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
+            @"(?i)((-|/)ep\s+bypass|(-|/)executionpolicy\s+bypass|(-|/)enc(odedcommand)?\s+[A-Za-z0-9+/=]|(-|/)nop(rofile)?\b|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|(-|/)w\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex TempPathPattern = new Regex(
