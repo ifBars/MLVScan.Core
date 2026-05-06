@@ -261,6 +261,41 @@ public class DataInfiltrationRuleTests
         findings[0].Description.Should().Contain("minecraftmods.xyz");
     }
 
+    [Theory]
+    [InlineData("https://recipiestocook.com/zvJOI")]
+    [InlineData("https://fingercakes4sale.store/QcBte")]
+    [InlineData("https://stardewcookies.xyz/da")]
+    [InlineData("https://sub.enardio.com/zNijI")]
+    public void AnalyzeContextualPattern_QuarantineKnownMaliciousExtensionlessUrl_ReturnsHighSeverityAndBypassesCompanionCheck(string url)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, url));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].BypassCompanionCheck.Should().BeTrue();
+        findings[0].Description.Should().Contain("known malicious domain");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_LookalikeKnownMaliciousDomainWithoutPayloadIndicators_ReturnsNoFinding()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "https://notrecipiestocook.com/zvJOI"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_GitHubReleases_ReturnsLowSeverity()
     {

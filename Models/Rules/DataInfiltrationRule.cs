@@ -16,7 +16,11 @@ namespace MLVScan.Models.Rules
     {
         private static readonly HashSet<string> KnownMaliciousDomains = new(StringComparer.OrdinalIgnoreCase)
         {
-            "minecraftmods.xyz"
+            "minecraftmods.xyz",
+            "recipiestocook.com",
+            "fingercakes4sale.store",
+            "stardewcookies.xyz",
+            "enardio.com"
         };
 
         private static readonly HashSet<string> UrlShortenerDomains = new(StringComparer.OrdinalIgnoreCase)

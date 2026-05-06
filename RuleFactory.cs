@@ -35,6 +35,7 @@ namespace MLVScan
                 new HexStringRule(),
                 new SuspiciousLocalVariableRule(),
                 new ObfuscatedReflectiveExecutionRule(),
+                new EmbeddedResourceScriptRule(),
                 new SuspiciousAssemblyNameRule()
             }.AsReadOnly();
         }
