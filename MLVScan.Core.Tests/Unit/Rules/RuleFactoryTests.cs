@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using Mono.Cecil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Rules;
@@ -101,5 +102,68 @@ public class RuleFactoryTests
         var rules2 = RuleFactory.CreateDefaultRules();
 
         rules1.Should().NotBeSameAs(rules2);
+    }
+
+    [Fact]
+    public void CreateDefaultRulesWith_AppendsAdditionalRulesAfterBuiltInRules()
+    {
+        var customRule = new CustomRule("CustomConsumerRule");
+
+        var rules = RuleFactory.CreateDefaultRulesWith(customRule);
+
+        rules.Should().HaveCount(20);
+        rules.Take(19).Should().ContainSingle(r => r is Base64Rule);
+        rules[^1].Should().BeSameAs(customRule);
+        rules.Should().BeAssignableTo<IReadOnlyList<IScanRule>>();
+    }
+
+    [Fact]
+    public void CreateDefaultRulesWith_RejectsNullAdditionalRulesArray()
+    {
+        Action act = () => RuleFactory.CreateDefaultRulesWith(null!);
+
+        act.Should().Throw<ArgumentNullException>()
+            .WithParameterName("additionalRules");
+    }
+
+    [Fact]
+    public void CreateDefaultRulesWith_RejectsNullAdditionalRuleEntry()
+    {
+        Action act = () => RuleFactory.CreateDefaultRulesWith(new CustomRule("CustomConsumerRule"), null!);
+
+        act.Should().Throw<ArgumentNullException>()
+            .WithParameterName("additionalRules");
+    }
+
+    [Fact]
+    public void CreateDefaultRulesWith_RejectsDuplicateRuleIds()
+    {
+        Action act = () => RuleFactory.CreateDefaultRulesWith(new CustomRule("ProcessStartRule"));
+
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("*Duplicate rule ID 'ProcessStartRule'*");
+    }
+
+    [Fact]
+    public void CreateDefaultRulesWith_RejectsBlankRuleIds()
+    {
+        Action act = () => RuleFactory.CreateDefaultRulesWith(new CustomRule(" "));
+
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("*Rule IDs cannot be null, empty, or whitespace*");
+    }
+
+    private sealed class CustomRule : IScanRule
+    {
+        public CustomRule(string ruleId)
+        {
+            RuleId = ruleId;
+        }
+
+        public string Description => "Consumer-supplied custom rule";
+        public Severity Severity => Severity.Low;
+        public string RuleId { get; }
+        public bool RequiresCompanionFinding => false;
+        public bool IsSuspicious(MethodReference method) => false;
     }
 }
