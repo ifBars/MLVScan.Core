@@ -20,7 +20,10 @@ namespace MLVScan.Models.Rules
             "recipiestocook.com",
             "fingercakes4sale.store",
             "stardewcookies.xyz",
-            "enardio.com"
+            "enardio.com",
+            "hohol4521.xyz",
+            "dvach7.store",
+            "eunexusmodshost.store"
         };
 
         private static readonly HashSet<string> UrlShortenerDomains = new(StringComparer.OrdinalIgnoreCase)
@@ -122,7 +125,9 @@ namespace MLVScan.Models.Rules
                 calledMethodName.Contains("GetStringAsync", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("GetByteArrayAsync", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("GetStreamAsync", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
+                calledMethodName.Contains("OpenRead", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("DownloadFile", StringComparison.OrdinalIgnoreCase) ||

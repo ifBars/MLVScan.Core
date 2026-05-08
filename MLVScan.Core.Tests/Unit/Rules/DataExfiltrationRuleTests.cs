@@ -225,6 +225,27 @@ public class DataExfiltrationRuleTests
         findings[0].Description.Should().Contain("Data-sending operation");
     }
 
+    [Theory]
+    [InlineData("UnityEngine.Networking.UnityWebRequest", "Post")]
+    [InlineData("UnityEngine.Networking.UnityWebRequest", "Put")]
+    [InlineData("System.Net.HttpWebRequest", "GetRequestStream")]
+    public void AnalyzeContextualPattern_GameAndWebRequestSendMethodsToSuspiciousEndpoint_ReturnCriticalFinding(
+        string typeName,
+        string methodName)
+    {
+        var methodRef = MethodReferenceFactory.Create(typeName, methodName);
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, "http://192.168.1.100:8080/collect"));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Data-sending operation");
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_UnknownOperationWithSuspiciousUrl_ReturnsMediumSeverity()
     {

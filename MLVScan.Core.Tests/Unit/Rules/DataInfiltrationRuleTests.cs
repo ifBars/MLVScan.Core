@@ -225,6 +225,27 @@ public class DataInfiltrationRuleTests
         findings[0].Description.Should().Contain("executable or script payload");
     }
 
+    [Theory]
+    [InlineData("System.Net.Http.HttpClient", "GetStreamAsync", "https://dvach7.store/stage")]
+    [InlineData("System.Net.WebClient", "OpenReadTaskAsync", "https://downloads.example.com/payload.ps1")]
+    [InlineData("System.Net.WebClient", "OpenRead", "https://pastebin.com/raw/stage")]
+    public void AnalyzeContextualPattern_StreamReadDownloadMethods_ReturnsSuspiciousFinding(
+        string typeName,
+        string methodName,
+        string url)
+    {
+        var methodRef = MethodReferenceFactory.Create(typeName, methodName);
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, url));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().BeOneOf(Severity.High, Severity.Medium);
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_FragmentedExecutablePayloadUrl_ReturnsHighSeverityAndBypassesCompanionCheck()
     {
@@ -266,6 +287,9 @@ public class DataInfiltrationRuleTests
     [InlineData("https://fingercakes4sale.store/QcBte")]
     [InlineData("https://stardewcookies.xyz/da")]
     [InlineData("https://sub.enardio.com/zNijI")]
+    [InlineData("https://hohol4521.xyz/drop")]
+    [InlineData("https://dvach7.store/stage")]
+    [InlineData("https://eunexusmodshost.store/update")]
     public void AnalyzeContextualPattern_QuarantineKnownMaliciousExtensionlessUrl_ReturnsHighSeverityAndBypassesCompanionCheck(string url)
     {
         var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "GetByteArrayAsync");

@@ -92,9 +92,13 @@ namespace MLVScan.Models.Rules
                 calledMethodName.Contains("DownloadString", StringComparison.OrdinalIgnoreCase) ||
                 calledMethodName.Contains("DownloadData", StringComparison.OrdinalIgnoreCase);
 
-            bool isDataSendingOperation = calledMethodName.Contains("PostAsync", StringComparison.OrdinalIgnoreCase) ||
+            bool isDataSendingOperation = calledMethodName.Equals("Post", StringComparison.OrdinalIgnoreCase) ||
+                                          calledMethodName.Equals("Put", StringComparison.OrdinalIgnoreCase) ||
+                                          calledMethodName.Contains("PostAsync", StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("PutAsync", StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("SendAsync", StringComparison.OrdinalIgnoreCase) ||
+                                          calledMethodName.Contains("GetRequestStream",
+                                              StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("UploadString",
                                               StringComparison.OrdinalIgnoreCase) ||
                                           calledMethodName.Contains("UploadData", StringComparison.OrdinalIgnoreCase) ||
