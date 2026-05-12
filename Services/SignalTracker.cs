@@ -141,7 +141,10 @@ namespace MLVScan.Services
             // Check for file writes
             if ((typeName.StartsWith("System.IO.File") &&
                  (methodName.Contains("Write") || methodName.Contains("Create"))) ||
-                (typeName.StartsWith("System.IO.Stream") && methodName.Contains("Write")))
+                (typeName == "System.IO.FileStream" && methodName == ".ctor") ||
+                (typeName.StartsWith("System.IO.Stream") && methodName.Contains("Write")) ||
+                (typeName == "System.IO.StreamWriter" && methodName.StartsWith("Write")) ||
+                (typeName == "System.IO.BinaryWriter" && methodName.StartsWith("Write")))
             {
                 signals.HasFileWrite = true;
                 // Mark type-level signal

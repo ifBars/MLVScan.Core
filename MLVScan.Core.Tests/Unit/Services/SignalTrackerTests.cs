@@ -176,6 +176,22 @@ public class SignalTrackerTests
         signals.HasFileWrite.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("System.IO.FileStream", ".ctor")]
+    [InlineData("System.IO.StreamWriter", "WriteLine")]
+    [InlineData("System.IO.BinaryWriter", "Write")]
+    public void UpdateMethodSignals_StreamBackedFileWrite_SetsHasFileWrite(string typeName, string methodName)
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var signals = new MethodSignals();
+
+        var methodRef = MethodReferenceFactory.Create(typeName, methodName);
+        tracker.UpdateMethodSignals(signals, methodRef, null);
+
+        signals.HasFileWrite.Should().BeTrue();
+    }
+
     [Fact]
     public void UpdateMethodSignals_NullMethod_DoesNotThrow()
     {
