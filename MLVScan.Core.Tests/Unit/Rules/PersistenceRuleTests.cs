@@ -30,6 +30,24 @@ public class PersistenceRuleTests
         _rule.IsSuspicious(MethodReferenceFactory.Create("System.IO.File", "WriteAllText")).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(7, true, "Startup")]
+    [InlineData(24, true, "CommonStartup")]
+    [InlineData(26, false, "ApplicationData")]
+    [InlineData(28, false, "LocalApplicationData")]
+    [InlineData(35, false, "CommonApplicationData")]
+    [InlineData(36, true, "Windows")]
+    [InlineData(37, true, "System")]
+    [InlineData(5, false, "Folder(5)")]
+    public void IsSensitiveFolder_ReturnsExpectedForPersistenceTargets(
+        int folderValue,
+        bool expectedSensitive,
+        string expectedName)
+    {
+        PersistenceRule.IsSensitiveFolder(folderValue).Should().Be(expectedSensitive);
+        PersistenceRule.GetFolderName(folderValue).Should().Be(expectedName);
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_DetectsWriteToTempFolder()
     {
@@ -44,6 +62,94 @@ public class PersistenceRuleTests
         findings.Should().HaveCount(1);
         findings[0].Severity.Should().Be(Severity.Medium);
         findings[0].Description.Should().Contain("TEMP folder");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DetectsScriptWriteToSensitiveFolder()
+    {
+        var context = CreateContext("System.IO.File", "WriteAllText", builder =>
+        {
+            builder.EmitInt(26); // Environment.SpecialFolder.ApplicationData
+            builder.EmitCall("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String);
+            builder.EmitString("payload.cmd");
+            builder.EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String);
+            builder.EmitString("@echo off");
+        });
+
+        var findings = Analyze(context, 5);
+
+        findings.Should().HaveCount(1);
+        findings[0].Description.Should().Contain("sensitive folder");
+        findings[0].Description.Should().Contain("ApplicationData");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DoesNotDetectBenignConfigWriteToSensitiveFolder()
+    {
+        var context = CreateContext("System.IO.File", "WriteAllText", builder =>
+        {
+            builder.EmitInt(26); // Environment.SpecialFolder.ApplicationData
+            builder.EmitCall("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String);
+            builder.EmitString("settings.json");
+            builder.EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String);
+            builder.EmitString("{}");
+        });
+
+        Analyze(context, 5).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DetectsFileStreamCreateWriteToTempFolder()
+    {
+        var context = CreateContext("System.IO.FileStream", ".ctor", builder =>
+        {
+            builder.EmitCall("System.IO.Path", "GetTempPath", builder.Module.TypeSystem.String);
+            builder.EmitString("payload.cmd");
+            builder.EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String);
+            builder.EmitInt(2); // FileMode.Create
+            builder.EmitInt(2); // FileAccess.Write
+        });
+
+        var findings = Analyze(context, 5);
+
+        findings.Should().HaveCount(1);
+        findings[0].Severity.Should().Be(Severity.Medium);
+        findings[0].Description.Should().Contain("TEMP folder");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DoesNotDetectFileStreamReadFromTempFolder()
+    {
+        var context = CreateContext("System.IO.FileStream", ".ctor", builder =>
+        {
+            builder.EmitCall("System.IO.Path", "GetTempPath", builder.Module.TypeSystem.String);
+            builder.EmitString("resource.dat");
+            builder.EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String);
+            builder.EmitInt(3); // FileMode.Open
+            builder.EmitInt(1); // FileAccess.Read
+        });
+
+        Analyze(context, 5).Should().BeEmpty();
     }
 
     [Fact]
