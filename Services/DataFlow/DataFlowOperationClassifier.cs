@@ -151,6 +151,7 @@ namespace MLVScan.Services.DataFlow
                     declaringType.Contains("UnityWebRequest", StringComparison.Ordinal)) &&
                    (methodName.Contains("Get", StringComparison.Ordinal) ||
                     methodName.Contains("Download", StringComparison.Ordinal) ||
+                    methodName.Contains("Read", StringComparison.Ordinal) ||
                     methodName.Contains("Receive", StringComparison.Ordinal));
         }
 

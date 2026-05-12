@@ -158,7 +158,11 @@ namespace MLVScan.Services.DataFlow
                 operation.NodeType == DataFlowNodeType.Source &&
                 (operation.Operation.Contains("Http", StringComparison.OrdinalIgnoreCase) ||
                  operation.Operation.Contains("Web", StringComparison.OrdinalIgnoreCase) ||
-                 operation.Operation.Contains("Network", StringComparison.OrdinalIgnoreCase)));
+                 operation.Operation.Contains("Network", StringComparison.OrdinalIgnoreCase) ||
+                 operation.Operation.Contains("Socket", StringComparison.OrdinalIgnoreCase) ||
+                 operation.Operation.Contains("TcpClient", StringComparison.OrdinalIgnoreCase) ||
+                 operation.Operation.Contains("UdpClient", StringComparison.OrdinalIgnoreCase) ||
+                 operation.Operation.Contains("Receive", StringComparison.OrdinalIgnoreCase)));
         }
 
         private static bool HasFileSource(IEnumerable<DataFlowInterestingOperation> operations)

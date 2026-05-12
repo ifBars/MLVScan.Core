@@ -94,6 +94,47 @@ public class DataFlowAnalyzerDetailedTests
     }
 
     [Fact]
+    public void AnalyzeMethod_WithTcpClientStreamWriteAndExecute_DetectsPattern()
+    {
+        var rules = RuleFactory.CreateDefaultRules();
+        var snippetBuilder = new CodeSnippetBuilder();
+        var analyzer = new DataFlowAnalyzer(rules, snippetBuilder);
+
+        var builder = TestAssemblyBuilder.Create("SocketDownloader");
+        var assembly = builder
+            .AddType("Malware.SocketDownloader")
+                .AddMethod("ReceiveAndRun")
+                    .AddLocal("System.Net.Sockets.NetworkStream", out int streamVar)
+                    .AddLocal("System.Byte[]", out int dataVar)
+                    .AddLocal("System.String", out int pathVar)
+                    .EmitCall("System.Net.Sockets.TcpClient", "GetStream", builder.Module.TypeSystem.Object)
+                    .EmitStloc(streamVar)
+                    .EmitLdloc(streamVar)
+                    .EmitLdloc(dataVar)
+                    .EmitCall("System.Net.Sockets.NetworkStream", "Read", builder.Module.TypeSystem.Int32)
+                    .EmitPop()
+                    .EmitString("payload.exe")
+                    .EmitStloc(pathVar)
+                    .EmitLdloc(pathVar)
+                    .EmitLdloc(dataVar)
+                    .EmitCall("System.IO.File", "WriteAllBytes")
+                    .EmitLdloc(pathVar)
+                    .EmitCall("System.Diagnostics.Process", "Start", null)
+                    .Emit(OpCodes.Pop)
+                    .EndMethod()
+                .EndType()
+            .Build();
+
+        var method = assembly.MainModule.Types.First(t => t.Name == "SocketDownloader").Methods.First(m => m.Name == "ReceiveAndRun");
+
+        var chains = analyzer.AnalyzeMethod(method);
+
+        chains.Should().Contain(c => c.Pattern == DataFlowPattern.DownloadAndExecute);
+        chains.Should().Contain(c => c.Nodes.Any(node => node.Operation.Contains("TcpClient.GetStream")));
+        chains.Should().Contain(c => c.Nodes.Any(node => node.Operation.Contains("NetworkStream.Read")));
+    }
+
+    [Fact]
     public void AnalyzeMethod_WithOnlyLegitimateOperations_HasLowOrNoSuspiciousChains()
     {
         // Arrange
