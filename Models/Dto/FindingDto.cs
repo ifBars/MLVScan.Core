@@ -3,15 +3,25 @@ namespace MLVScan.Models.Dto;
 /// <summary>
 /// Individual finding in the serialized scan result.
 /// </summary>
+/// <remarks>
+/// Findings are low-level scanner signals. They explain what a rule observed, but the primary
+/// file-level verdict is exposed through <see cref="ScanResultDto.Disposition"/> after threat-family
+/// and disposition correlation.
+/// </remarks>
 public class FindingDto
 {
     /// <summary>
-    /// Optional stable identifier used by UIs to track or de-duplicate a finding.
+    /// Gets or sets an identifier generated for this serialized result.
     /// </summary>
+    /// <remarks>
+    /// The identifier is stable within one payload and is used by related fields such as
+    /// <see cref="ThreatDispositionDto.RelatedFindingIds"/>. Consumers should not treat it as a
+    /// durable identifier across separate scans.
+    /// </remarks>
     public string? Id { get; set; }
 
     /// <summary>
-    /// Stable rule identifier that produced the finding.
+    /// Gets or sets the stable rule identifier that produced the finding.
     /// </summary>
     public string? RuleId { get; set; }
 
@@ -66,7 +76,12 @@ public class FindingDto
     public DataFlowChainDto? DataFlowChain { get; set; }
 
     /// <summary>
-    /// Visibility tier used by consumers to hide advanced diagnostics from default views.
+    /// Gets or sets the visibility tier used by consumers to choose default or advanced display.
     /// </summary>
+    /// <remarks>
+    /// Findings that directly support the retained disposition are marked as default visibility.
+    /// Supporting diagnostics that did not drive the final verdict may be marked advanced so user
+    /// interfaces can stay concise without losing forensic detail.
+    /// </remarks>
     public string? Visibility { get; set; }
 }

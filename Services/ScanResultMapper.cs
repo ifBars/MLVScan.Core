@@ -12,18 +12,30 @@ namespace MLVScan.Services;
 /// Maps MLVScan.Core models to schema-compliant DTOs.
 /// This mapper is platform-agnostic and can be used by CLI, WASM, Server, and Desktop implementations.
 /// </summary>
+/// <remarks>
+/// The mapper is the boundary between scanner internals and the shared result contract. It attaches
+/// schema metadata, computes the input hash, extracts neutral assembly metadata, correlates threat
+/// families, and builds the final disposition. Hosts should use this mapper instead of composing
+/// result DTOs by hand so visibility, threat-family, and disposition behavior stays consistent.
+/// </remarks>
 public static class ScanResultMapper
 {
     private static readonly ThreatFamilyClassifier ThreatFamilyClassifier = new();
     private static readonly ThreatDispositionClassifier ThreatDispositionClassifier = new();
 
     /// <summary>
-    /// Converts a collection of ScanFinding to a complete ScanResultDto.
+    /// Converts scanner findings and input bytes to a complete schema-compliant result.
     /// </summary>
-    /// <param name="findings">The scan findings from MLVScan.Core</param>
-    /// <param name="fileName">Name of the scanned file</param>
-    /// <param name="assemblyBytes">Raw bytes of the scanned assembly (for hash computation)</param>
-    /// <param name="options">Options controlling output format and metadata</param>
+    /// <param name="findings">The findings emitted by scanner rules.</param>
+    /// <param name="fileName">The display name of the scanned file.</param>
+    /// <param name="assemblyBytes">The raw bytes of the scanned assembly, used for hashing and neutral metadata extraction.</param>
+    /// <param name="options">Options controlling host metadata and optional expansion sections.</param>
+    /// <returns>A result DTO containing the shared scan contract, summary, findings, threat families, and final disposition.</returns>
+    /// <remarks>
+    /// This method does not execute scan rules. It assumes <paramref name="findings"/> already came
+    /// from Core scanner services, then derives the public result contract from those findings and
+    /// the supplied input bytes.
+    /// </remarks>
     public static ScanResultDto ToDto(
         IEnumerable<ScanFinding> findings,
         string fileName,
@@ -123,12 +135,13 @@ public static class ScanResultMapper
     }
 
     /// <summary>
-    /// Converts a collection of ScanFinding to a complete ScanResultDto using default options.
+    /// Converts scanner findings and input bytes to a complete result using default Core options.
     /// </summary>
-    /// <param name="findings">The scan findings from MLVScan.Core</param>
-    /// <param name="fileName">Name of the scanned file</param>
-    /// <param name="assemblyBytes">Raw bytes of the scanned assembly (for hash computation)</param>
-    /// <param name="developerMode">Whether to include developer guidance</param>
+    /// <param name="findings">The findings emitted by scanner rules.</param>
+    /// <param name="fileName">The display name of the scanned file.</param>
+    /// <param name="assemblyBytes">The raw bytes of the scanned assembly, used for hashing and neutral metadata extraction.</param>
+    /// <param name="developerMode">True to include developer guidance and report developer scan mode; otherwise, false.</param>
+    /// <returns>A result DTO containing the shared scan contract, summary, findings, threat families, and final disposition.</returns>
     public static ScanResultDto ToDto(
         IEnumerable<ScanFinding> findings,
         string fileName,

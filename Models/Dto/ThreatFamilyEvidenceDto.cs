@@ -3,11 +3,21 @@ namespace MLVScan.Models.Dto;
 /// <summary>
 /// Evidence supporting a malware family match.
 /// </summary>
+/// <remarks>
+/// Evidence records are explanatory anchors for a family match. They may point to a rule, a
+/// location, a call chain, a data-flow chain, or a named pattern depending on how the classifier
+/// matched the family.
+/// </remarks>
 public class ThreatFamilyEvidenceDto
 {
     /// <summary>
-    /// Evidence category, such as rule, pattern, or execution path metadata.
+    /// Gets or sets the evidence category.
     /// </summary>
+    /// <remarks>
+    /// Examples include rule evidence, pattern evidence, exact-hash evidence, call-chain evidence,
+    /// and data-flow evidence. Consumers should display unknown future categories as explanatory
+    /// text rather than rejecting the payload.
+    /// </remarks>
     public string Kind { get; set; } = string.Empty;
 
     /// <summary>
@@ -46,7 +56,11 @@ public class ThreatFamilyEvidenceDto
     public string? MethodLocation { get; set; }
 
     /// <summary>
-    /// Optional confidence score for this individual evidence record.
+    /// Gets or sets an optional confidence score for this individual evidence record.
     /// </summary>
+    /// <remarks>
+    /// The value is normalized from 0.0 to 1.0 when present. It contributes to family explanation,
+    /// but does not replace the aggregate <see cref="ThreatFamilyDto.Confidence"/> value.
+    /// </remarks>
     public double? Confidence { get; set; }
 }

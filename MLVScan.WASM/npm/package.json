@@ -14,7 +14,7 @@
     "type": "git",
     "url": "https://github.com/ifBars/MLVScan.Core.git"
   },
-  "author": "Bars",
+  "author": "ifBars",
   "license": "GPL-3.0-or-later",
   "devDependencies": {
     "typescript": "^5.0.0",

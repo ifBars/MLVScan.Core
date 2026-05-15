@@ -3,6 +3,11 @@ namespace MLVScan.Models.Dto;
 /// <summary>
 /// Malware family classification attached to a scan.
 /// </summary>
+/// <remarks>
+/// Threat families provide the named, user-facing layer above individual rules. A family match can
+/// combine exact sample hashes, rule identifiers, data-flow evidence, call-chain evidence, and
+/// advisory links.
+/// </remarks>
 public class ThreatFamilyDto
 {
     /// <summary>
@@ -26,13 +31,22 @@ public class ThreatFamilyDto
     public string Summary { get; set; } = string.Empty;
 
     /// <summary>
-    /// Match type reported by the classifier, for example exact hash or behavior pattern.
+    /// Gets or sets the match type reported by the classifier.
     /// </summary>
+    /// <remarks>
+    /// Values are serialized from <see cref="MLVScan.Models.ThreatIntel.ThreatMatchKind"/>. Exact
+    /// hash matches identify previously confirmed samples; behavior matches identify correlated
+    /// scanner evidence.
+    /// </remarks>
     public string MatchKind { get; set; } = string.Empty;
 
     /// <summary>
-    /// Confidence score for the match, normalized between 0 and 1.
+    /// Gets or sets the confidence score for the match, normalized from 0.0 to 1.0.
     /// </summary>
+    /// <remarks>
+    /// Confidence is classifier evidence strength, not a probability that the file is safe or
+    /// unsafe. Use <see cref="ScanResultDto.Disposition"/> for the final verdict.
+    /// </remarks>
     public double Confidence { get; set; }
 
     /// <summary>

@@ -3,11 +3,21 @@ namespace MLVScan.Models.Dto;
 /// <summary>
 /// Options for configuring scan result generation and output formatting.
 /// </summary>
+/// <remarks>
+/// These options describe the host context and optional expansion sections for
+/// <see cref="MLVScan.Services.ScanResultMapper"/>. They do not change rule execution or threat
+/// classification behavior.
+/// </remarks>
 public class ScanResultOptions
 {
     /// <summary>
-    /// Logical platform identifier used in result metadata.
+    /// Gets or sets the logical platform identifier used in result metadata.
     /// </summary>
+    /// <remarks>
+    /// Use neutral host identifiers such as <c>core</c>, <c>cli</c>, <c>wasm</c>, <c>server</c>, or
+    /// <c>desktop</c>. Loader-specific values should be applied by loader integration layers only
+    /// when the result is no longer part of the environment-neutral Core contract.
+    /// </remarks>
     public string Platform { get; set; } = "core";
 
     /// <summary>
@@ -31,18 +41,32 @@ public class ScanResultOptions
     public string SchemaVersion { get; set; } = MLVScanVersions.SchemaVersion;
 
     /// <summary>
-    /// Indicates whether developer guidance should be included in the result.
+    /// Gets or sets a value indicating whether developer guidance should be included in the result.
     /// </summary>
+    /// <remarks>
+    /// Developer guidance can include remediation text and safer alternatives. It is useful for
+    /// inspectors, CI reports, and advanced diagnostics, but can be omitted from default end-user
+    /// scans to keep reports concise.
+    /// </remarks>
     public bool IncludeDeveloperGuidance { get; set; } = false;
 
     /// <summary>
-    /// Indicates whether call chains should be included in the result.
+    /// Gets or sets a value indicating whether top-level call chains should be included in the result.
     /// </summary>
+    /// <remarks>
+    /// Disabling this option suppresses the top-level <see cref="ScanResultDto.CallChains"/>
+    /// collection. It does not change whether individual findings can carry call-chain identifiers
+    /// or inline call-chain payloads.
+    /// </remarks>
     public bool IncludeCallChains { get; set; } = true;
 
     /// <summary>
-    /// Indicates whether data-flow chains should be included in the result.
+    /// Gets or sets a value indicating whether top-level data-flow chains should be included in the result.
     /// </summary>
+    /// <remarks>
+    /// Disabling this option suppresses the top-level <see cref="ScanResultDto.DataFlows"/>
+    /// collection. It does not change scanner analysis or the final disposition.
+    /// </remarks>
     public bool IncludeDataFlows { get; set; } = true;
 
     /// <summary>
