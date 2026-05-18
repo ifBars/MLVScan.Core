@@ -313,7 +313,7 @@ export function getScannerStatus(): ScannerStatus {
 }
 
 /**
- * Returns the scanner engine version (e.g. `"1.4.1"`). In mock mode returns
+ * Returns the scanner engine version (e.g. `"1.5.0"`). In mock mode returns
  * `"1.0.0-mock"`. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the version call fails.
