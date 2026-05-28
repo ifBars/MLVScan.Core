@@ -53,6 +53,12 @@ const mockScanResult: ScanResult = {
     countBySeverity: {},
     triggeredRules: [],
   },
+  analysisCompleteness: {
+    status: 'Complete',
+    isComplete: true,
+    reviewRecommended: false,
+    reasons: [],
+  },
   findings: []
 }
 
