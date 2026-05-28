@@ -50,7 +50,11 @@ internal static partial class ThreatFamilyCatalog
             FamilyId = "family-powershell-iwr-dlbat-v1",
             DisplayName = "PowerShell IWR temp batch downloader",
             Summary = "Launches hidden PowerShell to download a batch file into TEMP, run it, then remove it.",
-            AdvisorySlugs = ["2026-01-malware-endlessgraffiti"],
+            AdvisorySlugs =
+            [
+                "2026-01-malware-endlessgraffiti",
+                "2026-01-malware-fastergrowth"
+            ],
             ExactSampleHashes =
             [
                 "6c15802426e22e8a0376af1be8bb5caebb5b2e2f4f06a8e7944c80c647a548e6",
@@ -79,7 +83,12 @@ internal static partial class ThreatFamilyCatalog
                 "2026-03-malware-customer-search-bar",
                 "2026-03-malware-longlastingfertilizer",
                 "2026-03-malware-nopolice",
-                "2026-03-malware-unlimitedgraffiti"
+                "2026-03-malware-rentalcars",
+                "2026-03-malware-skitching",
+                "2026-03-malware-storagehub",
+                "2026-03-malware-unlimitedgraffiti",
+                "2026-03-malware-vortex-backuprtilizer",
+                "2026-04-malware-dynamicorders"
             ],
             ExactSampleHashes = [],
             Variants =
