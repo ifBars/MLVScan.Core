@@ -11,6 +11,11 @@ public enum ThreatDispositionClassification
     Clean,
 
     /// <summary>
+    /// Analysis did not complete enough to support a clean verdict.
+    /// </summary>
+    ManualReviewRequired,
+
+    /// <summary>
     /// Suspicious behavior was found, but not enough to call the file a known threat.
     /// </summary>
     Suspicious,

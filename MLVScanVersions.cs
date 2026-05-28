@@ -13,7 +13,7 @@ public static class MLVScanVersions
     /// The JSON schema version (semver).
     /// This defines the structure of scan result output.
     /// </summary>
-    public const string SchemaVersion = "1.2.0";
+    public const string SchemaVersion = "1.3.0";
 
     /// <summary>
     /// The MLVScan.Core library version (semver).

@@ -69,7 +69,7 @@ public class MLVScanVersionsTests
     [Fact]
     public void SchemaVersion_Property_ReturnsExpectedConstant()
     {
-        MLVScanVersions.SchemaVersion.Should().Be("1.2.0");
+        MLVScanVersions.SchemaVersion.Should().Be("1.3.0");
     }
 
     [Fact]

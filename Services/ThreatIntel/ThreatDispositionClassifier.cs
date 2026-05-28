@@ -50,6 +50,14 @@ public sealed class ThreatDispositionClassifier
         IEnumerable<ScanFinding> findings,
         IEnumerable<ThreatFamilyMatch>? threatFamilies)
     {
+        return Classify(findings, threatFamilies, null);
+    }
+
+    public ThreatDispositionResult Classify(
+        IEnumerable<ScanFinding> findings,
+        IEnumerable<ThreatFamilyMatch>? threatFamilies,
+        AnalysisCompletenessResult? analysisCompleteness)
+    {
         var findingsList = findings?.ToList() ?? new List<ScanFinding>();
         var threatFamilyList = threatFamilies?.ToList() ?? new List<ThreatFamilyMatch>();
         var primaryFamily = threatFamilyList
@@ -70,6 +78,11 @@ public sealed class ThreatDispositionClassifier
         if (suspiciousSeeds.Count > 0)
         {
             return BuildSuspiciousDisposition(findingsList, suspiciousSeeds);
+        }
+
+        if (analysisCompleteness?.ReviewRecommended == true)
+        {
+            return BuildManualReviewDisposition(analysisCompleteness);
         }
 
         return new ThreatDispositionResult
@@ -114,6 +127,20 @@ public sealed class ThreatDispositionClassifier
                 "This file shows correlated suspicious behavior. It may be malicious, but it may also be a false positive and should be reviewed.",
             BlockingRecommended = true,
             RelatedFindings = ExpandCorrelatedFindings(findings, suspiciousSeeds)
+        };
+    }
+
+    private static ThreatDispositionResult BuildManualReviewDisposition(
+        AnalysisCompletenessResult analysisCompleteness)
+    {
+        return new ThreatDispositionResult
+        {
+            Classification = ThreatDispositionClassification.ManualReviewRequired,
+            Headline = "Manual review required",
+            Summary =
+                "Analysis did not complete enough to support a clean verdict. Review the completeness reasons before trusting this result.",
+            BlockingRecommended = true,
+            RelatedFindings = analysisCompleteness.RelatedFindings
         };
     }
 

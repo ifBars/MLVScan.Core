@@ -54,8 +54,9 @@ public static class ScanResultMapper
             .Distinct()
             .ToList();
         var sha256Hash = ComputeSha256(assemblyBytes);
+        var analysisCompleteness = BuildAnalysisCompleteness(findingsList);
         var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, callChains, dataFlows, sha256Hash);
-        var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies);
+        var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies, analysisCompleteness);
         var relatedFindings = disposition.RelatedFindings.ToHashSet();
         var findingDtos = findingsList
             .Select(finding => ToFindingDto(
@@ -85,6 +86,7 @@ public static class ScanResultMapper
             },
             Assembly = ExtractAssemblyMetadata(assemblyBytes),
             Summary = BuildSummary(findingsList),
+            AnalysisCompleteness = ToAnalysisCompletenessDto(analysisCompleteness),
             Findings = findingDtos,
             Disposition = ToThreatDispositionDto(disposition, findingIdsByReference)
         };
@@ -228,6 +230,79 @@ public static class ScanResultMapper
         };
 
         return summary;
+    }
+
+    private static AnalysisCompletenessResult BuildAnalysisCompleteness(IReadOnlyList<ScanFinding> findings)
+    {
+        var incompleteFindings = findings
+            .Where(IsIncompleteAnalysisFinding)
+            .ToList();
+
+        if (incompleteFindings.Count == 0)
+        {
+            return new AnalysisCompletenessResult
+            {
+                Status = AnalysisCompletenessStatus.Complete,
+                IsComplete = true,
+                ReviewRecommended = false
+            };
+        }
+
+        var nonCompletenessFindings = findings
+            .Where(finding => !incompleteFindings.Contains(finding))
+            .ToList();
+
+        return new AnalysisCompletenessResult
+        {
+            Status = nonCompletenessFindings.Count > 0
+                ? AnalysisCompletenessStatus.Partial
+                : AnalysisCompletenessStatus.Incomplete,
+            IsComplete = false,
+            ReviewRecommended = true,
+            RelatedFindings = incompleteFindings,
+            Reasons = incompleteFindings
+                .Select(ToAnalysisCompletenessReason)
+                .ToList()
+        };
+    }
+
+    private static bool IsIncompleteAnalysisFinding(ScanFinding finding)
+    {
+        if (!string.IsNullOrWhiteSpace(finding.RuleId) &&
+            (finding.RuleId.Contains("incomplete", StringComparison.OrdinalIgnoreCase) ||
+             finding.RuleId.Contains("manualreview", StringComparison.OrdinalIgnoreCase) ||
+             finding.RuleId.Contains("scanwarning", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (string.Equals(finding.RuleId, "AssemblyScanner", StringComparison.Ordinal) &&
+            finding.Description.Contains("could not be scanned", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return finding.Description.Contains("could not complete full il analysis", StringComparison.OrdinalIgnoreCase) ||
+               finding.Description.Contains("full il analysis was skipped", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static AnalysisCompletenessReason ToAnalysisCompletenessReason(ScanFinding finding)
+    {
+        return new AnalysisCompletenessReason
+        {
+            ReasonId = "scanner-incomplete",
+            Summary = finding.Description,
+            Phase = ResolveAnalysisCompletenessPhase(finding),
+            RuleId = finding.RuleId,
+            Location = finding.Location
+        };
+    }
+
+    private static string ResolveAnalysisCompletenessPhase(ScanFinding finding)
+    {
+        return string.Equals(finding.RuleId, "AssemblyScanner", StringComparison.Ordinal)
+            ? "assembly-scan"
+            : "analysis";
     }
 
     private static FindingDto ToFindingDto(
@@ -390,6 +465,26 @@ public static class ScanResultMapper
                 MethodLocation = e.MethodLocation,
                 Confidence = e.Confidence
             }).ToList()
+        };
+    }
+
+    private static AnalysisCompletenessDto ToAnalysisCompletenessDto(AnalysisCompletenessResult completeness)
+    {
+        return new AnalysisCompletenessDto
+        {
+            Status = completeness.Status.ToString(),
+            IsComplete = completeness.IsComplete,
+            ReviewRecommended = completeness.ReviewRecommended,
+            Reasons = completeness.Reasons
+                .Select(reason => new AnalysisCompletenessReasonDto
+                {
+                    ReasonId = reason.ReasonId,
+                    Summary = reason.Summary,
+                    Phase = reason.Phase,
+                    RuleId = reason.RuleId,
+                    Location = reason.Location
+                })
+                .ToList()
         };
     }
 

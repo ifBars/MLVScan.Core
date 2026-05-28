@@ -23,6 +23,9 @@
     "summary": {
       "$ref": "#/$defs/ScanSummary"
     },
+    "analysisCompleteness": {
+      "$ref": "#/$defs/AnalysisCompleteness"
+    },
     "findings": {
       "type": "array",
       "items": {
@@ -97,13 +100,22 @@
     "metadata",
     "input",
     "summary",
+    "analysisCompleteness",
     "findings"
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mlvscan.com/schemas/scan-result/1.2.0/schema.json",
+  "$id": "https://mlvscan.com/schemas/scan-result/1.3.0/schema.json",
   "title": "MLVScan Scan Result",
-  "description": "Generated from MLVScan.Core DTOs. Schema version 1.2.0.",
+  "description": "Generated from MLVScan.Core DTOs. Schema version 1.3.0.",
   "$defs": {
+    "AnalysisCompletenessStatus": {
+      "type": "string",
+      "enum": [
+        "Complete",
+        "Partial",
+        "Incomplete"
+      ]
+    },
     "CallChainNodeType": {
       "type": "string",
       "enum": [
@@ -163,7 +175,7 @@
     },
     "SchemaVersion": {
       "type": "string",
-      "const": "1.2.0"
+      "const": "1.3.0"
     },
     "Severity": {
       "type": "string",
@@ -178,6 +190,7 @@
       "type": "string",
       "enum": [
         "Clean",
+        "ManualReviewRequired",
         "Suspicious",
         "KnownThreat"
       ]
@@ -187,6 +200,77 @@
       "enum": [
         "ExactSampleHash",
         "BehaviorVariant"
+      ]
+    },
+    "AnalysisCompleteness": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/AnalysisCompletenessStatus"
+        },
+        "isComplete": {
+          "type": "boolean"
+        },
+        "reviewRecommended": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisCompletenessReason"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "isComplete",
+        "reviewRecommended",
+        "reasons"
+      ]
+    },
+    "AnalysisCompletenessReason": {
+      "type": "object",
+      "properties": {
+        "reasonId": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "reasonId",
+        "summary"
       ]
     },
     "AssemblyMetadata": {

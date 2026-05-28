@@ -41,6 +41,15 @@ public class ScanResultDto
     public ScanSummaryDto Summary { get; set; } = new();
 
     /// <summary>
+    /// Gets or sets scanner completeness information used to avoid false confidence in clean results.
+    /// </summary>
+    /// <remarks>
+    /// Consumers should surface this section when <see cref="AnalysisCompletenessDto.ReviewRecommended"/>
+    /// is true, especially when the disposition is manual review rather than clean.
+    /// </remarks>
+    public AnalysisCompletenessDto AnalysisCompleteness { get; set; } = new();
+
+    /// <summary>
     /// Individual findings emitted by the scanner.
     /// </summary>
     public List<FindingDto> Findings { get; set; } = new();

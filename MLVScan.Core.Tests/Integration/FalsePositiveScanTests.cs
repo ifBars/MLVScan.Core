@@ -25,6 +25,8 @@ public class FalsePositiveScanTests
         "ExIni.dll",
         "ezTransXP.dll",
         "FGMONOMobileBanking.dll",
+        "Hoverboard_IL2Cpp_1.0.2.dll",
+        "Hoverboard_Mono_1.0.2.dll",
         "HUB.Chat.dll",
         "HUB.SmartEmployees.dll",
         "HUB.TheVeil.dll",

@@ -27,6 +27,23 @@ public class SecurityRegressionEdgeCaseTests
     }
 
     [Fact]
+    public void Scan_InvalidManagedAssemblyStream_MapsToManualReviewRequired()
+    {
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var invalidBytes = new byte[] { 0x4d, 0x5a, 0x90, 0x00, 0x00 };
+        using var stream = new MemoryStream(invalidBytes);
+
+        var findings = scanner.Scan(stream, "uploaded-malware.dll").ToList();
+        var result = ScanResultMapper.ToDto(findings, "uploaded-malware.dll", invalidBytes, false);
+
+        result.AnalysisCompleteness.Status.Should().Be("Incomplete");
+        result.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("ManualReviewRequired");
+        result.Disposition.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
     public void Scan_PostAnalysisRuleFailure_DoesNotEraseAlreadyDetectedProcessExecution()
     {
         var builder = TestAssemblyBuilder.Create("ThrowsAfterFinding");

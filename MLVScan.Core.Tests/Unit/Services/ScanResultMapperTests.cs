@@ -70,6 +70,93 @@ public class ScanResultMapperTests
     }
 
     [Fact]
+    public void ToDto_WithNoFindings_ReportsCompleteAnalysis()
+    {
+        var result = ScanResultMapper.ToDto(Array.Empty<ScanFinding>(), "clean.dll", _testAssemblyBytes, false);
+
+        result.AnalysisCompleteness.Should().NotBeNull();
+        result.AnalysisCompleteness.Status.Should().Be("Complete");
+        result.AnalysisCompleteness.IsComplete.Should().BeTrue();
+        result.AnalysisCompleteness.ReviewRecommended.Should().BeFalse();
+        result.AnalysisCompleteness.Reasons.Should().BeEmpty();
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("Clean");
+        result.Disposition.BlockingRecommended.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ToDto_WithIncompleteScannerWarning_ReportsManualReviewDisposition()
+    {
+        var finding = new ScanFinding(
+            "Assembly scanning",
+            "Warning: Some parts of the assembly could not be scanned. This doesn't necessarily mean the mod is malicious.",
+            Severity.Low)
+        {
+            RuleId = "AssemblyScanner"
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "broken.dll", _testAssemblyBytes, false);
+
+        result.AnalysisCompleteness.Should().NotBeNull();
+        result.AnalysisCompleteness.Status.Should().Be("Incomplete");
+        result.AnalysisCompleteness.IsComplete.Should().BeFalse();
+        result.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        result.AnalysisCompleteness.Reasons.Should().ContainSingle(reason =>
+            reason.ReasonId == "scanner-incomplete" &&
+            reason.RuleId == "AssemblyScanner" &&
+            reason.Location == "Assembly scanning");
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("ManualReviewRequired");
+        result.Disposition.BlockingRecommended.Should().BeTrue();
+        result.Disposition.RelatedFindingIds.Should().Contain(result.Findings[0].Id);
+        result.Findings[0].Visibility.Should().Be("Default");
+    }
+
+    [Fact]
+    public void ToDto_WithSuspiciousFindingAndIncompleteScannerWarning_KeepsSuspiciousDisposition()
+    {
+        var dataFlow = new DataFlowChain(
+            "df-suspicious-incomplete",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.High,
+            "Downloads and executes a staged payload",
+            "Suspicious.Mod.Loader");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:12",
+            "DownloadFile",
+            DataFlowNodeType.Source,
+            "Remote payload",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Suspicious.Mod.Loader:27",
+            "Process.Start",
+            DataFlowNodeType.Sink,
+            "Execute payload",
+            27));
+
+        var suspicious = new ScanFinding("Suspicious.Mod.Loader", "Suspicious staged payload execution detected", Severity.High)
+        {
+            RuleId = "DataFlowAnalysis",
+            DataFlowChain = dataFlow
+        };
+        var warning = new ScanFinding(
+            "Nested.Resource.dll",
+            "Warning: Some parts of the assembly could not be scanned.",
+            Severity.Low)
+        {
+            RuleId = "AssemblyScanner"
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { suspicious, warning }, "suspicious.dll", _testAssemblyBytes, false);
+
+        result.AnalysisCompleteness.Status.Should().Be("Partial");
+        result.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        result.Disposition!.Classification.Should().Be("Suspicious");
+        result.Findings.Single(f => f.RuleId == "DataFlowAnalysis").Visibility.Should().Be("Default");
+        result.Findings.Single(f => f.RuleId == "AssemblyScanner").Visibility.Should().Be("Advanced");
+    }
+
+    [Fact]
     public void ToDto_WithMultipleFindings_CountsCorrectly()
     {
         var findings = new List<ScanFinding>
