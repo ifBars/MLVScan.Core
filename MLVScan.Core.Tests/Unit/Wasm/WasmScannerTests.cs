@@ -99,6 +99,67 @@ public class WasmScannerTests
         result.Metadata.Platform.Should().Be("wasm");
         result.Metadata.PlatformVersion.Should().Be(WasmScanner.GetVersion());
     }
+
+    [Fact]
+    public void ScanAssemblyWithProgress_ValidSyntheticAssembly_ReportsProgressJson()
+    {
+        using var stream = TestAssemblyBuilder.Create("WasmProgressAssembly")
+            .AddType("Test.Progress")
+            .AddMethod("Run")
+            .Emit(Mono.Cecil.Cil.OpCodes.Ret)
+            .EndMethod()
+            .EndType()
+            .ToStream();
+        var bytes = stream.ToArray();
+        var scanner = new WasmScanner();
+        var progressEvents = new List<ScanProgress>();
+
+        var json = scanner.ScanAssemblyWithProgress(
+            bytes,
+            "progress.dll",
+            progressJson =>
+            {
+                var progress = JsonSerializer.Deserialize(progressJson, WasmJsonContext.Default.ScanProgress);
+                progress.Should().NotBeNull();
+                progressEvents.Add(progress!);
+            });
+
+        var result = JsonSerializer.Deserialize(json, WasmJsonContext.Default.ScanResultDto);
+        result.Should().NotBeNull();
+        progressEvents.Should().NotBeEmpty();
+        progressEvents.Should().Contain(progress => progress.Phase == "ScanType");
+        progressEvents.Last().Percentage.Should().Be(100);
+        progressEvents.Select(progress => progress.Percentage).Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public void ScanAssemblyWithProgress_WhenProgressCallbackThrows_StillReturnsScanResult()
+    {
+        using var stream = TestAssemblyBuilder.Create("WasmThrowingProgressAssembly")
+            .AddType("Test.Progress")
+            .AddMethod("Run")
+            .Emit(Mono.Cecil.Cil.OpCodes.Ret)
+            .EndMethod()
+            .EndType()
+            .ToStream();
+        var bytes = stream.ToArray();
+        var scanner = new WasmScanner();
+        var callbackCount = 0;
+
+        var json = scanner.ScanAssemblyWithProgress(
+            bytes,
+            "throwing-progress.dll",
+            _ =>
+            {
+                callbackCount++;
+                throw new InvalidOperationException("Progress listeners must not fail the scan.");
+            });
+
+        var result = JsonSerializer.Deserialize(json, WasmJsonContext.Default.ScanResultDto);
+        result.Should().NotBeNull();
+        result!.Input.FileName.Should().Be("throwing-progress.dll");
+        callbackCount.Should().BeGreaterThan(0);
+    }
 #pragma warning restore CS0618
 
     [Fact]

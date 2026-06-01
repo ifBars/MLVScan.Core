@@ -19,7 +19,7 @@ namespace MLVScan.Services
             "Shell32Rule"
         };
 
-        private readonly IEnumerable<IScanRule> _rules;
+        private readonly IReadOnlyCollection<IScanRule> _rules;
         private readonly TypeScanner _typeScanner;
         private readonly MetadataScanner _metadataScanner;
         private readonly DllImportScanner _dllImportScanner;
@@ -28,6 +28,7 @@ namespace MLVScan.Services
         private readonly IAssemblyResolverProvider _resolverProvider;
         private readonly ScanConfig _config;
         private readonly ScanTelemetryHub _telemetry;
+        private readonly IProgress<ScanProgress>? _progressReporter;
 
         /// <summary>
         /// Creates a new AssemblyScanner with the specified rules and configuration.
@@ -36,16 +37,19 @@ namespace MLVScan.Services
         /// <param name="config">Optional configuration. Uses defaults if not specified.</param>
         /// <param name="resolverProvider">Optional assembly resolver provider for resolving referenced assemblies.</param>
         /// <param name="entryPointProvider">Optional entry point provider for environment-specific entry point detection. Uses generic provider if not specified.</param>
+        /// <param name="progressReporter">Optional reporter for deterministic scanner progress.</param>
         public AssemblyScanner(
             IEnumerable<IScanRule> rules,
             ScanConfig? config = null,
             IAssemblyResolverProvider? resolverProvider = null,
-            IEntryPointProvider? entryPointProvider = null)
+            IEntryPointProvider? entryPointProvider = null,
+            IProgress<ScanProgress>? progressReporter = null)
         {
             _config = config ?? new ScanConfig();
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
-            _rules = rules;
+            _rules = rules as IReadOnlyCollection<IScanRule> ?? rules.ToList();
             _telemetry = new ScanTelemetryHub();
+            _progressReporter = progressReporter;
 
             // Create all services using composition
             var snippetBuilder = new CodeSnippetBuilder();
@@ -110,10 +114,16 @@ namespace MLVScan.Services
                 };
 
                 var readAssemblyStart = _telemetry.StartTimestamp();
+                ReportProgress("ReadAssembly", 0, 1, assemblyId);
                 using var assembly = AssemblyDefinition.ReadAssembly(assemblyPath, readerParameters);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ReadAssembly", readAssemblyStart);
+
+                var completedUnits = 1;
+                var totalUnits = 1 + CountScanUnits(assembly) + 3;
+                ReportProgress("ReadAssembly", completedUnits, totalUnits, assembly.Name.Name);
+
                 var scanAssemblyStart = _telemetry.StartTimestamp();
-                ScanAssembly(assembly, findings);
+                ScanAssembly(assembly, findings, ref completedUnits, totalUnits);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ScanAssembly", scanAssemblyStart);
 
                 // Build consolidated call chain findings
@@ -121,17 +131,23 @@ namespace MLVScan.Services
                 var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
                 _telemetry.AddPhaseElapsed("AssemblyScanner.BuildCallChainFindings", callChainStart);
                 findings.AddRange(callChainFindings);
+                completedUnits++;
+                ReportProgress("BuildCallChainFindings", completedUnits, totalUnits, assembly.Name.Name);
 
                 // Build data flow findings
                 var dataFlowFindingsStart = _telemetry.StartTimestamp();
                 var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
                 _telemetry.AddPhaseElapsed("AssemblyScanner.BuildDataFlowFindings", dataFlowFindingsStart);
                 findings.AddRange(dataFlowFindings);
+                completedUnits++;
+                ReportProgress("BuildDataFlowFindings", completedUnits, totalUnits, assembly.Name.Name);
 
                 var correlationStart = _telemetry.StartTimestamp();
                 CorrelateDataFlowIntoExecutionFindings(findings);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.CorrelateDataFlowIntoExecutionFindings",
                     correlationStart);
+                completedUnits++;
+                ReportProgress("CorrelateFindings", completedUnits, totalUnits, assembly.Name.Name);
             }
             catch (Exception)
             {
@@ -185,10 +201,16 @@ namespace MLVScan.Services
                 };
 
                 var readAssemblyStart = _telemetry.StartTimestamp();
+                ReportProgress("ReadAssembly", 0, 1, assemblyId);
                 using var assembly = AssemblyDefinition.ReadAssembly(assemblyStream, readerParameters);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ReadAssembly", readAssemblyStart);
+
+                var completedUnits = 1;
+                var totalUnits = 1 + CountScanUnits(assembly) + 3;
+                ReportProgress("ReadAssembly", completedUnits, totalUnits, assembly.Name.Name);
+
                 var scanAssemblyStart = _telemetry.StartTimestamp();
-                ScanAssembly(assembly, findings);
+                ScanAssembly(assembly, findings, ref completedUnits, totalUnits);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ScanAssembly", scanAssemblyStart);
 
                 // Build consolidated call chain findings
@@ -196,17 +218,23 @@ namespace MLVScan.Services
                 var callChainFindings = _callGraphBuilder.BuildCallChainFindings();
                 _telemetry.AddPhaseElapsed("AssemblyScanner.BuildCallChainFindings", callChainStart);
                 findings.AddRange(callChainFindings);
+                completedUnits++;
+                ReportProgress("BuildCallChainFindings", completedUnits, totalUnits, assembly.Name.Name);
 
                 // Build data flow findings
                 var dataFlowFindingsStart = _telemetry.StartTimestamp();
                 var dataFlowFindings = _dataFlowAnalyzer.BuildDataFlowFindings();
                 _telemetry.AddPhaseElapsed("AssemblyScanner.BuildDataFlowFindings", dataFlowFindingsStart);
                 findings.AddRange(dataFlowFindings);
+                completedUnits++;
+                ReportProgress("BuildDataFlowFindings", completedUnits, totalUnits, assembly.Name.Name);
 
                 var correlationStart = _telemetry.StartTimestamp();
                 CorrelateDataFlowIntoExecutionFindings(findings);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.CorrelateDataFlowIntoExecutionFindings",
                     correlationStart);
+                completedUnits++;
+                ReportProgress("CorrelateFindings", completedUnits, totalUnits, assembly.Name.Name);
             }
             catch (Exception)
             {
@@ -222,13 +250,19 @@ namespace MLVScan.Services
             return filteredFindings;
         }
 
-        private void ScanAssembly(AssemblyDefinition assembly, List<ScanFinding> findings)
+        private void ScanAssembly(
+            AssemblyDefinition assembly,
+            List<ScanFinding> findings,
+            ref int completedUnits,
+            int totalUnits)
         {
             if (_config.DetectAssemblyMetadata)
             {
                 var metadataStart = _telemetry.StartTimestamp();
                 findings.AddRange(_metadataScanner.ScanAssemblyMetadata(assembly));
                 _telemetry.AddPhaseElapsed("AssemblyScanner.MetadataScanner", metadataStart);
+                completedUnits++;
+                ReportProgress("ScanMetadata", completedUnits, totalUnits, assembly.Name.Name);
             }
 
             foreach (var module in assembly.Modules)
@@ -241,12 +275,16 @@ namespace MLVScan.Services
                 var dllImportStart = _telemetry.StartTimestamp();
                 _dllImportScanner.ScanForDllImports(module);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.DllImportScanner", dllImportStart);
+                completedUnits++;
+                ReportProgress("ScanImports", completedUnits, totalUnits, module.Name);
 
                 foreach (var type in module.Types)
                 {
                     var typeScanStart = _telemetry.StartTimestamp();
                     findings.AddRange(_typeScanner.ScanType(type));
                     _telemetry.AddPhaseElapsed("AssemblyScanner.TypeScanner", typeScanStart);
+                    completedUnits++;
+                    ReportProgress("ScanType", completedUnits, totalUnits, type.FullName);
 
                     // Phase 1: Analyze data flow for each method in the type (single-method analysis)
                     foreach (var method in EnumerateMethodsRecursively(type))
@@ -255,6 +293,8 @@ namespace MLVScan.Services
                         _dataFlowAnalyzer.AnalyzeMethod(method);
                         _telemetry.AddPhaseElapsed("AssemblyScanner.DataFlowAnalyzeMethod",
                             dataFlowMethodStart);
+                        completedUnits++;
+                        ReportProgress("AnalyzeMethodDataFlow", completedUnits, totalUnits, method.FullName);
                     }
                 }
             }
@@ -263,6 +303,8 @@ namespace MLVScan.Services
             var crossMethodStart = _telemetry.StartTimestamp();
             _dataFlowAnalyzer.AnalyzeCrossMethodFlows();
             _telemetry.AddPhaseElapsed("AssemblyScanner.DataFlowAnalyzeCrossMethodFlows", crossMethodStart);
+            completedUnits++;
+            ReportProgress("AnalyzeCrossMethodDataFlow", completedUnits, totalUnits, assembly.Name.Name);
 
             // Phase 3: Allow rules to refine findings using post-analysis information
             // (e.g., recursive embedded resource scanning, DataFlowAnalyzer chain correlation)
@@ -275,8 +317,41 @@ namespace MLVScan.Services
                     var refinedFindings = rule.PostAnalysisRefine(module, findings);
                     _telemetry.AddPhaseElapsed("AssemblyScanner.PostAnalysisRefine", postAnalysisStart);
                     findings.AddRange(refinedFindings);
+                    completedUnits++;
+                    ReportProgress("PostAnalysisRefine", completedUnits, totalUnits, rule.RuleId);
                 }
             }
+        }
+
+        private int CountScanUnits(AssemblyDefinition assembly)
+        {
+            if (_progressReporter == null)
+            {
+                return 1;
+            }
+
+            var units = _config.DetectAssemblyMetadata ? 1 : 0;
+
+            foreach (var module in assembly.Modules)
+            {
+                units++;
+
+                foreach (var type in module.Types)
+                {
+                    units++;
+                    units += EnumerateMethodsRecursively(type).Count();
+                }
+            }
+
+            units++;
+            units += assembly.Modules.Count * _rules.Count;
+
+            return Math.Max(1, units);
+        }
+
+        private void ReportProgress(string phase, int completedUnits, int totalUnits, string? currentItem = null)
+        {
+            _progressReporter?.Report(new ScanProgress(phase, completedUnits, totalUnits, currentItem));
         }
 
         private static IEnumerable<MethodDefinition> EnumerateMethodsRecursively(TypeDefinition type)

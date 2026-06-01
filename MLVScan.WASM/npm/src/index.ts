@@ -108,6 +108,24 @@ export interface ScannerStatus {
 }
 
 /**
+ * Deterministic progress snapshot emitted by the scanner pipeline.
+ */
+export interface ScanProgress {
+    /** Current scanner phase, e.g. `ScanType` or `AnalyzeMethodDataFlow`. */
+    phase: string;
+    /** Completed work units in the current assembly scan. */
+    completedUnits: number;
+    /** Total work units discovered for the current assembly scan. */
+    totalUnits: number;
+    /** Integer percentage derived from completed and total work units. */
+    percentage: number;
+    /** Current assembly, module, type, method, or rule identifier when available. */
+    currentItem?: string | null;
+}
+
+export type ScanProgressHandler = (progress: ScanProgress) => void;
+
+/**
  * Loads the .NET WASM runtime from the given base URL. Caches the module and sets
  * initError / useMockScanner on failure.
  * @internal
@@ -239,6 +257,76 @@ export async function scanAssembly(
 }
 
 /**
+ * Scans a managed .NET assembly or mod DLL and reports scanner progress.
+ *
+ * The reported progress is based on scanner work units discovered after the
+ * assembly is loaded: metadata, module import scanning, type scanning, method
+ * dataflow analysis, post-analysis rules, and final consolidation.
+ */
+export async function scanAssemblyWithProgress(
+  fileBytes: Uint8Array,
+  fileName: string,
+  onProgress: ScanProgressHandler
+): Promise<ScanResult> {
+  if (!scannerLoaded) {
+    await initScanner()
+  }
+
+  if (useMockScanner || !scannerExports) {
+    onProgress({
+      phase: 'MockScan',
+      completedUnits: 1,
+      totalUnits: 1,
+      percentage: 100,
+      currentItem: fileName,
+    })
+
+    return {
+      ...mockScanResult,
+      input: {
+        fileName,
+        sizeBytes: fileBytes.length,
+      },
+    }
+  }
+
+  if (!scannerExports.MLVScan?.WASM?.ScannerExports) {
+    throw new Error('Scanner not properly initialized: MLVScan.WASM.ScannerExports not found')
+  }
+
+  try {
+    const exports = scannerExports.MLVScan.WASM.ScannerExports
+    if (typeof exports.ScanAssemblyWithProgress !== 'function') {
+      const resultJson = exports.ScanAssembly(fileBytes, fileName)
+      onProgress({
+        phase: 'Complete',
+        completedUnits: 1,
+        totalUnits: 1,
+        percentage: 100,
+        currentItem: fileName,
+      })
+      return JSON.parse(resultJson) as ScanResult
+    }
+
+    const resultJson = exports.ScanAssemblyWithProgress(
+      fileBytes,
+      fileName,
+      (progressJson: string) => {
+        try {
+          onProgress(JSON.parse(progressJson) as ScanProgress)
+        } catch {
+          // Ignore malformed progress events; the final scan result remains authoritative.
+        }
+      }
+    )
+
+    return JSON.parse(resultJson) as ScanResult
+  } catch (error) {
+    throw new Error(`Scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
+/**
  * Scans an assembly with an explicit scan configuration.
  */
 export async function scanAssemblyWithConfig(
@@ -319,7 +407,7 @@ export function getScannerStatus(): ScannerStatus {
 }
 
 /**
- * Returns the scanner engine version (e.g. `"1.6.0"`). In mock mode returns
+ * Returns the scanner engine version (e.g. `"1.7.0"`). In mock mode returns
  * `"1.0.0-mock"`. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the version call fails.
@@ -343,7 +431,7 @@ export async function getScannerVersion(): Promise<string> {
 }
 
 /**
- * Returns the scan result schema version (e.g. `"1.2.0"`). In mock mode returns
+ * Returns the scan result schema version (e.g. `"1.3.0"`). In mock mode returns
  * the generated schema version constant. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the schema version call fails.

@@ -38,6 +38,30 @@ public class WasmScanner
     /// <returns>JSON string containing the scan results following the shared schema.</returns>
     public string ScanAssembly(byte[] assemblyBytes, string fileName)
     {
+        return ScanAssemblyCore(assemblyBytes, fileName, progressReporter: null);
+    }
+
+    /// <summary>
+    /// Scans a single assembly from raw bytes and reports deterministic scanner progress.
+    /// </summary>
+    /// <param name="assemblyBytes">Raw bytes of the .dll file.</param>
+    /// <param name="fileName">Original file name (for reporting).</param>
+    /// <param name="progressCallback">Callback receiving a JSON-serialized <see cref="ScanProgress"/> snapshot.</param>
+    /// <returns>JSON string containing the scan results following the shared schema.</returns>
+    public string ScanAssemblyWithProgress(byte[] assemblyBytes, string fileName, Action<string>? progressCallback)
+    {
+        var progressReporter = progressCallback == null
+            ? null
+            : new JsonProgressReporter(progressCallback);
+
+        return ScanAssemblyCore(assemblyBytes, fileName, progressReporter);
+    }
+
+    private string ScanAssemblyCore(
+        byte[] assemblyBytes,
+        string fileName,
+        IProgress<ScanProgress>? progressReporter)
+    {
         if (assemblyBytes == null || assemblyBytes.Length == 0)
         {
             throw new ArgumentException("Assembly bytes cannot be null or empty", nameof(assemblyBytes));
@@ -52,7 +76,7 @@ public class WasmScanner
         {
             // Create scanner with default rules
             var rules = RuleFactory.CreateDefaultRules();
-            var scanner = new AssemblyScanner(rules, _config);
+            var scanner = new AssemblyScanner(rules, _config, progressReporter: progressReporter);
 
             // Scan using stream-based API (WASM-friendly)
             using var stream = new MemoryStream(assemblyBytes);
@@ -140,5 +164,27 @@ public class WasmScanner
     public static string GetSchemaVersion()
     {
         return MLVScanVersions.SchemaVersion;
+    }
+
+    private sealed class JsonProgressReporter : IProgress<ScanProgress>
+    {
+        private readonly Action<string> _progressCallback;
+
+        public JsonProgressReporter(Action<string> progressCallback)
+        {
+            _progressCallback = progressCallback;
+        }
+
+        public void Report(ScanProgress value)
+        {
+            try
+            {
+                _progressCallback(JsonSerializer.Serialize(value, WasmJsonContext.Default.ScanProgress));
+            }
+            catch
+            {
+                // Progress reporting must not make the scan fail.
+            }
+        }
     }
 }

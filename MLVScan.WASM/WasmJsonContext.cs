@@ -29,6 +29,7 @@ namespace MLVScan.WASM;
 [JsonSerializable(typeof(List<ThreatFamilyEvidenceDto>))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(ScanConfig))]
+[JsonSerializable(typeof(ScanProgress))]
 [JsonSerializable(typeof(Severity))]
 public partial class WasmJsonContext : JsonSerializerContext
 {

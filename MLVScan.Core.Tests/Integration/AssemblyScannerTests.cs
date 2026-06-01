@@ -274,6 +274,74 @@ public class AssemblyScannerTests
     }
 
     [Fact]
+    public void Scan_WithProgressReporter_ReportsMonotonicActualWorkUnits()
+    {
+        var assembly = TestAssemblyBuilder.Create("ProgressMod")
+            .AddType("FirstType")
+                .AddMethod("FirstMethod")
+                .EndMethod()
+            .EndType()
+            .AddType("SecondType")
+                .AddMethod("SecondMethod")
+                .EndMethod()
+            .EndType()
+            .Build();
+
+        var progressEvents = new List<ScanProgress>();
+        var progress = new ProgressRecorder(progressEvents);
+        var rules = RuleFactory.CreateDefaultRules();
+        var scanner = new AssemblyScanner(rules, progressReporter: progress);
+
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        stream.Position = 0;
+
+        scanner.Scan(stream, "ProgressMod.dll").ToList();
+
+        progressEvents.Should().NotBeEmpty();
+        progressEvents.Should().Contain(e => e.Phase == "ScanType" && e.CurrentItem != null && e.CurrentItem.Contains("FirstType"));
+        progressEvents.Should().Contain(e => e.Phase == "AnalyzeMethodDataFlow" && e.CurrentItem != null && e.CurrentItem.Contains("FirstMethod"));
+        progressEvents.Last().Percentage.Should().Be(100);
+        progressEvents.Select(e => e.CompletedUnits).Should().BeInAscendingOrder();
+        progressEvents.Select(e => e.Percentage).Should().BeInAscendingOrder();
+        progressEvents.All(e => e.CompletedUnits <= e.TotalUnits).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Scan_WithProgressReporter_ReportsReadAssemblyBeforeDiscoveredWorkTotal()
+    {
+        var assembly = TestAssemblyBuilder.Create("ProgressStartMod")
+            .AddType("ProgressStartType")
+            .AddMethod("Run")
+            .EndMethod()
+            .EndType()
+            .Build();
+
+        var progressEvents = new List<ScanProgress>();
+        var progress = new ProgressRecorder(progressEvents);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules(), progressReporter: progress);
+
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        stream.Position = 0;
+
+        scanner.Scan(stream, "ProgressStartMod.dll").ToList();
+
+        progressEvents.Should().NotBeEmpty();
+        progressEvents[0].Should().Match<ScanProgress>(p =>
+            p.Phase == "ReadAssembly" &&
+            p.CompletedUnits == 0 &&
+            p.TotalUnits == 1 &&
+            p.Percentage == 0 &&
+            p.CurrentItem == "ProgressStartMod.dll");
+        progressEvents.Should().Contain(p =>
+            p.Phase == "ReadAssembly" &&
+            p.CompletedUnits == 1 &&
+            p.TotalUnits > 1 &&
+            p.Percentage > 0);
+    }
+
+    [Fact]
     public void CreateAssemblyTelemetryId_StripsAbsolutePath()
     {
         var assemblyPath = Path.Combine(Path.GetTempPath(), "MLVScan.Core.Tests", "Example.dll");
@@ -296,5 +364,20 @@ public class AssemblyScannerTests
         var assemblyId = AssemblyScanner.CreateStreamTelemetryId(@"C:\Users\ghost\Desktop\sample\Example.dll");
 
         assemblyId.Should().Be("Example.dll");
+    }
+
+    private sealed class ProgressRecorder : IProgress<ScanProgress>
+    {
+        private readonly List<ScanProgress> _events;
+
+        public ProgressRecorder(List<ScanProgress> events)
+        {
+            _events = events;
+        }
+
+        public void Report(ScanProgress value)
+        {
+            _events.Add(value);
+        }
     }
 }

@@ -27,6 +27,24 @@ public partial class ScannerExports
     }
 
     /// <summary>
+    /// Scans an uploaded assembly and invokes <paramref name="progressCallback"/> with serialized progress snapshots.
+    /// </summary>
+    /// <param name="assemblyBytes">Raw bytes of the uploaded assembly.</param>
+    /// <param name="fileName">Original file name to record in the scan result.</param>
+    /// <param name="progressCallback">JavaScript callback receiving a JSON progress snapshot.</param>
+    /// <returns>Serialized <see cref="Models.Dto.ScanResultDto"/> JSON.</returns>
+    [JSExport]
+    public static string ScanAssemblyWithProgress(
+        byte[] assemblyBytes,
+        string fileName,
+        [JSMarshalAs<JSType.Function<JSType.String>>] Action<string> progressCallback)
+    {
+#pragma warning disable CS0618
+        return _scanner.ScanAssemblyWithProgress(assemblyBytes, fileName, progressCallback);
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
     /// Scans an uploaded assembly using a caller-supplied <see cref="Models.ScanConfig"/>.
     /// </summary>
     /// <param name="assemblyBytes">Raw bytes of the uploaded assembly.</param>

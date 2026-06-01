@@ -75,6 +75,20 @@ Scans a managed .NET assembly and returns a `ScanResult`. It auto-initializes th
 const result = await scanAssembly(bytes, 'MyMod.dll')
 ```
 
+### `scanAssemblyWithProgress(fileBytes, fileName, onProgress)`
+
+Scans a managed .NET assembly and reports deterministic scanner progress before returning the final `ScanResult`.
+
+Progress is based on Core scanner work units, not elapsed time or upload bytes. The scanner reports phases such as assembly loading, metadata inspection, type scanning, method data-flow analysis, post-analysis refinement, and final correlation.
+
+```ts
+const result = await scanAssemblyWithProgress(bytes, 'MyMod.dll', progress => {
+  console.log(`${progress.percentage}% ${progress.phase}`, progress.currentItem)
+})
+```
+
+The first progress event can arrive before the full assembly work total is known. UI hosts should treat the callback as the only authoritative scan-progress signal and avoid advancing scan progress from timers.
+
 ### `scanAssemblyWithConfig(fileBytes, fileName, config)`
 
 Scans with explicit Core scan configuration. Omitted values use the WASM scanner defaults.
@@ -94,8 +108,8 @@ const result = await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
 | `isScannerReady()` | `boolean` | True when init has completed with either real WASM or mock fallback. |
 | `isMockScanner()` | `boolean` | True when running in mock mode. |
 | `getScannerStatus()` | `ScannerStatus` | Full status snapshot: ready, mock, explicit mock, and init error. |
-| `getScannerVersion()` | `Promise<string>` | Scanner engine version, such as `"1.6.0"`. Returns `"1.0.0-mock"` in mock mode. |
-| `getSchemaVersion()` | `Promise<string>` | Result schema version, currently `"1.2.0"`. |
+| `getScannerVersion()` | `Promise<string>` | Scanner engine version, such as `"1.7.0"`. Returns `"1.0.0-mock"` in mock mode. |
+| `getSchemaVersion()` | `Promise<string>` | Result schema version, currently `"1.3.0"`. |
 | `getInitError()` | `Error \| null` | The error that caused WASM fallback, or null if healthy. |
 
 ## Configuration And Result Detail
@@ -139,7 +153,7 @@ await initScanner({ baseUrl: '/', throwOnInitFailure: true })
 
 ```ts
 interface ScanResult {
-  schemaVersion: '1.2.0'
+  schemaVersion: '1.3.0'
   metadata: ScanMetadata
   input: ScanInput
   assembly?: AssemblyMetadata | null
@@ -150,6 +164,18 @@ interface ScanResult {
   developerGuidance?: DeveloperGuidance[] | null
   threatFamilies?: ThreatFamily[] | null
   disposition?: ThreatDisposition | null
+}
+```
+
+### `ScanProgress`
+
+```ts
+interface ScanProgress {
+  phase: string
+  completedUnits: number
+  totalUnits: number
+  percentage: number
+  currentItem?: string | null
 }
 ```
 
