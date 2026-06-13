@@ -44,6 +44,7 @@ public class EncodedStringLiteralRuleTests
     [InlineData("80-111-119-101-114-115-104-101-108-108", false)] // "powershell" only has 10 segments - too short
     [InlineData("72.101.108.108.111.32.87.111.114.108.100", true)] // dot-separated
     [InlineData("72`101`108`108`111`32`87`111`114`108`100", true)] // backtick-separated
+    [InlineData("72_101_108_108_111_32_87_111_114_108_100", true)] // underscore-separated
     [InlineData("Hello World", false)] // plain text
     [InlineData("72-101-108", false)] // too short (less than 10 segments)
     [InlineData("abc-def-ghi-jkl-mno-pqr-stu-vwx-yz1-234-567", false)] // non-numeric
@@ -85,6 +86,17 @@ public class EncodedStringLiteralRuleTests
     {
         // "Hi" = 72`105
         var encoded = "72`105";
+
+        var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
+
+        result.Should().Be("Hi");
+    }
+
+    [Fact]
+    public void DecodeNumericString_UnderscoreSeparated_DecodesCorrectly()
+    {
+        // "Hi" = 72_105
+        var encoded = "72_105";
 
         var result = EncodedStringLiteralRule.DecodeNumericString(encoded);
 
@@ -157,6 +169,20 @@ public class EncodedStringLiteralRuleTests
     }
 
     [Fact]
+    public void AnalyzeStringLiteral_UnderscoreEncodedHiddenPowerShellCommand_ReturnsFinding()
+    {
+        var method = CreateMethodDefinition("RunLiteral");
+        var encoded = "47_99_32_112_111_119_101_114_115_104_101_108_108_46_101_120_101_32_45_87_105_110_100_111_119_83_116_121_108_101_32_72_105_100_100_101_110_32_45_67_111_109_109_97_110_100_32_73_110_118_111_107_101_45_87_101_98_82_101_113_117_101_115_116_32_45_79_117_116_70_105_108_101_32_37_84_69_77_80_37_92_116_101_109_112_46_99_109_100";
+
+        var findings = _rule.AnalyzeStringLiteral(encoded, method, 5).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Description.Should().Contain("powershell.exe");
+        findings[0].Description.Should().Contain("Invoke-WebRequest");
+        findings[0].Description.Should().Contain("%TEMP%\\temp.cmd");
+    }
+
+    [Fact]
     public void AnalyzeStringLiteral_EncodedWithoutSuspiciousDecodedContent_ReturnsEmpty()
     {
         var method = CreateMethodDefinition("RunLiteral");
@@ -194,6 +220,31 @@ public class EncodedStringLiteralRuleTests
         findings.Should().ContainSingle();
         findings[0].Severity.Should().Be(Severity.Critical);
         findings[0].Description.Should().Contain("Hidden payload in assembly metadata");
+    }
+
+    [Fact]
+    public void AnalyzeAssemblyMetadata_WithEncodedAssemblyDescription_ReturnsCriticalFinding()
+    {
+        var encoded = string.Join("`", new[]
+        {
+            EncodeAscii("System.Diagnostics.ProcessStartInfo"),
+            EncodeAscii("cmd.exe"),
+            EncodeAscii("/c powershell -Command \"Invoke-WebRequest -OutFile C:\\ProgramData\\IntelDriver\\windows.cmd\""),
+            EncodeAscii("WindowStyle"),
+            EncodeAscii("Hidden")
+        });
+        var assembly = TestUtilities.TestAssemblyBuilder.Create("MetaEncodedDescription")
+            .AddAssemblyAttribute("AssemblyDescriptionAttribute", encoded)
+            .Build();
+
+        var findings = _rule.AnalyzeAssemblyMetadata(assembly).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Location.Should().Contain("AssemblyDescriptionAttribute");
+        findings[0].Description.Should().Contain("ProcessStartInfo");
+        findings[0].Description.Should().Contain("cmd.exe");
+        findings[0].Description.Should().Contain("Invoke-WebRequest");
     }
 
     [Fact]
@@ -243,5 +294,10 @@ public class EncodedStringLiteralRuleTests
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
         type.Methods.Add(method);
         return method;
+    }
+
+    private static string EncodeAscii(string value)
+    {
+        return string.Join("-", value.Select(c => ((int)c).ToString()));
     }
 }

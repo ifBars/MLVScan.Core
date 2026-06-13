@@ -23,6 +23,9 @@ namespace MLVScan.Models.Rules
         private static readonly Regex BacktickSeparatedPattern =
             new Regex(@"^\d{2,3}(`\d{2,3}){10,}$", RegexOptions.Compiled);
 
+        private static readonly Regex UnderscoreSeparatedPattern =
+            new Regex(@"^\d{2,3}(_\d{2,3}){10,}$", RegexOptions.Compiled);
+
         private static readonly string[] SuspiciousKeywords =
         {
             "Process", "ProcessStartInfo", "powershell", "cmd.exe", "Start", "Execute", "Shell", ".ps1", ".bat",
@@ -103,71 +106,19 @@ namespace MLVScan.Models.Rules
             {
                 foreach (var attr in assembly.CustomAttributes)
                 {
-                    if (attr.AttributeType.Name == "AssemblyMetadataAttribute" && attr.HasConstructorArguments)
+                    if (!attr.HasConstructorArguments)
                     {
-                        foreach (var arg in attr.ConstructorArguments)
-                        {
-                            if (arg.Value is string strValue && !string.IsNullOrWhiteSpace(strValue))
-                            {
-                                var invisibleUnicodeAnalysis = InvisibleUnicodeAnalyzer.Analyze(strValue);
-                                if (invisibleUnicodeAnalysis.HasVariationSelectorPayload &&
-                                    !string.IsNullOrWhiteSpace(invisibleUnicodeAnalysis.DecodedText) &&
-                                    ContainsSuspiciousContent(invisibleUnicodeAnalysis.DecodedText))
-                                {
-                                    findings.Add(new ScanFinding(
-                                        $"Assembly Metadata: {attr.AttributeType.Name}",
-                                        "Hidden invisible Unicode payload in assembly metadata. Decoded content: " +
-                                        invisibleUnicodeAnalysis.DecodedText,
-                                        Severity.Critical,
-                                        $"Variation selectors: {invisibleUnicodeAnalysis.VariationSelectorCount}\n" +
-                                        $"Decoded: {invisibleUnicodeAnalysis.DecodedText}"));
-                                    continue;
-                                }
+                        continue;
+                    }
 
-                                // Check for numeric encoding patterns
-                                if (IsEncodedString(strValue))
-                                {
-                                    var decoded = DecodeNumericString(strValue);
-                                    if (decoded != null && ContainsSuspiciousContent(decoded))
-                                    {
-                                        findings.Add(new ScanFinding(
-                                            $"Assembly Metadata: {attr.AttributeType.Name}",
-                                            $"Hidden payload in assembly metadata attribute. Decoded content: {decoded}",
-                                            Severity.Critical,
-                                            $"Encoded: {strValue}\nDecoded: {decoded}"));
-                                    }
-                                }
-                                // Also check for dot-separated encoding used in metadata
-                                else if (strValue.Contains('.') && strValue.Split('.').Length >= 10)
-                                {
-                                    var decoded = DecodeNumericString(strValue);
-                                    if (decoded != null && ContainsSuspiciousContent(decoded))
-                                    {
-                                        findings.Add(new ScanFinding(
-                                            $"Assembly Metadata: {attr.AttributeType.Name}",
-                                            $"Hidden payload in assembly metadata attribute. Decoded content: {decoded}",
-                                            Severity.Critical,
-                                            $"Encoded: {strValue}\nDecoded: {decoded}"));
-                                    }
-                                }
-                                // Check for multi-level encoding in metadata
-                                else
-                                {
-                                    var multiDecoded = TryDecodeMultiLevelString(strValue);
-                                    if (multiDecoded != null && ContainsSuspiciousContent(multiDecoded))
-                                    {
-                                        string truncated = multiDecoded.Length > 500
-                                            ? multiDecoded.Substring(0, 500) + "..."
-                                            : multiDecoded;
-                                        findings.Add(new ScanFinding(
-                                            $"Assembly Metadata: {attr.AttributeType.Name}",
-                                            $"Hidden multi-level encoded payload in assembly metadata. Decoded: {truncated}",
-                                            Severity.Critical,
-                                            $"Encoded length: {strValue.Length}\nDecoded: {truncated}"));
-                                    }
-                                }
-                            }
+                    foreach (var arg in attr.ConstructorArguments)
+                    {
+                        if (arg.Value is not string strValue || string.IsNullOrWhiteSpace(strValue))
+                        {
+                            continue;
                         }
+
+                        AnalyzeMetadataString(attr.AttributeType.Name, strValue, findings);
                     }
                 }
             }
@@ -179,6 +130,70 @@ namespace MLVScan.Models.Rules
             return findings;
         }
 
+        private static void AnalyzeMetadataString(string attributeName, string value, List<ScanFinding> findings)
+        {
+            var invisibleUnicodeAnalysis = InvisibleUnicodeAnalyzer.Analyze(value);
+            if (invisibleUnicodeAnalysis.HasVariationSelectorPayload &&
+                !string.IsNullOrWhiteSpace(invisibleUnicodeAnalysis.DecodedText) &&
+                ContainsSuspiciousContent(invisibleUnicodeAnalysis.DecodedText))
+            {
+                findings.Add(new ScanFinding(
+                    $"Assembly Metadata: {attributeName}",
+                    "Hidden invisible Unicode payload in assembly metadata. Decoded content: " +
+                    invisibleUnicodeAnalysis.DecodedText,
+                    Severity.Critical,
+                    $"Variation selectors: {invisibleUnicodeAnalysis.VariationSelectorCount}\n" +
+                    $"Decoded: {invisibleUnicodeAnalysis.DecodedText}"));
+                return;
+            }
+
+            if (IsEncodedString(value))
+            {
+                var decoded = DecodeNumericString(value);
+                if (decoded != null && ContainsSuspiciousContent(decoded))
+                {
+                    findings.Add(new ScanFinding(
+                        $"Assembly Metadata: {attributeName}",
+                        $"Hidden payload in assembly metadata attribute. Decoded content: {decoded}",
+                        Severity.Critical,
+                        $"Encoded: {Truncate(value, 500)}\nDecoded: {Truncate(decoded, 500)}"));
+                }
+
+                return;
+            }
+
+            if (value.Contains('.') && value.Split('.').Length >= 10)
+            {
+                var decoded = DecodeNumericString(value);
+                if (decoded != null && ContainsSuspiciousContent(decoded))
+                {
+                    findings.Add(new ScanFinding(
+                        $"Assembly Metadata: {attributeName}",
+                        $"Hidden payload in assembly metadata attribute. Decoded content: {decoded}",
+                        Severity.Critical,
+                        $"Encoded: {Truncate(value, 500)}\nDecoded: {Truncate(decoded, 500)}"));
+                }
+
+                return;
+            }
+
+            var multiDecoded = TryDecodeMultiLevelString(value);
+            if (multiDecoded != null && ContainsSuspiciousContent(multiDecoded))
+            {
+                string truncated = Truncate(multiDecoded, 500);
+                findings.Add(new ScanFinding(
+                    $"Assembly Metadata: {attributeName}",
+                    $"Hidden multi-level encoded payload in assembly metadata. Decoded: {truncated}",
+                    Severity.Critical,
+                    $"Encoded length: {value.Length}\nDecoded: {truncated}"));
+            }
+        }
+
+        private static string Truncate(string value, int maxLength)
+        {
+            return value.Length > maxLength ? value.Substring(0, maxLength) + "..." : value;
+        }
+
         public static bool IsEncodedString(string literal)
         {
             if (string.IsNullOrWhiteSpace(literal))
@@ -186,7 +201,8 @@ namespace MLVScan.Models.Rules
 
             return DashSeparatedPattern.IsMatch(literal) ||
                    DotSeparatedPattern.IsMatch(literal) ||
-                   BacktickSeparatedPattern.IsMatch(literal);
+                   BacktickSeparatedPattern.IsMatch(literal) ||
+                   UnderscoreSeparatedPattern.IsMatch(literal);
         }
 
         public static string DecodeNumericString(string encoded)
@@ -198,6 +214,8 @@ namespace MLVScan.Models.Rules
                     delimiter = '.';
                 else if (encoded.Contains('`'))
                     delimiter = '`';
+                else if (encoded.Contains('_'))
+                    delimiter = '_';
 
                 var parts = encoded.Split(delimiter);
                 var decoded = new char[parts.Length];
@@ -235,7 +253,7 @@ namespace MLVScan.Models.Rules
             // Primary separators that split segments
             char[] primarySeparators = { '`', '|', ';', '\n' };
             // Secondary separators that split numeric tokens within segments
-            char[] secondarySeparators = { '-', '.', ',' };
+            char[] secondarySeparators = { '-', '.', ',', '_' };
 
             foreach (char primary in primarySeparators)
             {

@@ -74,7 +74,7 @@ internal static partial class ThreatFamilyCatalog
         },
         new ThreatFamilyDefinition
         {
-            FamilyId = "family-webdownload-stage-exec-v2",
+            FamilyId = "family-webdownload-stage-exec-v3",
             DisplayName = "Web download staged payload executor",
             Summary = "Downloads a payload to TEMP through WebClient, HttpClient, or a similar network API and then executes it via hidden or shell-assisted process launch.",
             AdvisorySlugs =
@@ -129,9 +129,112 @@ internal static partial class ThreatFamilyCatalog
         },
         new ThreatFamilyDefinition
         {
-            FamilyId = "family-obfuscated-metadata-loader-v1",
+            FamilyId = "family-embedded-resource-script-stager-v1",
+            DisplayName = "Embedded resource script stager",
+            Summary = "Stores a script payload in a referenced embedded resource, stages it at runtime, and uses hidden shell or PowerShell execution to retrieve or run a payload.",
+            AdvisorySlugs = [],
+            ExactSampleHashes = [],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "embedded-resource-powershell-download-tempbat",
+                    DisplayName = "Embedded resource -> PowerShell download -> temp batch",
+                    Summary = "Referenced embedded resource contains a PowerShell/WebClient download command that stages a batch payload under TEMP and executes it.",
+                    Confidence = 0.97,
+                    Matcher = MatchEmbeddedResourcePowerShellDownloadTempBatch
+                }
+            ]
+        },
+        new ThreatFamilyDefinition
+        {
+            FamilyId = "family-remote-script-pipe-shell-v1",
+            DisplayName = "Remote script piped to shell",
+            Summary = "Launches a command shell that retrieves a remote script and pipes it directly into another shell interpreter without staging a visible payload file.",
+            AdvisorySlugs = [],
+            ExactSampleHashes = [],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "curl-pipe-cmd-remote-script",
+                    DisplayName = "curl URL piped to cmd.exe",
+                    Summary = "Runs cmd.exe with a curl command that fetches a remote script and pipes the response directly into cmd.exe.",
+                    Confidence = 0.98,
+                    Matcher = MatchCurlPipeCmdRemoteScript
+                }
+            ]
+        },
+        new ThreatFamilyDefinition
+        {
+            FamilyId = "family-encoded-powershell-tempcmd-stager-v1",
+            DisplayName = "Encoded hidden PowerShell temp command stager",
+            Summary = "Stores command-line process, PowerShell, and TEMP command script arguments as numeric-encoded strings before reflectively launching a hidden downloader.",
+            AdvisorySlugs = [],
+            ExactSampleHashes = [],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "numeric-decoded-iwr-tempcmd-hidden-launch",
+                    DisplayName = "Numeric decode -> hidden PowerShell -> TEMP command",
+                    Summary = "Decodes a hidden cmd.exe or powershell.exe launcher that downloads a command script into TEMP and starts it hidden.",
+                    Confidence = 0.97,
+                    Matcher = MatchEncodedPowerShellTempCommandStager
+                }
+            ]
+        },
+        new ThreatFamilyDefinition
+        {
+            FamilyId = "family-hex-remote-config-tempcmd-stager-v1",
+            DisplayName = "Hex remote config temp CMD stager",
+            Summary = "Decodes remote command configuration URLs and reflectively stages the fetched command into a temporary script before hidden cmd.exe execution.",
+            AdvisorySlugs = [],
+            ExactSampleHashes = [],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "hex-config-reflective-tempcmd-hidden-cmd",
+                    DisplayName = "Hex config -> reflected WebClient -> temp .cmd -> hidden cmd.exe",
+                    Summary = "Uses hex/byte-array string reconstruction to hide config URLs, WebClient.DownloadString, temp command-file staging, and a hidden reflected cmd.exe launch.",
+                    Confidence = 0.97,
+                    Matcher = MatchHexRemoteConfigReflectiveTempCmd
+                }
+            ]
+        },
+        new ThreatFamilyDefinition
+        {
+            FamilyId = "family-dynamic-assembly-reflection-loader-v1",
+            DisplayName = "Dynamic assembly reflection loader",
+            Summary = "Loads opaque assembly bytes at runtime and invokes code through reflection, often hiding the payload as an embedded or external plugin resource.",
+            AdvisorySlugs = [],
+            ExactSampleHashes = [],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "assembly-load-reflective-invoke",
+                    DisplayName = "Assembly.Load bytes with reflective invoke",
+                    Summary = "Loads assembly bytes dynamically and invokes an unresolved reflected method, separating the visible host mod from the executable payload.",
+                    Confidence = 0.94,
+                    Matcher = MatchAssemblyLoadReflectiveInvoke
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "dynamic-code-loader-hidden-svchost",
+                    DisplayName = "Dynamic code loader with hidden svchost launch",
+                    Summary = "Combines dynamic code loading or plugin assembly loading with hidden launch of a Windows service binary name.",
+                    Confidence = 0.96,
+                    Matcher = MatchDynamicLoaderHiddenSystemProcess
+                }
+            ]
+        },
+        new ThreatFamilyDefinition
+        {
+            FamilyId = "family-obfuscated-metadata-loader-v2",
             DisplayName = "Obfuscated metadata-backed loader",
-            Summary = "Uses encoded numeric strings and assembly metadata to reconstruct a hidden command launcher at runtime.",
+            Summary = "Uses encoded strings, numeric transforms, or assembly metadata to reconstruct a staged hidden command launcher at runtime.",
             AdvisorySlugs = ["2025-11-malware-scheduleimorenpcs"],
             ExactSampleHashes = ["b6ea902d5eda7bb210c31715f2c90a4b249ce8b6c1747d571028719d025d59db"],
             Variants =
@@ -143,10 +246,67 @@ internal static partial class ThreatFamilyCatalog
                     Summary = "Reconstructs hidden cmd.exe/powershell.exe launcher details from numeric-encoded strings and metadata attributes.",
                     Confidence = 0.95,
                     Matcher = MatchObfuscatedMetadataLoader
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "assembly-description-encoded-hidden-launcher",
+                    DisplayName = "Assembly description encoded hidden launcher",
+                    Summary = "Stores hidden ProcessStartInfo, cmd.exe, and PowerShell downloader launch arguments as numeric segments in AssemblyDescription metadata.",
+                    Confidence = 0.96,
+                    Matcher = MatchAssemblyDescriptionEncodedHiddenLauncher
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "base64-tempbat-hidden-cmd",
+                    DisplayName = "Base64 decoded temp batch hidden cmd",
+                    Summary = "Decodes an embedded Base64 payload, writes it as a temporary batch or command script, and executes it through hidden cmd.exe.",
+                    Confidence = 0.97,
+                    Matcher = MatchBase64TempBatchHiddenCmd
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "obfuscated-reflective-hidden-process-launch",
+                    DisplayName = "Obfuscated reflective hidden process launch",
+                    Summary = "Correlates Base64 or numeric decode behavior with reflective or native execution bridging and hidden process launch.",
+                    Confidence = 0.95,
+                    Matcher = MatchObfuscatedReflectiveHiddenProcessLaunch
                 }
             ]
         }
     ];
+
+    private static ThreatFamilyVariantMatch? MatchHexRemoteConfigReflectiveTempCmd(ThreatFamilyAnalysisContext context)
+    {
+        var obfuscatedFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ObfuscatedReflectiveExecutionRule", StringComparison.Ordinal) &&
+            FindingContainsAny(finding, "hex remote config reflective temp command stager") &&
+            FindingContainsAny(finding, "WebClient.DownloadString", "DownloadString") &&
+            FindingContainsAny(finding, "GetTempFileName") &&
+            FindingContainsAny(finding, ".cmd", ".bat") &&
+            FindingContainsAny(finding, "File.WriteAllText", "WriteAllText") &&
+            FindingContainsAny(finding, "ProcessStartInfo") &&
+            FindingContainsAny(finding, "cmd.exe") &&
+            FindingContainsAny(finding, "WindowStyle=Hidden", "WindowStyle Hidden", "Hidden") &&
+            FindingContainsAny(finding, "MethodInfo.Invoke", "MethodBase.Invoke"));
+
+        if (obfuscatedFinding == null)
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("ObfuscatedReflectiveExecutionRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "ObfuscatedReflectiveExecutionRule", obfuscatedFinding),
+                Evidence("config", "hex-encoded remote command configuration URLs"),
+                Evidence("download", "reflected WebClient.DownloadString"),
+                Evidence("staging", "Path.GetTempFileName + .cmd + File.WriteAllText"),
+                Evidence("execution", "reflected hidden cmd.exe ProcessStartInfo launch")
+            ]
+        };
+    }
 
     private static ThreatFamilyVariantMatch? MatchEmbeddedShellExecuteTempCmd(ThreatFamilyAnalysisContext context)
     {
@@ -295,6 +455,258 @@ internal static partial class ThreatFamilyCatalog
         };
     }
 
+    private static ThreatFamilyVariantMatch? MatchAssemblyDescriptionEncodedHiddenLauncher(
+        ThreatFamilyAnalysisContext context)
+    {
+        var encodedExecutionFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "EncodedStringLiteralRule", StringComparison.Ordinal) &&
+            FindingContainsAny(finding, "AssemblyDescriptionAttribute") &&
+            FindingContainsAny(finding, "ProcessStartInfo") &&
+            FindingContainsAny(finding, "cmd.exe") &&
+            FindingContainsAny(finding, "Invoke-WebRequest", "DownloadFile", "WebClient") &&
+            FindingContainsAny(finding, ".cmd", ".bat", "ProgramData", "%TEMP%", "$env:TEMP") &&
+            FindingContainsAny(finding, "WindowStyle Hidden", "WindowStyle", "Hidden", "CreateNoWindow"));
+
+        if (encodedExecutionFinding == null)
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("EncodedStringLiteralRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "EncodedStringLiteralRule", encodedExecutionFinding),
+                Evidence("payload-source", "AssemblyDescriptionAttribute"),
+                Evidence("decode", "multi-level numeric encoded launcher metadata"),
+                Evidence("download", "PowerShell web request command"),
+                Evidence("execution", "hidden cmd.exe / powershell launcher")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchBase64TempBatchHiddenCmd(ThreatFamilyAnalysisContext context)
+    {
+        var base64Finding = context.FindFinding("Base64Rule");
+        var processFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+            FindingContainsAll(finding, "Target: \"cmd.exe\"") &&
+            HasScriptStagingIndicators(finding) &&
+            HasHiddenExecutionIndicators(finding));
+        var multiSignalFinding = context.FindFinding("MultiSignalDetection", "process execution", "Base64", "file write");
+
+        if (base64Finding == null || processFinding == null || multiSignalFinding == null)
+        {
+            return null;
+        }
+
+        if (!LocationsShareMethod(base64Finding.Location, processFinding.Location) ||
+            !LocationsShareMethod(processFinding.Location, multiSignalFinding.Location))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("Base64Rule", "MultiSignalDetection", "ProcessStartRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "Base64Rule", base64Finding),
+                context.CreateRuleEvidence("rule", "MultiSignalDetection", multiSignalFinding),
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                Evidence("decode", "Base64 payload materialization"),
+                Evidence("staging", "decoded payload -> temporary .bat/.cmd script"),
+                Evidence("execution", "hidden cmd.exe script execution")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchEncodedPowerShellTempCommandStager(ThreatFamilyAnalysisContext context)
+    {
+        var encodedExecutionFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "EncodedStringLiteralRule", StringComparison.Ordinal) &&
+            FindingContainsAny(finding, "powershell.exe", "cmd.exe") &&
+            FindingContainsAny(finding, "Invoke-WebRequest", "iwr ", "DownloadFile") &&
+            FindingContainsAny(finding, "%TEMP%", "$env:TEMP", "temp.cmd", ".cmd", ".bat") &&
+            FindingContainsAny(finding, "WindowStyle Hidden", "-WindowStyle Hidden", "Hidden"));
+        var pipelineFinding = context.FindFinding("EncodedStringPipelineRule");
+        var base64Finding = context.FindFinding("Base64Rule");
+        var obfuscatedClusterFinding = context.FindFinding("ObfuscatedReflectiveExecutionRule", "cross-method obfuscated reflection staging cluster");
+
+        if (encodedExecutionFinding == null ||
+            (pipelineFinding == null && base64Finding == null && obfuscatedClusterFinding == null))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules(
+                "EncodedStringLiteralRule",
+                "EncodedStringPipelineRule",
+                "Base64Rule",
+                "ObfuscatedReflectiveExecutionRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "EncodedStringLiteralRule", encodedExecutionFinding),
+                context.CreateRuleEvidence("rule", "EncodedStringPipelineRule", pipelineFinding),
+                context.CreateRuleEvidence("rule", "Base64Rule", base64Finding),
+                context.CreateRuleEvidence("rule", "ObfuscatedReflectiveExecutionRule", obfuscatedClusterFinding),
+                Evidence("decode", "numeric encoded command-line payload"),
+                Evidence("download", "PowerShell web request"),
+                Evidence("staging", "TEMP .cmd/.bat payload"),
+                Evidence("execution", "hidden cmd.exe / powershell.exe launcher")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchAssemblyLoadReflectiveInvoke(ThreatFamilyAnalysisContext context)
+    {
+        var dynamicLoadFinding = context.FindFinding("AssemblyDynamicLoadRule");
+        var reflectionFinding = context.FindFinding("ReflectionRule", "non-literal target method name") ??
+                                context.FindFinding("ReflectionRule", "without determinable target method");
+
+        if (dynamicLoadFinding == null || reflectionFinding == null)
+        {
+            return null;
+        }
+
+        if (!LocationsShareMethod(dynamicLoadFinding.Location, reflectionFinding.Location))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("AssemblyDynamicLoadRule", "ReflectionRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "AssemblyDynamicLoadRule", dynamicLoadFinding),
+                context.CreateRuleEvidence("rule", "ReflectionRule", reflectionFinding),
+                Evidence("payload", "dynamic Assembly.Load byte payload"),
+                Evidence("execution", "unresolved reflected method invocation")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchDynamicLoaderHiddenSystemProcess(ThreatFamilyAnalysisContext context)
+    {
+        var processFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+            FindingContainsAny(finding, "Target: \"svchost.exe\"", "Target: \"rundll32.exe\"", "Target: \"regsvr32.exe\"") &&
+            HasHiddenExecutionIndicators(finding));
+        var dynamicLoadFinding = context.FindFinding("AssemblyDynamicLoadRule");
+        var dynamicCodeFlow = context.FindDataFlow(DataFlowPattern.DynamicCodeLoading);
+
+        if (processFinding == null || (dynamicLoadFinding == null && dynamicCodeFlow == null))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules(
+                "ProcessStartRule",
+                "AssemblyDynamicLoadRule",
+                dynamicCodeFlow != null ? "DataFlowAnalysis" : string.Empty),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                context.CreateRuleEvidence("rule", "AssemblyDynamicLoadRule", dynamicLoadFinding),
+                context.CreateDataFlowEvidence("data-flow-pattern", dynamicCodeFlow?.Pattern.ToString() ?? "not-available", dynamicCodeFlow),
+                Evidence("loader", "dynamic code loading present"),
+                Evidence("execution", "hidden Windows system-binary-name process launch")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchObfuscatedReflectiveHiddenProcessLaunch(ThreatFamilyAnalysisContext context)
+    {
+        var obfuscatedFinding = context.FindFinding("ObfuscatedReflectiveExecutionRule");
+        var processFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+            HasHiddenExecutionIndicators(finding));
+        var base64Finding = context.FindFinding("Base64Rule");
+        var multiSignalFinding = context.FindFinding("MultiSignalDetection");
+
+        if (obfuscatedFinding == null || processFinding == null ||
+            !FindingContainsAny(obfuscatedFinding, "process execution sink", "native execution bridge", "staged execution"))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules(
+                "ObfuscatedReflectiveExecutionRule",
+                "ProcessStartRule",
+                "Base64Rule",
+                "MultiSignalDetection"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "ObfuscatedReflectiveExecutionRule", obfuscatedFinding),
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                context.CreateRuleEvidence("rule", "Base64Rule", base64Finding),
+                context.CreateRuleEvidence("rule", "MultiSignalDetection", multiSignalFinding),
+                Evidence("decode", "obfuscated Base64 or numeric reconstruction"),
+                Evidence("bridge", "reflective/native execution bridge"),
+                Evidence("execution", "hidden process launch")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchEmbeddedResourcePowerShellDownloadTempBatch(ThreatFamilyAnalysisContext context)
+    {
+        var resourceFinding = context.FindFinding("EmbeddedResourceScriptRule", "staged script payload");
+
+        if (resourceFinding == null ||
+            !FindingContainsAny(resourceFinding, "powershell", "Invoke-WebRequest", "WebClient", "DownloadFile") ||
+            !FindingContainsAny(resourceFinding, "%TEMP%", "$env:TEMP", ".bat", ".cmd") ||
+            !FindingContainsAny(resourceFinding, "WindowStyle Hidden", "-WindowStyle Hidden", "ExecutionPolicy Bypass", "Start-Process", "& "))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("EmbeddedResourceScriptRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "EmbeddedResourceScriptRule", resourceFinding),
+                Evidence("source", "referenced embedded script resource"),
+                Evidence("download", "PowerShell/WebClient payload retrieval"),
+                Evidence("staging", "TEMP batch or command script"),
+                Evidence("execution", "hidden script execution")
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchCurlPipeCmdRemoteScript(ThreatFamilyAnalysisContext context)
+    {
+        var processFinding = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+            FindingContainsAll(finding, "Target: \"cmd.exe\"") &&
+            FindingContainsAny(finding, "curl ", "curl.exe", "iwr ", "Invoke-WebRequest") &&
+            FindingContainsAny(finding, "| cmd", "|cmd", "| powershell", "|powershell", " | "));
+
+        if (processFinding == null || !FindingContainsAny(processFinding, "http://", "https://"))
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("ProcessStartRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "ProcessStartRule", processFinding),
+                Evidence("download", "remote script fetched by command-line web client"),
+                Evidence("execution", "remote response piped directly to shell")
+            ]
+        };
+    }
+
     private static ThreatFamilyEvidence Evidence(string kind, string value)
     {
         return new ThreatFamilyEvidence { Kind = kind, Value = value };
@@ -310,6 +722,50 @@ internal static partial class ThreatFamilyCatalog
             MethodLocation = methodLocation,
             Confidence = confidence
         };
+    }
+
+    private static bool FindingContainsAny(ScanFinding finding, params string[] needles)
+    {
+        return needles.Any(needle =>
+            !string.IsNullOrWhiteSpace(needle) &&
+            EnumerateFindingTexts(finding).Any(value => value.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool HasScriptStagingIndicators(ScanFinding finding)
+    {
+        return FindingContainsAny(finding, ".bat", ".cmd") &&
+               FindingContainsAny(finding, "%TEMP%", "WorkingDirectory=Temp", "GetTempPath", "TEMP");
+    }
+
+    private static bool LocationsShareMethod(string? left, string? right)
+    {
+        var leftMethod = NormalizeMethodLocation(left);
+        var rightMethod = NormalizeMethodLocation(right);
+
+        return !string.IsNullOrWhiteSpace(leftMethod) &&
+               string.Equals(leftMethod, rightMethod, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeMethodLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return string.Empty;
+        }
+
+        var separator = location.IndexOf(':');
+        return separator >= 0 ? location[..separator] : location;
+    }
+
+    private static IEnumerable<string> EnumerateFindingTexts(ScanFinding finding)
+    {
+        yield return finding.Location;
+        yield return finding.Description;
+
+        if (!string.IsNullOrWhiteSpace(finding.CodeSnippet))
+        {
+            yield return finding.CodeSnippet;
+        }
     }
 
 }

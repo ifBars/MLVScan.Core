@@ -40,7 +40,6 @@ public class TestAssemblyBuilder
     {
         var attrType = new TypeReference("System.Reflection", attributeTypeName, _module, _module.TypeSystem.CoreLibrary);
 
-        // For AssemblyMetadataAttribute specifically
         if (attributeTypeName == "AssemblyMetadataAttribute")
         {
             var ctor = new MethodReference(".ctor", _module.TypeSystem.Void, attrType)
@@ -55,6 +54,26 @@ public class TestAssemblyBuilder
             {
                 attr.ConstructorArguments.Add(new CustomAttributeArgument(_module.TypeSystem.String, arg));
             }
+            _assembly.CustomAttributes.Add(attr);
+        }
+        else if (constructorArgs.Length > 0)
+        {
+            var ctor = new MethodReference(".ctor", _module.TypeSystem.Void, attrType)
+            {
+                HasThis = true
+            };
+
+            foreach (var _ in constructorArgs)
+            {
+                ctor.Parameters.Add(new ParameterDefinition(_module.TypeSystem.String));
+            }
+
+            var attr = new CustomAttribute(ctor);
+            foreach (var arg in constructorArgs)
+            {
+                attr.ConstructorArguments.Add(new CustomAttributeArgument(_module.TypeSystem.String, arg));
+            }
+
             _assembly.CustomAttributes.Add(attr);
         }
 

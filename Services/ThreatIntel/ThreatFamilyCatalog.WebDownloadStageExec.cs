@@ -115,6 +115,10 @@ internal static partial class ThreatFamilyCatalog
         var downloadFinding = context.FindFinding("DataInfiltrationRule");
         var executionFinding = FindPrimaryStagedExecutionFinding(context);
 
+        downloadFinding ??= executionFinding != null && FindingContainsAll(executionFinding, "Correlated data flow", "Downloads data from network")
+            ? executionFinding
+            : null;
+
         if (dataFlow == null || downloadFinding == null || executionFinding == null ||
             !HasTempStagingContext(context) || !HasHiddenExecutionContext(context))
         {
@@ -179,7 +183,10 @@ internal static partial class ThreatFamilyCatalog
     {
         return context.AnyContextContainsAll("%TEMP%") ||
                context.AnyContextContainsAll("WorkingDirectory=Temp") ||
-               context.AnyContextContainsAll("GetTempPath");
+               context.AnyContextContainsAll("GetTempPath") ||
+               context.AnyFindingContainsAll("Correlated data flow", ".bat") ||
+               context.AnyFindingContainsAll("Correlated data flow", ".cmd") ||
+               context.AnyFindingContainsAll("Correlated data flow", ".exe");
     }
 
     private static bool HasHiddenExecutionContext(ThreatFamilyAnalysisContext context)

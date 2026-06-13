@@ -11,6 +11,7 @@ public sealed class ThreatDispositionClassifier
     private static readonly HashSet<string> StrongStandaloneRuleIds = new(StringComparer.Ordinal)
     {
         "DataFlowAnalysis",
+        "EmbeddedResourceScriptRule",
         "ObfuscatedReflectiveExecutionRule"
     };
 
@@ -254,6 +255,21 @@ public sealed class ThreatDispositionClassifier
             return true;
         }
 
+        if (IsHiddenLolbinTempScriptSeed(finding))
+        {
+            return true;
+        }
+
+        if (IsKnownInfrastructureStagedExecutionSeed(finding, allFindings))
+        {
+            return true;
+        }
+
+        if (IsMultiSignalStagedExecutionSeed(finding, allFindings))
+        {
+            return true;
+        }
+
         if (finding.HasCallChain && finding.HasDataFlow)
         {
             return true;
@@ -347,6 +363,83 @@ public sealed class ThreatDispositionClassifier
 
         var texts = EnumerateEmbeddedDataFlowTexts(finding).ToList();
         return ContainsAny(texts, LolbinMarkers) && ContainsAny(texts, HiddenExecutionMarkers);
+    }
+
+    private static bool IsHiddenLolbinTempScriptSeed(ScanFinding finding)
+    {
+        if (!string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var texts = EnumerateFindingTexts(finding).ToList();
+        return ContainsAny(texts, LolbinMarkers) &&
+               ContainsAny(texts, HiddenExecutionMarkers) &&
+               ContainsAny(texts, ".bat", ".cmd", "%TEMP%", "WorkingDirectory=Temp", "GetTempPath");
+    }
+
+    private static bool IsKnownInfrastructureStagedExecutionSeed(ScanFinding finding, IReadOnlyList<ScanFinding> allFindings)
+    {
+        if (IsKnownInfrastructureFinding(finding))
+        {
+            return allFindings.Any(IsHiddenStagedExecutionFinding);
+        }
+
+        return IsHiddenStagedExecutionFinding(finding) && allFindings.Any(IsKnownInfrastructureFinding);
+    }
+
+    private static bool IsKnownInfrastructureFinding(ScanFinding finding)
+    {
+        return string.Equals(finding.RuleId, "DataInfiltrationRule", StringComparison.Ordinal) &&
+               ContainsAny(EnumerateFindingTexts(finding), "known malicious domain", "confirmed payload delivery infrastructure");
+    }
+
+    private static bool IsMultiSignalStagedExecutionSeed(ScanFinding finding, IReadOnlyList<ScanFinding> allFindings)
+    {
+        if (!string.Equals(finding.RuleId, "MultiSignalDetection", StringComparison.Ordinal) ||
+            !ContainsAny(EnumerateFindingTexts(finding), "process execution + Base64 decoding + file write"))
+        {
+            return false;
+        }
+
+        var methodLocation = NormalizeMethodLocation(finding.Location);
+        return allFindings.Any(candidate =>
+            IsHiddenStagedExecutionFinding(candidate) &&
+            string.Equals(NormalizeMethodLocation(candidate.Location), methodLocation, StringComparison.Ordinal));
+    }
+
+    private static bool IsHiddenStagedExecutionFinding(ScanFinding finding)
+    {
+        if (!string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var texts = EnumerateFindingTexts(finding).ToList();
+        return ContainsAny(texts, HiddenExecutionMarkers) &&
+               ContainsAny(texts, ".bat", ".cmd", ".exe", "%TEMP%", "WorkingDirectory=Temp", "GetTempPath", "Correlated data flow");
+    }
+
+    private static IEnumerable<string> EnumerateFindingTexts(ScanFinding finding)
+    {
+        yield return finding.Description;
+        yield return finding.Location;
+
+        if (!string.IsNullOrWhiteSpace(finding.CodeSnippet))
+        {
+            yield return finding.CodeSnippet;
+        }
+    }
+
+    private static string NormalizeMethodLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return string.Empty;
+        }
+
+        var separator = location.IndexOf(':');
+        return separator >= 0 ? location[..separator] : location;
     }
 
     private static bool ContainsAny(IEnumerable<string> haystacks, params string[] needles)

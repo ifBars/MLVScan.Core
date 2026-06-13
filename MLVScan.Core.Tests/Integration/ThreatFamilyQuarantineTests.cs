@@ -31,6 +31,26 @@ public class ThreatFamilyQuarantineTests
         "vortex_backuprtilizer.dll.di"
     };
 
+    private static readonly HashSet<string> RecursiveSamplesAwaitingBehaviorModel = new(StringComparer.OrdinalIgnoreCase)
+    {
+        @"malware-clean-with-findings\MaterialDesignThemes.Wpf.dll.di",
+        @"malware-clean-zero-findings\ImprovedStamina.dll.di",
+        @"malware-clean-zero-findings\MovePlayers.dll.di",
+        @"malware-clean-zero-findings\NeedolinSilkRegeneration.dll.di",
+        @"malware-clean-zero-findings\REPONoItemsLeft.dll.di",
+        @"malware-clean-zero-findings\REPO_HD.dll.di",
+        @"malware-clean-zero-findings\REPO_Shop_Items_in_Level.dll.di",
+        @"malware-clean-zero-findings\S1APILoader.MelonLoader.dll.di"
+    };
+
+    private static readonly string[] NewQuarantineSubFolders =
+    [
+        "TwelvePlayerExpansion",
+        "malware-suspicious-with-findings",
+        "malware-clean-zero-findings",
+        "malware-clean-with-findings"
+    ];
+
     private readonly ITestOutputHelper _output;
     private readonly string? _quarantineFolder;
 
@@ -47,17 +67,20 @@ public class ThreatFamilyQuarantineTests
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v2")]
     [InlineData("EndlessGraffiti.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
-    [InlineData("DynamicOrders.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("LongLastingFertilizer.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("MoreTrees.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("NoPolice.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("RentalCars.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v1")]
-    [InlineData("Skitching.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("StorageHub.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("UnlimitedGraffiti.dll.di", "family-webdownload-stage-exec-v2")]
-    [InlineData("vortex_backuprtilizer.dll.di", "family-webdownload-stage-exec-v2")]
+    [InlineData("DynamicOrders.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("LongLastingFertilizer.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("MoreTrees.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("NoPolice.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("RentalCars.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v2")]
+    [InlineData("Skitching.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("StorageHub.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("UnlimitedGraffiti.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("vortex_backuprtilizer.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData(@"malware-clean-with-findings\MegaMenu.dll.di", "family-hex-remote-config-tempcmd-stager-v1")]
+    [InlineData(@"malware-clean-zero-findings\CopyPasteFilterHotkeys_IL2Cpp.dll.di", "family-hex-remote-config-tempcmd-stager-v1")]
+    [InlineData(@"malware-clean-zero-findings\UnlimitedBatteries.dll.di", "family-obfuscated-metadata-loader-v2")]
     public void Scan_QuarantineSample_ShouldEmitExpectedThreatFamily(string filename, string expectedFamilyId)
     {
         var path = GetSamplePath(filename);
@@ -92,7 +115,7 @@ public class ThreatFamilyQuarantineTests
 
         dto.ThreatFamilies.Should().NotBeNullOrEmpty();
         dto.ThreatFamilies!.Should().Contain(match =>
-            match.FamilyId == "family-webdownload-stage-exec-v2" &&
+            match.FamilyId == "family-webdownload-stage-exec-v3" &&
             match.VariantId == expectedVariantId);
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
@@ -132,6 +155,76 @@ public class ThreatFamilyQuarantineTests
 
         actualSamples.Should().BeEquivalentTo(TrackedQuarantineSamples,
             "every top-level quarantine assembly should be covered by the threat-family quarantine suite");
+    }
+
+    [SkippableFact]
+    public void Scan_RecursiveQuarantineSamplesWithBehaviorEvidence_ShouldClassifyAsKnownThreat()
+    {
+        Skip.If(_quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
+
+        var samplePaths = GetRecursiveQuarantineSamplePaths();
+        samplePaths.Should().NotBeEmpty("recursive quarantine corpus should contain malware samples");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var failures = new List<string>();
+
+        foreach (var path in samplePaths)
+        {
+            var relativePath = Path.GetRelativePath(_quarantineFolder!, path);
+            var assemblyBytes = File.ReadAllBytes(path);
+            var findings = scanner.Scan(path).ToList();
+            var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+            var classification = dto.Disposition?.Classification ?? "<missing>";
+            var familyIds = dto.ThreatFamilies?.Select(match => match.FamilyId).ToList() ?? [];
+
+            _output.WriteLine(
+                $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
+
+            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath))
+            {
+                continue;
+            }
+
+            if (!string.Equals(classification, "KnownThreat", StringComparison.Ordinal))
+            {
+                failures.Add(
+                    $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
+                continue;
+            }
+
+        }
+
+        failures.Should().BeEmpty("every modeled quarantine behavior should classify as a known threat");
+    }
+
+    [SkippableFact]
+    public void Scan_NewSubFolderQuarantineSamples_ShouldNotUseExactHashMatches()
+    {
+        Skip.If(_quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
+
+        var samplePaths = GetRecursiveQuarantineSamplePaths()
+            .Where(path => NewQuarantineSubFolders.Any(folder =>
+                Path.GetRelativePath(_quarantineFolder!, path).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        samplePaths.Should().NotBeEmpty("new quarantine sub-folders should contain samples");
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var exactHashMatches = new List<string>();
+
+        foreach (var path in samplePaths)
+        {
+            var relativePath = Path.GetRelativePath(_quarantineFolder!, path);
+            var assemblyBytes = File.ReadAllBytes(path);
+            var findings = scanner.Scan(path).ToList();
+            var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+
+            if (dto.ThreatFamilies?.Any(match => match.ExactHashMatch) == true)
+            {
+                exactHashMatches.Add(relativePath);
+            }
+        }
+
+        exactHashMatches.Should().BeEmpty("new quarantine sub-folder samples must prove behavior before exact hashes are promoted");
     }
 
     private void WriteThreatFamilyLog(string filename, IReadOnlyList<ThreatFamilyDto> families, IReadOnlyList<FindingDto> findings)
@@ -209,6 +302,21 @@ public class ThreatFamilyQuarantineTests
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Select(name => name!)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetRecursiveQuarantineSamplePaths()
+    {
+        Skip.If(_quarantineFolder == null,
+            "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
+
+        return Directory
+            .EnumerateFiles(_quarantineFolder!, "*", SearchOption.AllDirectories)
+            .Where(path =>
+                path.EndsWith(".dll.di", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".exe.di", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".winmd.di", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

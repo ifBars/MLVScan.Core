@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Text;
 using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules.Helpers;
+using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -113,12 +115,32 @@ namespace MLVScan.Models.Rules
 
             List<ScanFinding> priorFindings = existingFindings?.ToList() ?? new List<ScanFinding>();
             var findings = new List<ScanFinding>();
+            IReadOnlyList<string> moduleDecodedStrings = CollectDecodedStaticArrayStrings(module);
 
             foreach (var namespaceGroup in EnumerateTypes(module)
                          .Where(static type => !string.IsNullOrWhiteSpace(type.Namespace))
                          .GroupBy(static type => type.Namespace, StringComparer.Ordinal))
             {
-                if (!HasCriticalDecodedExecutionFinding(namespaceGroup.Key, priorFindings))
+                RemoteConfigTempCmdStagerEvidence remoteConfigEvidence =
+                    CollectRemoteConfigTempCmdStagerEvidence(namespaceGroup, moduleDecodedStrings);
+                if (remoteConfigEvidence.ShouldReport)
+                {
+                    findings.Add(new ScanFinding(
+                        namespaceGroup.Key,
+                        "Detected cross-method hex remote config reflective temp command stager: " +
+                        "hex-encoded remote command config URLs, reflected WebClient.DownloadString, " +
+                        "temporary .cmd script staging, File.WriteAllText, reflected ProcessStartInfo cmd.exe launch, " +
+                        "hidden window settings, and MethodInfo.Invoke are split across helper methods.",
+                        Severity.Critical,
+                        BuildRemoteConfigTempCmdSnippet(remoteConfigEvidence))
+                    {
+                        RuleId = RuleId,
+                        RiskScore = 96,
+                        BypassCompanionCheck = true
+                    });
+                }
+
+                if (!HasDecodedExecutionFinding(namespaceGroup.Key, priorFindings))
                 {
                     continue;
                 }
@@ -295,10 +317,289 @@ namespace MLVScan.Models.Rules
             return evidence;
         }
 
-        private static bool HasCriticalDecodedExecutionFinding(string namespaceName, IReadOnlyCollection<ScanFinding> findings)
+        private static RemoteConfigTempCmdStagerEvidence CollectRemoteConfigTempCmdStagerEvidence(
+            IEnumerable<TypeDefinition> namespaceTypes,
+            IReadOnlyList<string> moduleDecodedStrings)
+        {
+            var evidence = new RemoteConfigTempCmdStagerEvidence();
+            var recoveredStrings = new HashSet<string>(moduleDecodedStrings, StringComparer.OrdinalIgnoreCase);
+
+            foreach (TypeDefinition type in namespaceTypes)
+            {
+                foreach (MethodDefinition method in EnumerateMethods(type))
+                {
+                    if (!method.HasBody || method.Body.Instructions.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    string methodLocation = $"{type.FullName}.{method.Name}";
+                    var methodStrings = new List<string>();
+                    bool methodHasEncodingGetString = false;
+                    bool methodHasConvertToByteBase16 = false;
+                    bool methodHasTypeGetType = false;
+                    bool methodHasTypeGetMethod = false;
+                    bool methodHasTypeGetProperty = false;
+                    bool methodHasPropertySetValue = false;
+                    bool methodHasMethodInfoInvoke = false;
+                    bool methodHasActivatorCreateInstance = false;
+
+                    var instructions = method.Body.Instructions;
+                    for (int i = 0; i < instructions.Count; i++)
+                    {
+                        Instruction instruction = instructions[i];
+
+                        if (instruction.OpCode == OpCodes.Ldstr && instruction.Operand is string literal)
+                        {
+                            methodStrings.Add(literal);
+                            recoveredStrings.Add(literal);
+
+                            if (TryDecodeHexString(literal, out string decodedHex))
+                            {
+                                methodStrings.Add(decodedHex);
+                                recoveredStrings.Add(decodedHex);
+                            }
+                        }
+
+                        if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                            instruction.Operand is not MethodReference calledMethod)
+                        {
+                            continue;
+                        }
+
+                        string typeName = calledMethod.DeclaringType?.FullName ?? string.Empty;
+                        string methodName = calledMethod.Name ?? string.Empty;
+
+                        if (typeName == "System.Text.Encoding" && methodName == "GetString")
+                        {
+                            methodHasEncodingGetString = true;
+                            evidence.ByteStringDecodeLocation ??= methodLocation;
+                        }
+
+                        if (typeName == "System.Convert" && methodName == "ToByte" &&
+                            HasBase16Argument(instructions, i))
+                        {
+                            methodHasConvertToByteBase16 = true;
+                            evidence.HexDecodeLocation ??= methodLocation;
+                        }
+
+                        if (typeName == "System.Type" && methodName == "GetType")
+                        {
+                            methodHasTypeGetType = true;
+                        }
+
+                        if (typeName == "System.Type" && methodName == "GetMethod")
+                        {
+                            methodHasTypeGetMethod = true;
+                        }
+
+                        if (typeName == "System.Type" && methodName == "GetProperty")
+                        {
+                            methodHasTypeGetProperty = true;
+                        }
+
+                        if (typeName == "System.Reflection.PropertyInfo" && methodName == "SetValue")
+                        {
+                            methodHasPropertySetValue = true;
+                        }
+
+                        if (ObfuscatedSinkMatcher.IsReflectionInvokeSink(typeName, methodName))
+                        {
+                            methodHasMethodInfoInvoke = true;
+                        }
+
+                        if (typeName == "System.Activator" && methodName == "CreateInstance")
+                        {
+                            methodHasActivatorCreateInstance = true;
+                        }
+                    }
+
+                    if (methodStrings.Any(IsRemoteConfigUrl))
+                    {
+                        evidence.HasRemoteConfigUrl = true;
+                        evidence.RemoteConfigLocation ??= methodLocation;
+                    }
+
+                    if (methodHasEncodingGetString || methodHasConvertToByteBase16)
+                    {
+                        evidence.HasStringReconstruction = true;
+                    }
+
+                    if (methodHasConvertToByteBase16)
+                    {
+                        evidence.HasHexDecode = true;
+                    }
+
+                    if (methodHasTypeGetType)
+                    {
+                        evidence.HasReflectedTypeResolution = true;
+                    }
+
+                    if (methodHasTypeGetMethod)
+                    {
+                        evidence.HasReflectedMethodLookup = true;
+                    }
+
+                    if (methodHasTypeGetProperty && methodHasPropertySetValue)
+                    {
+                        evidence.HasReflectedPropertyAssignment = true;
+                        evidence.PropertyAssignmentLocation ??= methodLocation;
+                    }
+
+                    if (methodHasMethodInfoInvoke)
+                    {
+                        evidence.HasReflectionInvoke = true;
+                        evidence.ReflectionInvokeLocation ??= methodLocation;
+                    }
+
+                    if (methodHasActivatorCreateInstance)
+                    {
+                        evidence.HasActivatorStaging = true;
+                    }
+                }
+            }
+
+            if (recoveredStrings.Any(value => ContainsMarker(value, "System.Net.WebClient", "WebClient")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "DownloadString", "DownloadFile")))
+            {
+                evidence.HasReflectedNetworkDownload = true;
+            }
+
+            if (recoveredStrings.Any(value => ContainsMarker(value, "System.IO.Path", "Path")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "GetTempFileName")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, ".cmd", ".bat")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "System.IO.File", "File")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "WriteAllText", "WriteAllBytes")))
+            {
+                evidence.HasTempScriptStaging = true;
+            }
+
+            if (recoveredStrings.Any(value => ContainsMarker(value, "System.Diagnostics.ProcessStartInfo", "ProcessStartInfo")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "System.Diagnostics.Process", "Process")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "cmd.exe")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "/c")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "WindowStyle")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "Hidden")) &&
+                recoveredStrings.Any(value => ContainsMarker(value, "UseShellExecute", "CreateNoWindow")))
+            {
+                evidence.HasHiddenCmdProcessLaunch = true;
+            }
+
+            return evidence;
+        }
+
+        private static IReadOnlyList<string> CollectDecodedStaticArrayStrings(ModuleDefinition module)
+        {
+            var strings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (TypeDefinition type in EnumerateTypes(module))
+            {
+                foreach (FieldDefinition field in type.Fields)
+                {
+                    if (!field.HasFieldRVA || field.InitialValue == null || field.InitialValue.Length < 3)
+                    {
+                        continue;
+                    }
+
+                    if (TryDecodePrintableBytes(field.InitialValue, out string decoded))
+                    {
+                        strings.Add(decoded);
+                    }
+                }
+            }
+
+            return strings.ToList();
+        }
+
+        private static bool TryDecodePrintableBytes(byte[] bytes, out string decoded)
+        {
+            decoded = string.Empty;
+            if (bytes.Length < 3 || bytes.Length > 4096)
+            {
+                return false;
+            }
+
+            string candidate = Encoding.ASCII.GetString(bytes).TrimEnd('\0');
+            if (candidate.Length < 3)
+            {
+                return false;
+            }
+
+            int printable = candidate.Count(static c => c is >= ' ' and <= '~' || c == '\t' || c == '\r' || c == '\n');
+            if ((double)printable / candidate.Length < 0.85)
+            {
+                return false;
+            }
+
+            decoded = candidate;
+            return true;
+        }
+
+        private static bool TryDecodeHexString(string literal, out string decoded)
+        {
+            decoded = string.Empty;
+            if (!ObfuscatedDecodeMatcher.IsHexLikeLiteral(literal))
+            {
+                return false;
+            }
+
+            string normalized = literal
+                .Replace("0x", string.Empty, StringComparison.OrdinalIgnoreCase)
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .Replace(":", string.Empty, StringComparison.Ordinal)
+                .Replace(" ", string.Empty, StringComparison.Ordinal);
+
+            try
+            {
+                var bytes = new byte[normalized.Length / 2];
+                for (int i = 0; i < normalized.Length; i += 2)
+                {
+                    bytes[i / 2] = byte.Parse(normalized.Substring(i, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                }
+
+                return TryDecodePrintableBytes(bytes, out decoded);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool HasBase16Argument(Mono.Collections.Generic.Collection<Instruction> instructions, int callIndex)
+        {
+            int start = Math.Max(0, callIndex - 6);
+            for (int i = callIndex - 1; i >= start; i--)
+            {
+                if (instructions[i].TryResolveInt32Literal(out int value) && value == 16)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsRemoteConfigUrl(string value)
+        {
+            return (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) &&
+                   (value.Contains("paste", StringComparison.OrdinalIgnoreCase) ||
+                    value.Contains("gist", StringComparison.OrdinalIgnoreCase) ||
+                    value.Contains("raw", StringComparison.OrdinalIgnoreCase) ||
+                    value.Contains("file.io", StringComparison.OrdinalIgnoreCase) ||
+                    value.Contains("transfer", StringComparison.OrdinalIgnoreCase) ||
+                    value.Contains("config", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool ContainsMarker(string value, params string[] markers)
+        {
+            return markers.Any(marker => value.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool HasDecodedExecutionFinding(string namespaceName, IReadOnlyCollection<ScanFinding> findings)
         {
             return findings.Any(finding =>
-                finding.Severity >= Severity.Critical &&
+                finding.Severity >= Severity.High &&
                 string.Equals(finding.RuleId, "EncodedStringLiteralRule", StringComparison.Ordinal) &&
                 finding.Location.StartsWith(namespaceName + ".", StringComparison.Ordinal) &&
                 ContainsExecutionMarker(finding.Description + " " + finding.CodeSnippet));
@@ -368,6 +669,22 @@ namespace MLVScan.Models.Rules
                     $"activator staging: {evidence.ActivatorLocation}",
                     $"property assignment: {evidence.PropertyAssignmentLocation}",
                     $"reflection invoke: {evidence.ReflectionInvokeLocation}"
+                });
+        }
+
+        private static string BuildRemoteConfigTempCmdSnippet(RemoteConfigTempCmdStagerEvidence evidence)
+        {
+            return string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    $"remote config: {evidence.RemoteConfigLocation}",
+                    $"hex decode: {evidence.HexDecodeLocation}",
+                    $"byte string decode: {evidence.ByteStringDecodeLocation}",
+                    $"property assignment: {evidence.PropertyAssignmentLocation}",
+                    $"reflection invoke: {evidence.ReflectionInvokeLocation}",
+                    "staging: WebClient.DownloadString -> GetTempFileName + .cmd -> File.WriteAllText",
+                    "execution: ProcessStartInfo FileName=cmd.exe Arguments=/c WindowStyle=Hidden UseShellExecute=True"
                 });
         }
 
@@ -443,6 +760,40 @@ namespace MLVScan.Models.Rules
                 HasActivatorStaging &&
                 HasReflectedPropertyAssignment &&
                 HasReflectionInvoke;
+        }
+
+        private sealed class RemoteConfigTempCmdStagerEvidence
+        {
+            public bool HasRemoteConfigUrl { get; set; }
+            public bool HasHexDecode { get; set; }
+            public bool HasStringReconstruction { get; set; }
+            public bool HasReflectedTypeResolution { get; set; }
+            public bool HasReflectedMethodLookup { get; set; }
+            public bool HasReflectedPropertyAssignment { get; set; }
+            public bool HasReflectionInvoke { get; set; }
+            public bool HasActivatorStaging { get; set; }
+            public bool HasReflectedNetworkDownload { get; set; }
+            public bool HasTempScriptStaging { get; set; }
+            public bool HasHiddenCmdProcessLaunch { get; set; }
+
+            public string? RemoteConfigLocation { get; set; }
+            public string? HexDecodeLocation { get; set; }
+            public string? ByteStringDecodeLocation { get; set; }
+            public string? PropertyAssignmentLocation { get; set; }
+            public string? ReflectionInvokeLocation { get; set; }
+
+            public bool ShouldReport =>
+                HasRemoteConfigUrl &&
+                HasHexDecode &&
+                HasStringReconstruction &&
+                HasReflectedTypeResolution &&
+                HasReflectedMethodLookup &&
+                HasReflectedPropertyAssignment &&
+                HasReflectionInvoke &&
+                HasActivatorStaging &&
+                HasReflectedNetworkDownload &&
+                HasTempScriptStaging &&
+                HasHiddenCmdProcessLaunch;
         }
     }
 }
