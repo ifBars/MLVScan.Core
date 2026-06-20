@@ -21,6 +21,8 @@ public class ThreatFamilyQuarantineTests
         "MoreTrees.dll.di",
         "NoMoreTrash.dll.di",
         "NoPolice.dll.di",
+        "NeedolinSilkRegeneration.dll.di",
+        "PlayMakerX.dll.di",
         "RealRadio.dll.di",
         "RentalCars.dll.di",
         "S1API.Il2Cpp.MelonLoader.dll.di",
@@ -40,7 +42,8 @@ public class ThreatFamilyQuarantineTests
         @"malware-clean-zero-findings\REPONoItemsLeft.dll.di",
         @"malware-clean-zero-findings\REPO_HD.dll.di",
         @"malware-clean-zero-findings\REPO_Shop_Items_in_Level.dll.di",
-        @"malware-clean-zero-findings\S1APILoader.MelonLoader.dll.di"
+        @"malware-clean-zero-findings\S1APILoader.MelonLoader.dll.di",
+        "NeedolinSilkRegeneration.dll.di"
     };
 
     private static readonly string[] NewQuarantineSubFolders =
@@ -67,6 +70,7 @@ public class ThreatFamilyQuarantineTests
     [InlineData("S1API.Il2Cpp.MelonLoader.dll.di", "family-resource-shell32-tempcmd-v2")]
     [InlineData("EndlessGraffiti.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("FasterGrowth.dll.di", "family-powershell-iwr-dlbat-v1")]
+    [InlineData("PlayMakerX.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData("DynamicOrders.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("LongLastingFertilizer.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("MoreTrees.dll.di", "family-webdownload-stage-exec-v3")]
@@ -78,6 +82,7 @@ public class ThreatFamilyQuarantineTests
     [InlineData("StorageHub.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("UnlimitedGraffiti.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("vortex_backuprtilizer.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData(@"malware-clean-with-findings\GUITweaks.dll.di", "family-powershell-iwr-dlbat-v1")]
     [InlineData(@"malware-clean-with-findings\MegaMenu.dll.di", "family-hex-remote-config-tempcmd-stager-v1")]
     [InlineData(@"malware-clean-zero-findings\CopyPasteFilterHotkeys_IL2Cpp.dll.di", "family-hex-remote-config-tempcmd-stager-v1")]
     [InlineData(@"malware-clean-zero-findings\UnlimitedBatteries.dll.di", "family-obfuscated-metadata-loader-v2")]
@@ -121,6 +126,29 @@ public class ThreatFamilyQuarantineTests
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
     }
 
+    [SkippableTheory]
+    [InlineData(@"malware-suspicious-with-findings\iiModdedV5.dll.di")]
+    [InlineData(@"malware-suspicious-with-findings\XZRAV1.dll.di")]
+    public void Scan_DynamicLoaderHiddenSystemProcessQuarantineSample_ShouldEmitV2ThreatFamily(string filename)
+    {
+        var path = GetSamplePath(filename);
+        var assemblyBytes = File.ReadAllBytes(path);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+
+        dto.ThreatFamilies.Should().NotBeNullOrEmpty();
+        dto.ThreatFamilies!.Should().Contain(match =>
+            match.FamilyId == "family-dynamic-assembly-reflection-loader-v2" &&
+            match.VariantId == "dynamic-code-loader-hidden-system-process" &&
+            match.ExactHashMatch == false);
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("KnownThreat");
+
+        WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
     [SkippableFact]
     public void Scan_ExactDuplicateSamples_ShouldShareBehaviorFamilyMatchWithoutHashShortcut()
     {
@@ -146,6 +174,34 @@ public class ThreatFamilyQuarantineTests
 
         WriteThreatFamilyLog("RealRadio.dll.di", realRadioDto.ThreatFamilies!, realRadioDto.Findings);
         WriteThreatFamilyLog("S1API.Il2Cpp.MelonLoader.dll.di", s1ApiDto.ThreatFamilies!, s1ApiDto.Findings);
+    }
+
+    [SkippableFact]
+    public void Scan_NeedolinPlayMakerXPair_ShouldIdentifyMaliciousCompanionAssembly()
+    {
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var needolinPath = GetSamplePath("NeedolinSilkRegeneration.dll.di");
+        var playMakerXPath = GetSamplePath("PlayMakerX.dll.di");
+
+        var needolinDto = ScanResultMapper.ToDto(scanner.Scan(needolinPath).ToList(), Path.GetFileName(needolinPath), File.ReadAllBytes(needolinPath), false);
+        var playMakerXDto = ScanResultMapper.ToDto(scanner.Scan(playMakerXPath).ToList(), Path.GetFileName(playMakerXPath), File.ReadAllBytes(playMakerXPath), false);
+
+        needolinDto.Assembly.Should().NotBeNull();
+        needolinDto.Assembly!.ReferencedAssemblies.Should().Contain("PlayMakerX");
+        needolinDto.Findings.Should().BeEmpty("the wrapper assembly has no retained malicious behavior on its own");
+        needolinDto.Disposition.Should().NotBeNull();
+        needolinDto.Disposition!.Classification.Should().Be("Clean");
+
+        playMakerXDto.ThreatFamilies.Should().NotBeNullOrEmpty();
+        playMakerXDto.ThreatFamilies!.Should().Contain(match =>
+            match.FamilyId == "family-powershell-iwr-dlbat-v1" &&
+            match.ExactHashMatch == false);
+        playMakerXDto.Disposition.Should().NotBeNull();
+        playMakerXDto.Disposition!.Classification.Should().Be("KnownThreat");
+
+        WriteThreatFamilyLog("NeedolinSilkRegeneration.dll.di", needolinDto.ThreatFamilies ?? [], needolinDto.Findings);
+        WriteThreatFamilyLog("PlayMakerX.dll.di", playMakerXDto.ThreatFamilies!, playMakerXDto.Findings);
     }
 
     [SkippableFact]

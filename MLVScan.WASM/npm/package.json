@@ -1,6 +1,6 @@
 {
   "name": "@mlvscan/wasm-core",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "WebAssembly core for MLVScan - scanning managed .NET assemblies and mod DLLs in the browser",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -329,9 +329,15 @@ namespace MLVScan.Models.Rules
                         newSeverity,
                         pending.Finding.CodeSnippet)
                     {
+                        RuleId = RuleId,
                         RiskScore = newScore,
                         BypassCompanionCheck = newScore >= 50 // Lower threshold for recursive findings
                     });
+
+                    foreach (var innerFinding in innerFindings)
+                    {
+                        additionalFindings.Add(CreateEmbeddedChildFinding(pending.ResourceName, innerFinding));
+                    }
                 }
             }
 
@@ -584,6 +590,14 @@ namespace MLVScan.Models.Rules
                         }
                     }
 
+                    if (ReturnsBytesFromManifestResource(calledMethod) &&
+                        TryFindNearestStringLiteral(instructions, i, out var helperResourceName))
+                    {
+                        result.HasResourceSource = true;
+                        result.Score += 10;
+                        result.ResourceName ??= helperResourceName;
+                    }
+
                     // File operations from temp/sensitive paths
                     if (declType.StartsWith("System.IO.File") &&
                         (mName.Contains("Read") || mName == "ReadAllBytes"))
@@ -643,6 +657,56 @@ namespace MLVScan.Models.Rules
             // Cap provenance score to avoid over-inflation
             result.Score = Math.Min(result.Score, 80);
             return result;
+        }
+
+        private static bool ReturnsBytesFromManifestResource(MethodReference method)
+        {
+            if (method is not MethodDefinition methodDefinition ||
+                !IsByteArrayType(methodDefinition.ReturnType) ||
+                !methodDefinition.HasBody)
+            {
+                return false;
+            }
+
+            foreach (var instruction in methodDefinition.Body.Instructions)
+            {
+                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                    instruction.Operand is MethodReference calledMethod &&
+                    calledMethod.DeclaringType != null &&
+                    calledMethod.DeclaringType.FullName.Contains("Assembly", StringComparison.Ordinal) &&
+                    calledMethod.Name == "GetManifestResourceStream")
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsByteArrayType(TypeReference type)
+        {
+            return type is ArrayType arrayType &&
+                   arrayType.ElementType.FullName == "System.Byte";
+        }
+
+        private static bool TryFindNearestStringLiteral(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            out string literal)
+        {
+            for (int i = callIndex - 1; i >= Math.Max(0, callIndex - 8); i--)
+            {
+                if (instructions[i].OpCode == OpCodes.Ldstr &&
+                    instructions[i].Operand is string value &&
+                    !string.IsNullOrWhiteSpace(value))
+                {
+                    literal = value;
+                    return true;
+                }
+            }
+
+            literal = string.Empty;
+            return false;
         }
 
         #endregion
@@ -1076,7 +1140,7 @@ namespace MLVScan.Models.Rules
                 {
                     using var resourceStream = new System.IO.MemoryStream(resourceData);
                     var readerParams = new ReaderParameters { ReadWrite = false, InMemory = true, ReadSymbols = false };
-                    var innerAssembly = AssemblyDefinition.ReadAssembly(resourceStream, readerParams);
+                    using var innerAssembly = AssemblyDefinition.ReadAssembly(resourceStream, readerParams);
 
                     // Run a limited scan on the inner assembly using default rules
                     var innerRules = RuleFactory.CreateDefaultRules()
@@ -1101,6 +1165,23 @@ namespace MLVScan.Models.Rules
             }
 
             return findings;
+        }
+
+        private static ScanFinding CreateEmbeddedChildFinding(string resourceName, ScanFinding innerFinding)
+        {
+            return new ScanFinding(
+                $"Embedded resource '{resourceName}' -> {innerFinding.Location}",
+                $"Embedded assembly '{resourceName}' finding: {innerFinding.Description}",
+                innerFinding.Severity,
+                innerFinding.CodeSnippet)
+            {
+                RuleId = innerFinding.RuleId,
+                DeveloperGuidance = innerFinding.DeveloperGuidance,
+                CallChain = innerFinding.CallChain,
+                DataFlowChain = innerFinding.DataFlowChain,
+                RiskScore = innerFinding.RiskScore,
+                BypassCompanionCheck = true
+            };
         }
 
         #endregion

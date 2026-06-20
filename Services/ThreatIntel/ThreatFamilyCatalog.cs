@@ -205,26 +205,26 @@ internal static partial class ThreatFamilyCatalog
         },
         new ThreatFamilyDefinition
         {
-            FamilyId = "family-dynamic-assembly-reflection-loader-v1",
+            FamilyId = "family-dynamic-assembly-reflection-loader-v2",
             DisplayName = "Dynamic assembly reflection loader",
-            Summary = "Loads opaque assembly bytes at runtime and invokes code through reflection, often hiding the payload as an embedded or external plugin resource.",
+            Summary = "Loads opaque assembly payloads at runtime and pairs reflective invocation with confirmed staged execution or hidden system-binary-name launch behavior.",
             AdvisorySlugs = [],
             ExactSampleHashes = [],
             Variants =
             [
                 new ThreatFamilyVariantDefinition
                 {
-                    VariantId = "assembly-load-reflective-invoke",
-                    DisplayName = "Assembly.Load bytes with reflective invoke",
-                    Summary = "Loads assembly bytes dynamically and invokes an unresolved reflected method, separating the visible host mod from the executable payload.",
-                    Confidence = 0.94,
-                    Matcher = MatchAssemblyLoadReflectiveInvoke
+                    VariantId = "assembly-load-reflective-invoke-confirmed-payload",
+                    DisplayName = "Opaque Assembly.Load payload with reflective invoke",
+                    Summary = "Loads an opaque assembly payload dynamically, invokes unresolved reflected code, and has confirmed execution evidence such as embedded payload launch or staged process execution.",
+                    Confidence = 0.90,
+                    Matcher = MatchAssemblyLoadReflectiveInvokeConfirmedPayload
                 },
                 new ThreatFamilyVariantDefinition
                 {
-                    VariantId = "dynamic-code-loader-hidden-svchost",
-                    DisplayName = "Dynamic code loader with hidden svchost launch",
-                    Summary = "Combines dynamic code loading or plugin assembly loading with hidden launch of a Windows service binary name.",
+                    VariantId = "dynamic-code-loader-hidden-system-process",
+                    DisplayName = "Dynamic code loader with hidden system-binary-name launch",
+                    Summary = "Combines dynamic code loading or plugin assembly loading with hidden launch of a Windows system binary name.",
                     Confidence = 0.96,
                     Matcher = MatchDynamicLoaderHiddenSystemProcess
                 }
@@ -561,45 +561,57 @@ internal static partial class ThreatFamilyCatalog
         };
     }
 
-    private static ThreatFamilyVariantMatch? MatchAssemblyLoadReflectiveInvoke(ThreatFamilyAnalysisContext context)
+    private static ThreatFamilyVariantMatch? MatchAssemblyLoadReflectiveInvokeConfirmedPayload(ThreatFamilyAnalysisContext context)
     {
-        var dynamicLoadFinding = context.FindFinding("AssemblyDynamicLoadRule");
-        var reflectionFinding = context.FindFinding("ReflectionRule", "non-literal target method name") ??
-                                context.FindFinding("ReflectionRule", "without determinable target method");
+        var dynamicLoadFinding = context.Findings
+            .Where(IsAssemblyDynamicLoadFinding)
+            .Where(IsHighRiskOpaqueDynamicLoad)
+            .FirstOrDefault(dynamicFinding => context.Findings.Any(reflectionFinding =>
+                IsUnresolvedReflectionInvokeFinding(reflectionFinding) &&
+                LocationsShareMethod(dynamicFinding.Location, reflectionFinding.Location)));
+        var reflectionFinding = dynamicLoadFinding == null
+            ? null
+            : context.Findings.FirstOrDefault(finding =>
+                IsUnresolvedReflectionInvokeFinding(finding) &&
+                LocationsShareMethod(dynamicLoadFinding.Location, finding.Location));
+        var executionFinding = FindConfirmedDynamicPayloadExecutionFinding(context);
+        var executionFlow = FindConfirmedDynamicPayloadExecutionFlow(context);
 
-        if (dynamicLoadFinding == null || reflectionFinding == null)
-        {
-            return null;
-        }
-
-        if (!LocationsShareMethod(dynamicLoadFinding.Location, reflectionFinding.Location))
+        if (dynamicLoadFinding == null ||
+            reflectionFinding == null ||
+            (executionFinding == null && executionFlow == null))
         {
             return null;
         }
 
         return new ThreatFamilyVariantMatch
         {
-            MatchedRules = context.BuildMatchedRules("AssemblyDynamicLoadRule", "ReflectionRule"),
+            MatchedRules = context.BuildMatchedRules(
+                "AssemblyDynamicLoadRule",
+                "ReflectionRule",
+                executionFinding?.RuleId ?? string.Empty,
+                executionFlow != null ? "DataFlowAnalysis" : string.Empty),
             Evidence =
             [
                 context.CreateRuleEvidence("rule", "AssemblyDynamicLoadRule", dynamicLoadFinding),
                 context.CreateRuleEvidence("rule", "ReflectionRule", reflectionFinding),
-                Evidence("payload", "dynamic Assembly.Load byte payload"),
-                Evidence("execution", "unresolved reflected method invocation")
+                context.CreateRuleEvidence("rule", executionFinding?.RuleId ?? "execution", executionFinding),
+                context.CreateDataFlowEvidence("data-flow-pattern", executionFlow?.Pattern.ToString() ?? "not-available", executionFlow),
+                Evidence("payload", "opaque dynamic assembly payload"),
+                Evidence("reflection", "unresolved reflected method invocation"),
+                Evidence("execution", "confirmed staged or embedded payload execution")
             ]
         };
     }
 
     private static ThreatFamilyVariantMatch? MatchDynamicLoaderHiddenSystemProcess(ThreatFamilyAnalysisContext context)
     {
-        var processFinding = context.Findings.FirstOrDefault(finding =>
-            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
-            FindingContainsAny(finding, "Target: \"svchost.exe\"", "Target: \"rundll32.exe\"", "Target: \"regsvr32.exe\"") &&
-            HasHiddenExecutionIndicators(finding));
-        var dynamicLoadFinding = context.FindFinding("AssemblyDynamicLoadRule");
+        var processFinding = context.Findings.FirstOrDefault(IsHiddenSystemBinaryNameProcessLaunch);
+        var dynamicLoadFinding = context.Findings.FirstOrDefault(IsAssemblyDynamicLoadFinding);
         var dynamicCodeFlow = context.FindDataFlow(DataFlowPattern.DynamicCodeLoading);
 
-        if (processFinding == null || (dynamicLoadFinding == null && dynamicCodeFlow == null))
+        if (processFinding == null ||
+            (dynamicCodeFlow == null && !IsHighRiskOpaqueDynamicLoad(dynamicLoadFinding)))
         {
             return null;
         }
@@ -705,6 +717,87 @@ internal static partial class ThreatFamilyCatalog
                 Evidence("execution", "remote response piped directly to shell")
             ]
         };
+    }
+
+    private static bool IsAssemblyDynamicLoadFinding(ScanFinding? finding)
+    {
+        return finding != null &&
+               string.Equals(finding.RuleId, "AssemblyDynamicLoadRule", StringComparison.Ordinal);
+    }
+
+    private static bool IsUnresolvedReflectionInvokeFinding(ScanFinding finding)
+    {
+        return string.Equals(finding.RuleId, "ReflectionRule", StringComparison.Ordinal) &&
+               FindingContainsAny(
+                   finding,
+                   "non-literal target method name",
+                   "without determinable target method",
+                   "cannot determine what is being invoked");
+    }
+
+    private static bool IsHighRiskOpaqueDynamicLoad(ScanFinding? finding)
+    {
+        if (!IsAssemblyDynamicLoadFinding(finding))
+        {
+            return false;
+        }
+
+        if (finding!.Severity >= Severity.Critical)
+        {
+            return true;
+        }
+
+        var hasOpaqueLoadApi = FindingContainsAny(
+            finding,
+            "Assembly.Load(byte[])",
+            "Assembly.Load(byte[], byte[])",
+            "AssemblyLoadContext.LoadFromStream");
+        var hasHighRiskProvenance = FindingContainsAny(
+            finding,
+            "provenance: network",
+            "provenance: base64",
+            "provenance: crypto",
+            "provenance: compression",
+            "provenance: resource",
+            "provenance: temp-path",
+            "provenance: sensitive-path",
+            "provenance: write-then-load");
+
+        return hasOpaqueLoadApi &&
+               hasHighRiskProvenance &&
+               (finding.BypassCompanionCheck || finding.RiskScore >= 75);
+    }
+
+    private static ScanFinding? FindConfirmedDynamicPayloadExecutionFinding(ThreatFamilyAnalysisContext context)
+    {
+        return context.Findings.FirstOrDefault(finding =>
+                   string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+                   (HasHiddenExecutionIndicators(finding) ||
+                    FindingContainsAny(
+                        finding,
+                        "Staged loader chain",
+                        "download -> temp drop -> execute",
+                        "Correlated data flow"))) ??
+               context.FindFinding("DllImportRule", "ShellExecuteEx") ??
+               context.FindFinding("ObfuscatedReflectiveExecutionRule", "staged execution") ??
+               context.FindFinding("EmbeddedResourceScriptRule", "staged script payload");
+    }
+
+    private static DataFlowChain? FindConfirmedDynamicPayloadExecutionFlow(ThreatFamilyAnalysisContext context)
+    {
+        return context.FindDataFlow(DataFlowPattern.DownloadAndExecute) ??
+               context.FindDataFlow(DataFlowPattern.EmbeddedResourceDropAndExecute);
+    }
+
+    private static bool IsHiddenSystemBinaryNameProcessLaunch(ScanFinding finding)
+    {
+        return string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+               FindingContainsAny(
+                   finding,
+                   "Target: \"svchost.exe\"",
+                   "Target: \"rundll32.exe\"",
+                   "Target: \"regsvr32.exe\"") &&
+               HasHiddenExecutionIndicators(finding);
     }
 
     private static ThreatFamilyEvidence Evidence(string kind, string value)

