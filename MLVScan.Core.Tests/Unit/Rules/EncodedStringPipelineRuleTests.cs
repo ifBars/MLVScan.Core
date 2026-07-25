@@ -28,7 +28,7 @@ public class EncodedStringPipelineRuleTests
     }
 
     [Fact]
-    public void AnalyzeInstructions_DetectsSelectStringCharAndConcatCharPattern()
+    public void AnalyzeInstructions_DoesNotDetectOrdinarySelectStringCharAndConcatCharPattern()
     {
         var context = CreateContext();
         context.Emit(OpCodes.Nop);
@@ -39,10 +39,7 @@ public class EncodedStringPipelineRuleTests
 
         var findings = Analyze(context.Method);
 
-        findings.Should().HaveCount(1);
-        findings[0].Location.Should().Be("TestNamespace.TestClass.TestMethod");
-        findings[0].Severity.Should().Be(Severity.High);
-        findings[0].Description.Should().Contain("encoded string to char decoding pipeline");
+        findings.Should().BeEmpty();
     }
 
     [Fact]
@@ -67,10 +64,12 @@ public class EncodedStringPipelineRuleTests
     }
 
     [Theory]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, true, true)]
-    public void AnalyzeInstructions_DetectsOnlyWhenSelectAndConcatMatch(bool includeSelect, bool includeConcat, bool expectedFinding)
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void AnalyzeInstructions_DoesNotDetectSelectAndConcatWithoutNumericDecode(
+        bool includeSelect,
+        bool includeConcat)
     {
         var context = CreateContext();
 
@@ -88,14 +87,7 @@ public class EncodedStringPipelineRuleTests
 
         var findings = Analyze(context.Method);
 
-        if (expectedFinding)
-        {
-            findings.Should().HaveCount(1);
-        }
-        else
-        {
-            findings.Should().BeEmpty();
-        }
+        findings.Should().BeEmpty();
     }
 
     [Fact]
@@ -145,7 +137,7 @@ public class EncodedStringPipelineRuleTests
     }
 
     [Fact]
-    public void AnalyzeInstructions_DoesNotHighlightParse_WhenInt32ParseHasWrongSignature()
+    public void AnalyzeInstructions_DoesNotDetect_WhenInt32ParseHasWrongSignature()
     {
         var context = CreateContext();
         context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Int32));
@@ -156,12 +148,7 @@ public class EncodedStringPipelineRuleTests
 
         var findings = Analyze(context.Method);
 
-        findings.Should().HaveCount(1);
-        findings[0].CodeSnippet!
-            .Split('\n')
-            .Where(static line => line.TrimStart().StartsWith(">>>", StringComparison.Ordinal))
-            .Should()
-            .NotContain(line => line.Contains("Parse", StringComparison.Ordinal));
+        findings.Should().BeEmpty();
     }
 
     [Fact]
@@ -187,7 +174,8 @@ public class EncodedStringPipelineRuleTests
     {
         var context = CreateContext();
         context.Emit(OpCodes.Ldstr, "context");
-        context.Emit(OpCodes.Nop);
+        context.Emit(OpCodes.Call, CreateParseMethod(context.Module, context.Module.TypeSystem.String));
+        context.Emit(OpCodes.Conv_U2);
         context.Emit(OpCodes.Call, CreateSelectMethod(context.Module, context.Module.TypeSystem.String, context.Module.TypeSystem.Char));
         context.Emit(OpCodes.Nop);
         context.Emit(OpCodes.Call, CreateConcatMethod(context.Module, context.Module.TypeSystem.Char));

@@ -1,7 +1,7 @@
+using System.ComponentModel;
 using MLVScan.Models.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using System.ComponentModel;
 
 namespace MLVScan.Services
 {
@@ -62,7 +62,8 @@ namespace MLVScan.Services
                     string typeName = calledMethod.DeclaringType.FullName;
                     string methodName = calledMethod.Name;
 
-                    if (typeName.Contains("Convert") && methodName.Contains("FromBase64"))
+                    if (typeName == "System.Convert" &&
+                        methodName is "FromBase64String" or "FromBase64CharArray")
                     {
                         return true;
                     }

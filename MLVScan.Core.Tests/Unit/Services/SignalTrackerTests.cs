@@ -125,6 +125,19 @@ public class SignalTrackerTests
     }
 
     [Fact]
+    public void UpdateMethodSignals_CustomConvertCall_DoesNotSetHasBase64()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var signals = new MethodSignals();
+
+        var methodRef = MethodReferenceFactory.Create("MyApp.Convert", "FromBase64String");
+        tracker.UpdateMethodSignals(signals, methodRef, null);
+
+        signals.HasBase64.Should().BeFalse();
+    }
+
+    [Fact]
     public void UpdateMethodSignals_ProcessStart_SetsHasProcessLikeCall()
     {
         var config = new ScanConfig { EnableMultiSignalDetection = true };

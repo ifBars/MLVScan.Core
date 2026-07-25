@@ -19,6 +19,7 @@ public class FalsePositiveScanTests
         "Bannerlord.ButterLib.dll",
         "BankApp.dll",
         "BoneLibUpdater.dll",
+        "BungalowPlus.dll",
         "CustomTV.dll",
         "DeliveryCartPlus_v.1.0.dll",
         "eMployee.dll",
@@ -30,6 +31,7 @@ public class FalsePositiveScanTests
         "HUB.Chat.dll",
         "HUB.SmartEmployees.dll",
         "HUB.TheVeil.dll",
+        "HylandHelper.BridgeMod.dll",
         "IllegalRave.dll",
         "KeepWateringCanFull.dll",
         "LabFusion.dll",
@@ -41,8 +43,11 @@ public class FalsePositiveScanTests
         "NAudio.Asio.dll",
         "NAudio.Core.dll",
         "OverTheCounter-Loader.dll",
+        "Personify.dll",
         "S1APILoader.MelonLoader.dll",
+        "S1MAPI_Mono.dll",
         "SaveFileSharing.dll",
+        "SIAKImperium.dll",
         "SimpleSingleplayerRespawn.dll",
         "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
         "UnityExplorer.ML.Mono.dll",
@@ -154,9 +159,13 @@ public class FalsePositiveScanTests
     [InlineData("eMployee.dll")]
     [InlineData("FGMONOMobileBanking.dll")]
     [InlineData("HUB.Chat.dll")]
+    [InlineData("HUB.SmartEmployees.dll")]
+    [InlineData("HylandHelper.BridgeMod.dll")]
     [InlineData("KeepWateringCanFull.dll")]
     [InlineData("OverTheCounter-Loader.dll")]
+    [InlineData("S1MAPI_Mono.dll")]
     [InlineData("SaveFileSharing.dll")]
+    [InlineData("SIAKImperium.dll")]
     [InlineData("SimpleSingleplayerRespawn.dll")]
     [InlineData("UnlimitedLaundering.dll")]
     [InlineData("UpdateTraduccionScheduleI.dll")]
@@ -544,6 +553,7 @@ public class FalsePositiveScanTests
             "IllegalRave.dll",
             "LabFusion.dll",
             "Muse_Dash.dll",
+            "Personify.dll",
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",

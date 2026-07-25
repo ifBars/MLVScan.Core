@@ -1,7 +1,7 @@
+using System.ComponentModel;
 using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
-using System.ComponentModel;
 
 namespace MLVScan.Services
 {
@@ -85,8 +85,9 @@ namespace MLVScan.Services
             string typeName = method.DeclaringType.FullName;
             string methodName = method.Name;
 
-            // Check for Base64
-            if (typeName.Contains("Convert") && methodName.Contains("FromBase64"))
+            // Check for framework Base64 decoding primitives.
+            if (typeName == "System.Convert" &&
+                methodName is "FromBase64String" or "FromBase64CharArray")
             {
                 signals.HasBase64 = true;
                 // Mark type-level signal

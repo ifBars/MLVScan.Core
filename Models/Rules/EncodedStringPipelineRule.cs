@@ -208,19 +208,23 @@ namespace MLVScan.Models.Rules
                 }
 
                 // Detect pattern 1: Select<String,Char> → Concat<Char>
-                if (hasSelectStringChar && hasConcatChar && selectIndex < concatIndex)
+                // The Select/Concat pair is only suspicious when it follows numeric parsing and
+                // conversion to a character; by itself it is a common initials/abbreviation pattern.
+                bool hasParseConvPattern = hasInt32Parse && hasConvU2 && parseIndex < convU2Index;
+                if (hasParseConvPattern &&
+                    hasSelectStringChar &&
+                    hasConcatChar &&
+                    convU2Index < selectIndex &&
+                    selectIndex < concatIndex)
                 {
-                    bool hasParseConvPattern = hasInt32Parse && hasConvU2 && parseIndex < convU2Index;
-
                     var snippetBuilder = new System.Text.StringBuilder();
-                    int startIdx = Math.Max(0,
-                        Math.Min(hasParseConvPattern ? parseIndex : selectIndex, selectIndex) - 2);
+                    int startIdx = Math.Max(0, Math.Min(parseIndex, selectIndex) - 2);
                     int endIdx = Math.Min(instructions.Count, concatIndex + 3);
 
                     for (int j = startIdx; j < endIdx; j++)
                     {
                         if (j == selectIndex || j == concatIndex ||
-                            (hasParseConvPattern && (j == parseIndex || j == convU2Index)))
+                            j == parseIndex || j == convU2Index)
                             snippetBuilder.Append(">>> ");
                         else
                             snippetBuilder.Append("    ");

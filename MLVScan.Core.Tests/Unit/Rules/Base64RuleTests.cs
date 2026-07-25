@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using Mono.Cecil.Cil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Unit.Rules;
@@ -22,10 +23,10 @@ public class Base64RuleTests
         _rule.Severity.Should().Be(Severity.Low);
     }
 
-    [Fact(Skip = "Rule implementation changed - RequiresCompanionFinding is now true. Update test or rule as needed.")]
-    public void RequiresCompanionFinding_ReturnsFalse()
+    [Fact]
+    public void RequiresCompanionFinding_ReturnsTrue()
     {
-        _rule.RequiresCompanionFinding.Should().BeFalse();
+        _rule.RequiresCompanionFinding.Should().BeTrue();
     }
 
     [Fact]
@@ -39,7 +40,7 @@ public class Base64RuleTests
     [Theory]
     [InlineData("System.Convert", "FromBase64String", true)]
     [InlineData("System.Convert", "FromBase64CharArray", true)]
-    [InlineData("MyNamespace.Convert", "FromBase64String", true)]
+    [InlineData("MyNamespace.Convert", "FromBase64String", false)]
     [InlineData("System.Convert", "ToBase64String", false)]
     [InlineData("System.Convert", "ToInt32", false)]
     [InlineData("System.String", "FromBase64String", false)]
@@ -65,5 +66,62 @@ public class Base64RuleTests
         var methodRef = MethodReferenceFactory.CreateWithNullType("FromBase64String");
 
         _rule.IsSuspicious(methodRef).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_DynamicInputWithoutDangerousContext_ReturnsTrue()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Convert", "FromBase64String");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldarg_0),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EmbeddedBase64LikeLiteral_ReturnsFalse()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Convert", "FromBase64String");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "SGVsbG8gZnJvbSBNTFZTY2FuIQ=="),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessSinkAfterDecode_ReturnsFalse()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Convert", "FromBase64String");
+        var processStart = MethodReferenceFactory.Create("System.Diagnostics.Process", "Start");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldarg_0),
+            Instruction.Create(OpCodes.Call, methodRef),
+            Instruction.Create(OpCodes.Ldstr, "cmd.exe"),
+            Instruction.Create(OpCodes.Call, processStart)
+        };
+
+        _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_FileStagingAfterDecode_ReturnsFalse()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Convert", "FromBase64String");
+        var writeAllBytes = MethodReferenceFactory.Create("System.IO.File", "WriteAllBytes");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldarg_0),
+            Instruction.Create(OpCodes.Call, methodRef),
+            Instruction.Create(OpCodes.Call, writeAllBytes)
+        };
+
+        _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeFalse();
     }
 }

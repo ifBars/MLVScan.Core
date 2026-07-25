@@ -1,6 +1,8 @@
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
@@ -59,7 +61,47 @@ namespace MLVScan.Models.Rules
             var typeName = method.DeclaringType.FullName;
             var methodName = method.Name;
 
-            return typeName.Contains("Convert") && methodName.Contains("FromBase64");
+            return typeName == "System.Convert" &&
+                   methodName is "FromBase64String" or "FromBase64CharArray";
+        }
+
+        /// <summary>
+        /// Suppresses ordinary Base64 decoding while retaining decode evidence near obfuscated payloads,
+        /// staging, reflection, or execution.
+        /// </summary>
+        /// <param name="method">The Base64 decode method.</param>
+        /// <param name="instructions">The containing method's IL instructions.</param>
+        /// <param name="instructionIndex">The Base64 call index.</param>
+        /// <param name="methodSignals">Signals collected for the containing method.</param>
+        /// <param name="typeSignals">Optional signals collected for the containing type.</param>
+        /// <returns><see langword="true"/> when the decode has no security-relevant local context.</returns>
+        public bool ShouldSuppressFinding(
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex,
+            MethodSignals methodSignals,
+            MethodSignals? typeSignals = null)
+        {
+            if (!IsSuspicious(method))
+                return true;
+
+            ObfuscatedExecutionEvidence evidence =
+                ObfuscatedExecutionHeuristics.CollectEvidence(instructions);
+
+            bool hasExecutionOrDynamicSink =
+                evidence.HasProcessLikeSink ||
+                evidence.HasReflectionInvokeSink ||
+                evidence.HasAssemblyLoadSink ||
+                evidence.HasNativeSink ||
+                evidence.HasDynamicTargetResolution;
+
+            bool hasPayloadOrStagingEvidence =
+                evidence.HasEncodedLiteral ||
+                evidence.HasDangerousLiteral ||
+                evidence.HasFileWriteCall ||
+                evidence.HasSensitivePathAccess;
+
+            return !hasExecutionOrDynamicSink && !hasPayloadOrStagingEvidence;
         }
     }
 }

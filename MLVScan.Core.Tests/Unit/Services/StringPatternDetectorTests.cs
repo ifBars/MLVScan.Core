@@ -131,6 +131,26 @@ public class StringPatternDetectorTests
     }
 
     [Fact]
+    public void HasSuspiciousStringPatterns_CustomConvertCall_ReturnsFalse()
+    {
+        var assembly = TestAssemblyBuilder.Create()
+            .AddType("TestType")
+                .AddMethod("DecodeData")
+                    .EmitString("SGVsbG8=")
+                    .EmitCall("MyApp.Convert", "FromBase64String")
+                .EndMethod()
+            .EndType()
+            .Build();
+
+        var type = assembly.MainModule.Types.First(t => t.Name == "TestType");
+        var method = type.Methods.First();
+
+        var result = _detector.HasSuspiciousStringPatterns(method, method.Body.Instructions, 1);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public void HasSuspiciousStringPatterns_SafeMethod_ReturnsFalse()
     {
         var assembly = TestAssemblyBuilder.Create()
