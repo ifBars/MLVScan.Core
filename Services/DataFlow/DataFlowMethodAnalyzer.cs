@@ -72,13 +72,30 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
+                var parameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(
+                    instructions, index, calledMethod);
+                var parameterReachingStoreIndexes = new Dictionary<int, HashSet<int>>();
+                foreach (var (parameterIndex, localIndex) in parameterMapping)
+                {
+                    if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                            instructions, index, calledMethod, parameterIndex, out var producerIndex))
+                    {
+                        continue;
+                    }
+
+                    parameterReachingStoreIndexes[parameterIndex] = DataFlowInstructionHelper
+                        .GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex)
+                        .ToHashSet();
+                }
+
                 info.OutgoingCalls.Add(new DataFlowMethodCallSite
                 {
                     TargetMethodKey = calledMethod.GetMethodKey(),
                     TargetDisplayName = calledMethod.GetDisplayName(),
                     InstructionOffset = instruction.Offset,
                     InstructionIndex = index,
-                    ParameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(instructions, index, calledMethod),
+                    ParameterMapping = parameterMapping,
+                    ParameterReachingStoreIndexes = parameterReachingStoreIndexes,
                     ReturnValueUsed = DataFlowInstructionHelper.IsReturnValueUsed(instructions, index),
                     CalledMethodReturnsData = calledMethod.ReturnType.FullName != "System.Void"
                 });

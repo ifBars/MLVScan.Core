@@ -415,37 +415,49 @@ namespace MLVScan.Services.DataFlow
                 return EmptyIdentities();
             }
 
-            var searchStart = Math.Max(0, callIndex - 400);
-            for (var index = callIndex - 1; index >= searchStart; index--)
+            var fieldStoreIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                callIndex,
+                index => IsShellExecuteFileStoreForLocal(
+                    instructions, index, shellExecuteInfoLocal));
+            var identities = EmptyIdentities();
+            foreach (var index in fieldStoreIndexes)
             {
-                if (instructions[index].OpCode != OpCodes.Stfld ||
-                    instructions[index].Operand is not FieldReference field ||
-                    !field.Name.Equals("lpFile", StringComparison.OrdinalIgnoreCase))
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, index, out var valueProducerIndex))
                 {
                     continue;
                 }
 
-                if (!DataFlowInstructionHelper.TryGetFieldStoreReceiverLocalVariable(
-                        instructions, index, out var fieldReceiverLocal) ||
-                    fieldReceiverLocal != shellExecuteInfoLocal)
+                if (instructions[valueProducerIndex].TryGetLocalIndex(out var localIndex))
                 {
+                    identities.UnionWith(
+                        BuildLocalPathIdentities(method, instructions, valueProducerIndex, localIndex));
                     continue;
-                }
-
-                if (index > 0 && instructions[index - 1].TryGetLocalIndex(out var localIndex))
-                {
-                    return BuildLocalPathIdentities(method, instructions, index - 1, localIndex);
                 }
 
                 if (InstructionValueResolver.TryResolveStackValueDisplay(
                         method, instructions, index - 1, out var display) &&
                     IsConcreteResolvedPath(display))
                 {
-                    return SingleIdentity(NormalizeResolvedPathIdentity(display));
+                    identities.Add(NormalizeResolvedPathIdentity(display));
                 }
             }
 
-            return EmptyIdentities();
+            return identities;
+        }
+
+        private static bool IsShellExecuteFileStoreForLocal(
+            Collection<Instruction> instructions,
+            int index,
+            int shellExecuteInfoLocal)
+        {
+            return instructions[index].OpCode == OpCodes.Stfld &&
+                   instructions[index].Operand is FieldReference field &&
+                   field.Name.Equals("lpFile", StringComparison.OrdinalIgnoreCase) &&
+                   DataFlowInstructionHelper.TryGetFieldStoreReceiverLocalVariable(
+                       instructions, index, out var fieldReceiverLocal) &&
+                   fieldReceiverLocal == shellExecuteInfoLocal;
         }
 
         private static HashSet<string> TryGetCallArgumentIdentities(
@@ -518,6 +530,26 @@ namespace MLVScan.Services.DataFlow
             int localLoadIndex,
             int localIndex)
         {
+            return BuildLocalPathIdentities(
+                method,
+                instructions,
+                localLoadIndex,
+                localIndex,
+                new HashSet<(int LoadIndex, int LocalIndex)>());
+        }
+
+        private static HashSet<string> BuildLocalPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int localLoadIndex,
+            int localIndex,
+            HashSet<(int LoadIndex, int LocalIndex)> visited)
+        {
+            if (!visited.Add((localLoadIndex, localIndex)))
+            {
+                return EmptyIdentities();
+            }
+
             var storeIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
                 instructions, localLoadIndex, localIndex);
             if (storeIndexes.Count == 0)
@@ -525,9 +557,33 @@ namespace MLVScan.Services.DataFlow
                 return SingleIdentity($"{method.GetMethodKey()}::local:{localIndex}@parameter");
             }
 
-            return storeIndexes
+            var identities = storeIndexes
                 .Select(index => $"{method.GetMethodKey()}::local:{localIndex}@instruction:{index}")
                 .ToHashSet(StringComparer.Ordinal);
+            foreach (var storeIndex in storeIndexes)
+            {
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, storeIndex, out var producerIndex))
+                {
+                    continue;
+                }
+
+                if (TryGetMethodParameterIndex(method, instructions[producerIndex], out var parameterIndex))
+                {
+                    identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
+                }
+                else if (instructions[producerIndex].TryGetLocalIndex(out var sourceLocalIndex))
+                {
+                    identities.UnionWith(BuildLocalPathIdentities(
+                        method,
+                        instructions,
+                        producerIndex,
+                        sourceLocalIndex,
+                        visited));
+                }
+            }
+
+            return identities;
         }
 
         private static HashSet<string> EmptyIdentities() => new(StringComparer.Ordinal);

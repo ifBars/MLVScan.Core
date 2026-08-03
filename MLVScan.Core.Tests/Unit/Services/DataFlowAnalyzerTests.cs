@@ -324,6 +324,72 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeCrossMethodFlows_ReassignedLaunchPath_DoesNotBridgeOldWrite()
+    {
+        var builder = TestAssemblyBuilder.Create("CrossMethodReassignedPathTest");
+        var module = builder.Module;
+        var byteArrayType = new ArrayType(module.TypeSystem.Byte);
+        var typeBuilder = builder.AddType("TestNamespace.DropperLookalike");
+
+        typeBuilder.AddMethod("Launch", MethodAttributes.Public | MethodAttributes.Static)
+            .AddParameter("path", module.TypeSystem.String)
+            .EmitLdarg(0)
+            .EmitCallWithParams(
+                "System.Diagnostics.Process",
+                "Start",
+                module.TypeSystem.Object,
+                module.TypeSystem.String)
+            .EmitPop()
+            .EndMethod();
+        var launchMethod = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "Launch");
+
+        typeBuilder.AddMethod("Stage", MethodAttributes.Public | MethodAttributes.Static)
+            .AddParameter("bytes", byteArrayType)
+            .AddLocal(module.TypeSystem.String, out var pathLocal)
+            .EmitString("payload.exe")
+            .EmitStloc(pathLocal)
+            .EmitLdloc(pathLocal)
+            .EmitLdarg(0)
+            .EmitCallWithParams(
+                "System.IO.File",
+                "WriteAllBytes",
+                module.TypeSystem.Void,
+                module.TypeSystem.String,
+                byteArrayType)
+            .EmitString("benign-helper.exe")
+            .EmitStloc(pathLocal)
+            .EmitLdloc(pathLocal)
+            .EmitCallInternal(launchMethod)
+            .EndMethod();
+        var stageMethod = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "Stage");
+
+        typeBuilder.AddMethod("Extract", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(byteArrayType, out var resourceLocal)
+            .EmitString("payload.bin")
+            .EmitCallWithParams(
+                "System.Reflection.Assembly",
+                "GetManifestResourceStream",
+                byteArrayType,
+                module.TypeSystem.String)
+            .EmitStloc(resourceLocal)
+            .EmitLdloc(resourceLocal)
+            .EmitCallInternal(stageMethod)
+            .EndMethod();
+        var extractMethod = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "Extract");
+
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+        analyzer.AnalyzeMethod(extractMethod);
+        analyzer.AnalyzeMethod(stageMethod);
+        analyzer.AnalyzeMethod(launchMethod);
+        analyzer.AnalyzeCrossMethodFlows();
+
+        analyzer.BuildDataFlowFindings().Should().NotContain(finding =>
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.IsCrossMethod &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute);
+    }
+
+    [Fact]
     public void AnalyzeCrossMethodFlows_WithNoConnectedFlows_HasZeroCrossMethodChains()
     {
         // Arrange: Two methods with operations but no cross-method data flow

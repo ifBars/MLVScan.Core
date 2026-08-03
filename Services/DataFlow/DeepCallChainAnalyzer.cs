@@ -225,11 +225,22 @@ namespace MLVScan.Services.DataFlow
                     {
                         var callerLocalPrefix =
                             $"{callerNode.MethodInfo.MethodKey}::local:{localIndex}@";
+                        var reachingStores = callSite.ParameterReachingStoreIndexes.TryGetValue(
+                            parameterIndex, out var mappedStores)
+                            ? mappedStores
+                            : new HashSet<int>();
+                        var callerPathIdentities = reachingStores.Count == 0
+                            ? new HashSet<string>(StringComparer.Ordinal)
+                            {
+                                $"{callerLocalPrefix}parameter"
+                            }
+                            : reachingStores
+                                .Select(index => $"{callerLocalPrefix}instruction:{index}")
+                                .ToHashSet(StringComparer.Ordinal);
                         var calleeArgumentIdentity =
                             $"{calleeNode.MethodInfo.MethodKey}::argument:{parameterIndex}";
                         var callerOperations = operations
-                            .Where(operation => operation.PayloadPathIdentities.Any(identity =>
-                                identity.StartsWith(callerLocalPrefix, StringComparison.Ordinal)))
+                            .Where(operation => operation.PayloadPathIdentities.Overlaps(callerPathIdentities))
                             .ToList();
                         var calleeOperations = operations
                             .Where(operation => operation.PayloadPathIdentities.Contains(calleeArgumentIdentity))

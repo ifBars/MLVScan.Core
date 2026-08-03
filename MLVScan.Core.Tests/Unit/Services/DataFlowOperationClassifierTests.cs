@@ -300,6 +300,62 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
+    public void IdentifyInterestingOperations_ConditionalShellExecuteFile_TracksAllReachingStores()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var shellInfoType = new TypeDefinition(
+            "Test", "SHELLEXECUTEINFO", TypeAttributes.Public | TypeAttributes.SequentialLayout |
+                                               TypeAttributes.Sealed | TypeAttributes.AnsiClass,
+            module.ImportReference(typeof(ValueType)));
+        var lpFile = new FieldDefinition("lpFile", FieldAttributes.Public, module.TypeSystem.String);
+        shellInfoType.Fields.Add(lpFile);
+        module.Types.Add(shellInfoType);
+        var shellInfoLocal = AddLocal(method, shellInfoType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        il.Emit(OpCodes.Ldloca, shellInfoLocal);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Stfld, lpFile);
+
+        var launch = Instruction.Create(OpCodes.Ldloca, shellInfoLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Brfalse_S, launch);
+        il.Emit(OpCodes.Ldloca, shellInfoLocal);
+        il.Emit(OpCodes.Ldstr, "benign-helper.exe");
+        il.Emit(OpCodes.Stfld, lpFile);
+
+        var nativeType = new TypeDefinition(
+            "Test", "ShellNativeMethods", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(nativeType);
+        var nativeModule = new ModuleReference("shell32.dll");
+        module.ModuleReferences.Add(nativeModule);
+        var shellExecute = new MethodDefinition(
+            "ShellExecuteExW",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            module.TypeSystem.Boolean);
+        shellExecute.Parameters.Add(new ParameterDefinition(new ByReferenceType(shellInfoType)));
+        shellExecute.PInvokeInfo = new PInvokeInfo(
+            PInvokeAttributes.CallConvWinapi, "ShellExecuteExW", nativeModule);
+        nativeType.Methods.Add(shellExecute);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, shellExecute);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var shellStart = operations.Single(operation =>
+            operation.Operation.Contains("PInvoke.ShellExecuteEx", StringComparison.OrdinalIgnoreCase));
+
+        shellStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+        shellStart.PayloadPathIdentities.Should().Contain(identity =>
+            identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_LocalPathAlias_PreservesConcretePayloadLink()
     {
         var method = CreateCallerMethod(out var module);
@@ -486,6 +542,44 @@ public class DataFlowOperationClassifierTests
         processStart.PayloadPathIdentities.Should().ContainSingle(identity =>
             identity.EndsWith("::argument:1", StringComparison.Ordinal));
         fileWrite.PayloadPathIdentities.Intersect(processStart.PayloadPathIdentities).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_UnresolvedArgumentAlias_PreservesSourceIdentity()
+    {
+        var method = CreateCallerMethod(out var module);
+        method.Parameters.Add(new ParameterDefinition("path", ParameterAttributes.None, module.TypeSystem.String));
+        var aliasLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+
+        var fileType = CreateTypeReference(module, "System.IO", "File");
+        var writeAllBytes = CreateMethodReference(
+            fileType,
+            "WriteAllBytes",
+            module.TypeSystem.Void,
+            hasThis: false,
+            module.TypeSystem.String,
+            new ArrayType(module.TypeSystem.Byte));
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, writeAllBytes);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Stloc, aliasLocal);
+
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, module.TypeSystem.String);
+        il.Emit(OpCodes.Ldloc, aliasLocal);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().ContainSingle(identity =>
+            identity.EndsWith("::argument:0", StringComparison.Ordinal));
     }
 
     [Fact]
