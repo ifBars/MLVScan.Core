@@ -106,6 +106,32 @@ namespace MLVScan.Models.Rules.Helpers
         }
 
         /// <summary>
+        /// Tries to resolve one argument supplied to a call site.
+        /// </summary>
+        public static bool TryResolveCallArgumentDisplay(
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int parameterIndex,
+            out string valueDisplay)
+        {
+            valueDisplay = "<unknown/non-literal>";
+            if (parameterIndex < 0 || parameterIndex >= calledMethod.Parameters.Count)
+                return false;
+
+            var context = new ResolverContext(containingMethod?.Module);
+            if (!TryResolveCallArguments(context, containingMethod, instructions, callIndex,
+                    calledMethod.Parameters.Count, null, 0, out var arguments))
+            {
+                return false;
+            }
+
+            valueDisplay = arguments[parameterIndex].Display;
+            return true;
+        }
+
+        /// <summary>
         /// Tries to recover a constant value assigned to <c>ProcessStartInfo.UseShellExecute</c>.
         /// </summary>
         /// <param name="containingMethod">The method containing the process launch.</param>

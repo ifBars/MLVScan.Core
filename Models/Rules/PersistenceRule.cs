@@ -1,5 +1,6 @@
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -112,8 +113,6 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            // Only flag if we find actual Path.GetTempPath() call
-            bool foundTempPath = false;
             string? sensitiveFolderName = null;
 
             for (int i = 0; i < instructions.Count; i++)
@@ -124,12 +123,6 @@ namespace MLVScan.Models.Rules
                     instr.Operand is MethodReference pathMethod)
                 {
                     var pathDeclaringType = pathMethod.DeclaringType?.FullName ?? "";
-
-                    if (pathDeclaringType == "System.IO.Path" && pathMethod.Name == "GetTempPath")
-                    {
-                        foundTempPath = true;
-                        break;
-                    }
 
                     if (pathDeclaringType == "System.Environment" && pathMethod.Name == "GetFolderPath")
                     {
@@ -142,9 +135,13 @@ namespace MLVScan.Models.Rules
                 }
             }
 
+            if (!TryResolveDestinationPath(method, instructions, instructionIndex, out string destinationPath))
+                yield break;
+
+            bool foundTempPath = HasDirectoryComponent(destinationPath, "%TEMP%");
             bool foundSensitivePayloadWrite =
-                (sensitiveFolderName != null || HasSensitiveFolderLiteral(instructions, instructionIndex)) &&
-                HasSuspiciousPayloadPath(instructions, instructionIndex);
+                HasSuspiciousPayloadExtension(destinationPath) &&
+                (sensitiveFolderName != null || HasSensitiveDirectoryComponent(destinationPath));
 
             if (foundTempPath || foundSensitivePayloadWrite)
             {
@@ -179,43 +176,41 @@ namespace MLVScan.Models.Rules
                        35;   // CommonApplicationData / ProgramData
         }
 
-        private static bool HasSuspiciousPayloadPath(
+        private static bool TryResolveDestinationPath(
+            MethodReference method,
             Mono.Collections.Generic.Collection<Instruction> instructions,
-            int instructionIndex)
+            int instructionIndex,
+            out string destinationPath)
         {
-            int start = Math.Max(0, instructionIndex - 10);
-            int end = Math.Min(instructions.Count, instructionIndex + 3);
-
-            for (int i = start; i < end; i++)
-            {
-                if (instructions[i].OpCode != OpCodes.Ldstr || instructions[i].Operand is not string literal)
-                    continue;
-
-                if (SuspiciousPayloadExtensions.Any(ext =>
-                        literal.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ||
-                        literal.Contains(ext + "\"", StringComparison.OrdinalIgnoreCase) ||
-                        literal.Contains(ext + "'", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            bool isCopyOrMove = method.Name.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
+                                method.Name.Equals("Move", StringComparison.OrdinalIgnoreCase);
+            int destinationParameterIndex = isCopyOrMove ? 1 : 0;
+            return InstructionValueResolver.TryResolveCallArgumentDisplay(
+                null, method, instructions, instructionIndex, destinationParameterIndex, out destinationPath);
         }
 
-        private static bool HasSensitiveFolderLiteral(
-            Mono.Collections.Generic.Collection<Instruction> instructions,
-            int instructionIndex)
+        private static bool HasSuspiciousPayloadExtension(string path)
         {
-            int start = Math.Max(0, instructionIndex - 10);
-            int end = Math.Min(instructions.Count, instructionIndex + 3);
+            return SuspiciousPayloadExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
 
-            for (int i = start; i < end; i++)
+        private static bool HasSensitiveDirectoryComponent(string path)
+        {
+            return HasDirectoryComponent(path,
+                "Startup", "AppData", "ProgramData", "Windows", "System", "System32",
+                "Program Files", "Program Files (x86)", "ProgramFiles", "ProgramFilesX86");
+        }
+
+        private static bool HasDirectoryComponent(string path, params string[] expectedComponents)
+        {
+            string normalized = path.Replace('\\', '/').TrimEnd('/');
+            string[] components = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            int directoryComponentCount = Math.Max(0, components.Length - 1);
+
+            for (int i = 0; i < directoryComponentCount; i++)
             {
-                if (instructions[i].OpCode == OpCodes.Ldstr && instructions[i].Operand is string literal &&
-                    (literal.Contains("Startup", StringComparison.OrdinalIgnoreCase) ||
-                     literal.Contains("AppData", StringComparison.OrdinalIgnoreCase) ||
-                     literal.Contains("ProgramData", StringComparison.OrdinalIgnoreCase)))
+                if (expectedComponents.Any(expected =>
+                        components[i].Equals(expected, StringComparison.OrdinalIgnoreCase)))
                 {
                     return true;
                 }
