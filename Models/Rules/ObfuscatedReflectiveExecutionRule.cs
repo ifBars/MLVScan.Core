@@ -22,6 +22,7 @@ namespace MLVScan.Models.Rules
         private const int ReflectionOnlyDecodeFloor = 45;
         private const int MaximumDecodedStaticArrayStrings = 256;
         private const int MaximumDecodedStaticArrayBytes = 256 * 1024;
+        private const int MaximumDecodedStaticArrayFieldBytes = 4096;
 
         /// <summary>
         /// Gets the description emitted when the rule identifies an obfuscated execution chain.
@@ -528,6 +529,13 @@ namespace MLVScan.Models.Rules
                         continue;
                     }
 
+                    // Oversized initializers cannot be decoded by this heuristic. Ignore them without
+                    // allowing attacker-controlled padding to terminate collection before later markers.
+                    if (field.InitialValue.Length > MaximumDecodedStaticArrayFieldBytes)
+                    {
+                        continue;
+                    }
+
                     if (strings.Count >= MaximumDecodedStaticArrayStrings ||
                         field.InitialValue.Length > MaximumDecodedStaticArrayBytes - inspectedBytes)
                     {
@@ -548,7 +556,7 @@ namespace MLVScan.Models.Rules
         private static bool TryDecodePrintableBytes(byte[] bytes, out string decoded)
         {
             decoded = string.Empty;
-            if (bytes.Length < 3 || bytes.Length > 4096)
+            if (bytes.Length < 3 || bytes.Length > MaximumDecodedStaticArrayFieldBytes)
             {
                 return false;
             }
