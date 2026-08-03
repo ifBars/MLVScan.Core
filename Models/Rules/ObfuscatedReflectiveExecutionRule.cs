@@ -118,13 +118,15 @@ namespace MLVScan.Models.Rules
             List<ScanFinding> priorFindings = existingFindings?.ToList() ?? new List<ScanFinding>();
             var findings = new List<ScanFinding>();
             IReadOnlyList<string> moduleDecodedStrings = CollectDecodedStaticArrayStrings(module);
+            var moduleDecodedMarkerCache = new Dictionary<string, bool>(StringComparer.Ordinal);
 
             foreach (var namespaceGroup in EnumerateTypes(module)
                          .Where(static type => !string.IsNullOrWhiteSpace(type.Namespace))
                          .GroupBy(static type => type.Namespace, StringComparer.Ordinal))
             {
                 RemoteConfigTempCmdStagerEvidence remoteConfigEvidence =
-                    CollectRemoteConfigTempCmdStagerEvidence(namespaceGroup, moduleDecodedStrings);
+                    CollectRemoteConfigTempCmdStagerEvidence(
+                        namespaceGroup, moduleDecodedStrings, moduleDecodedMarkerCache);
                 if (remoteConfigEvidence.ShouldReport)
                 {
                     findings.Add(new ScanFinding(
@@ -321,10 +323,13 @@ namespace MLVScan.Models.Rules
 
         private static RemoteConfigTempCmdStagerEvidence CollectRemoteConfigTempCmdStagerEvidence(
             IEnumerable<TypeDefinition> namespaceTypes,
-            IReadOnlyList<string> moduleDecodedStrings)
+            IReadOnlyList<string> moduleDecodedStrings,
+            IDictionary<string, bool> moduleDecodedMarkerCache)
         {
             var evidence = new RemoteConfigTempCmdStagerEvidence();
-            var recoveredStrings = new HashSet<string>(moduleDecodedStrings, StringComparer.OrdinalIgnoreCase);
+            // Module-wide decoded strings are read-only evidence. Keep namespace-local strings separate so
+            // every namespace does not copy and rehash the same attacker-controlled module collection.
+            var recoveredStrings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (TypeDefinition type in namespaceTypes)
             {
@@ -461,33 +466,52 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            if (recoveredStrings.Any(value => ContainsMarker(value, "System.Net.WebClient", "WebClient")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "DownloadString", "DownloadFile")))
+            if (ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "System.Net.WebClient", "WebClient") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "DownloadString", "DownloadFile"))
             {
                 evidence.HasReflectedNetworkDownload = true;
             }
 
-            if (recoveredStrings.Any(value => ContainsMarker(value, "System.IO.Path", "Path")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "GetTempFileName")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, ".cmd", ".bat")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "System.IO.File", "File")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "WriteAllText", "WriteAllBytes")))
+            if (ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "System.IO.Path", "Path") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "GetTempFileName") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, ".cmd", ".bat") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "System.IO.File", "File") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "WriteAllText", "WriteAllBytes"))
             {
                 evidence.HasTempScriptStaging = true;
             }
 
-            if (recoveredStrings.Any(value => ContainsMarker(value, "System.Diagnostics.ProcessStartInfo", "ProcessStartInfo")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "System.Diagnostics.Process", "Process")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "cmd.exe")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "/c")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "WindowStyle")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "Hidden")) &&
-                recoveredStrings.Any(value => ContainsMarker(value, "UseShellExecute", "CreateNoWindow")))
+            if (ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "System.Diagnostics.ProcessStartInfo", "ProcessStartInfo") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "System.Diagnostics.Process", "Process") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "cmd.exe") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "/c") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "WindowStyle") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "Hidden") &&
+                ContainsRecoveredMarker(recoveredStrings, moduleDecodedStrings, moduleDecodedMarkerCache, "UseShellExecute", "CreateNoWindow"))
             {
                 evidence.HasHiddenCmdProcessLaunch = true;
             }
 
             return evidence;
+        }
+
+        private static bool ContainsRecoveredMarker(
+            IEnumerable<string> namespaceStrings,
+            IReadOnlyList<string> moduleDecodedStrings,
+            IDictionary<string, bool> moduleDecodedMarkerCache,
+            params string[] markers)
+        {
+            if (namespaceStrings.Any(value => ContainsMarker(value, markers)))
+                return true;
+
+            string cacheKey = string.Join('\0', markers);
+            if (!moduleDecodedMarkerCache.TryGetValue(cacheKey, out bool moduleContainsMarker))
+            {
+                moduleContainsMarker = moduleDecodedStrings.Any(value => ContainsMarker(value, markers));
+                moduleDecodedMarkerCache[cacheKey] = moduleContainsMarker;
+            }
+
+            return moduleContainsMarker;
         }
 
         private static IReadOnlyList<string> CollectDecodedStaticArrayStrings(ModuleDefinition module)
