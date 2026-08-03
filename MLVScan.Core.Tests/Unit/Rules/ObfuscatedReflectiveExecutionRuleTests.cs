@@ -349,6 +349,41 @@ namespace MLVScan.Core.Tests.Unit.Rules
             findings.Should().BeEmpty();
         }
 
+        [Fact]
+        public void CollectDecodedStaticArrayStrings_SkipsOversizedFieldAndKeepsLaterMarkers()
+        {
+            var assembly = TestAssemblyBuilder.Create("StaticArrayBudget").Build();
+            ModuleDefinition module = assembly.MainModule;
+            var type = new TypeDefinition(
+                "TestNamespace",
+                "StaticData",
+                TypeAttributes.Public | TypeAttributes.Class,
+                module.TypeSystem.Object);
+            module.Types.Add(type);
+
+            type.Fields.Add(new FieldDefinition(
+                "Padding",
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                module.TypeSystem.Byte)
+            {
+                InitialValue = new byte[256 * 1024 + 1]
+            });
+            type.Fields.Add(new FieldDefinition(
+                "Marker",
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                module.TypeSystem.Byte)
+            {
+                InitialValue = System.Text.Encoding.ASCII.GetBytes("System.Net.WebClient")
+            });
+
+            var collect = typeof(ObfuscatedReflectiveExecutionRule).GetMethod(
+                "CollectDecodedStaticArrayStrings",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var decoded = (IReadOnlyList<string>)collect.Invoke(null, new object[] { module })!;
+
+            decoded.Should().Contain("System.Net.WebClient");
+        }
+
         private static (MethodDefinition Method, ModuleDefinition Module) CreateTestMethod()
         {
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();
