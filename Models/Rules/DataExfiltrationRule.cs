@@ -232,7 +232,8 @@ namespace MLVScan.Models.Rules
 
         private static bool IsDiscordWebhookEndpoint(string literal)
         {
-            return ExtractUrls(literal).Any(url =>
+            var urls = ExtractUrls(literal).Concat(ExtractSchemelessDiscordWebhookUrls(literal));
+            return urls.Any(url =>
             {
                 if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
                     return false;
@@ -244,6 +245,16 @@ namespace MLVScan.Models.Rules
                         host.EndsWith(".discordapp.com", StringComparison.OrdinalIgnoreCase)) &&
                        uri.AbsolutePath.StartsWith("/api/webhooks", StringComparison.OrdinalIgnoreCase);
             });
+        }
+
+        private static IEnumerable<string> ExtractSchemelessDiscordWebhookUrls(string literal)
+        {
+            foreach (Match match in Regex.Matches(literal,
+                         @"(?<![a-z0-9.-])((?:[a-z0-9-]+\.)*discord(?:app)?\.com/api/webhooks(?:/[^\s""'<>]*)?)",
+                         RegexOptions.IgnoreCase))
+            {
+                yield return "https://" + match.Groups[1].Value;
+            }
         }
 
         private static bool IsWebhookCollectionEndpoint(string literal)
