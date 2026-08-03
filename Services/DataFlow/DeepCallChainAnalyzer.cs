@@ -132,8 +132,9 @@ namespace MLVScan.Services.DataFlow
             combinedOperations.AddRange(rootFlowOperations);
             combinedOperations.AddRange(transforms.Select(static entry => entry.Operation));
             combinedOperations.AddRange(sinks.Select(static entry => entry.Operation));
+            var identityMappedOperations = CloneOperationsWithCallSitePathMappings(rootNode, combinedOperations);
 
-            var pattern = _patternEvaluator.RecognizePattern(combinedOperations);
+            var pattern = _patternEvaluator.RecognizePattern(identityMappedOperations);
             if (pattern == DataFlowPattern.Legitimate || pattern == DataFlowPattern.Unknown)
             {
                 return null;
@@ -188,6 +189,103 @@ namespace MLVScan.Services.DataFlow
             }
 
             return chain;
+        }
+
+        private static List<DataFlowInterestingOperation> CloneOperationsWithCallSitePathMappings(
+            DataFlowCallChainNode rootNode,
+            IEnumerable<DataFlowInterestingOperation> operations)
+        {
+            var clones = operations.Select(static operation => new DataFlowInterestingOperation
+            {
+                Instruction = operation.Instruction,
+                InstructionIndex = operation.InstructionIndex,
+                MethodReference = operation.MethodReference,
+                NodeType = operation.NodeType,
+                Operation = operation.Operation,
+                DataDescription = operation.DataDescription,
+                LocalVariableIndex = operation.LocalVariableIndex,
+                PayloadPathIdentities = new HashSet<string>(
+                    operation.PayloadPathIdentities, StringComparer.Ordinal)
+            }).ToList();
+
+            ApplyCallSitePathMappings(rootNode, clones);
+            return clones;
+        }
+
+        private static void ApplyCallSitePathMappings(
+            DataFlowCallChainNode callerNode,
+            IReadOnlyCollection<DataFlowInterestingOperation> operations)
+        {
+            foreach (var calleeNode in callerNode.ChildNodes)
+            {
+                var callSite = calleeNode.IncomingCallSite;
+                if (callSite != null)
+                {
+                    foreach (var (parameterIndex, localIndex) in callSite.ParameterMapping)
+                    {
+                        var callerLocalPrefix =
+                            $"{callerNode.MethodInfo.MethodKey}::local:{localIndex}@";
+                        var reachingStores = callSite.ParameterReachingStoreIndexes.TryGetValue(
+                            parameterIndex, out var mappedStores)
+                            ? mappedStores
+                            : new HashSet<int>();
+                        var callerPathIdentities = reachingStores.Count == 0
+                            ? new HashSet<string>(StringComparer.Ordinal)
+                            {
+                                $"{callerLocalPrefix}parameter"
+                            }
+                            : reachingStores
+                                .Select(index => $"{callerLocalPrefix}instruction:{index}")
+                                .ToHashSet(StringComparer.Ordinal);
+                        var calleeArgumentIdentity =
+                            $"{calleeNode.MethodInfo.MethodKey}::argument:{parameterIndex}";
+                        var callerOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Overlaps(callerPathIdentities))
+                            .ToList();
+                        var calleeOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Contains(calleeArgumentIdentity))
+                            .ToList();
+                        if (callerOperations.Count == 0 || calleeOperations.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var bridgeIdentity =
+                            $"call:{callerNode.MethodInfo.MethodKey}@{callSite.InstructionIndex}:argument:{parameterIndex}";
+                        foreach (var operation in callerOperations.Concat(calleeOperations))
+                        {
+                            operation.PayloadPathIdentities.Add(bridgeIdentity);
+                        }
+                    }
+
+                    foreach (var (parameterIndex, callerParameterIndex) in callSite.ForwardedParameterMapping)
+                    {
+                        var callerArgumentIdentity =
+                            $"{callerNode.MethodInfo.MethodKey}::argument:{callerParameterIndex}";
+                        var calleeArgumentIdentity =
+                            $"{calleeNode.MethodInfo.MethodKey}::argument:{parameterIndex}";
+                        var callerOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Contains(callerArgumentIdentity))
+                            .ToList();
+                        var calleeOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Contains(calleeArgumentIdentity))
+                            .ToList();
+                        if (callerOperations.Count == 0 || calleeOperations.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var bridgeIdentity =
+                            $"call:{callerNode.MethodInfo.MethodKey}@{callSite.InstructionIndex}:argument:{parameterIndex}";
+                        foreach (var operation in callerOperations.Concat(calleeOperations))
+                        {
+                            operation.PayloadPathIdentities.Add(bridgeIdentity);
+                        }
+                    }
+                }
+
+                ApplyCallSitePathMappings(calleeNode, operations);
+            }
         }
 
         private static void CollectChainOperations(

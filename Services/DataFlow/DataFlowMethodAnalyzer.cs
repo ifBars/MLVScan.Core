@@ -72,13 +72,42 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
+                var parameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(
+                    instructions, index, calledMethod);
+                var parameterReachingStoreIndexes = new Dictionary<int, HashSet<int>>();
+                var forwardedParameterMapping = new Dictionary<int, int>();
+                foreach (var (parameterIndex, localIndex) in parameterMapping)
+                {
+                    if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                            instructions, index, calledMethod, parameterIndex, out var producerIndex))
+                    {
+                        continue;
+                    }
+
+                    parameterReachingStoreIndexes[parameterIndex] = DataFlowInstructionHelper
+                        .GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex)
+                        .ToHashSet();
+                }
+                for (var parameterIndex = 0; parameterIndex < calledMethod.Parameters.Count; parameterIndex++)
+                {
+                    if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                            instructions, index, calledMethod, parameterIndex, out var producerIndex) &&
+                        DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                            method, instructions[producerIndex], out var callerParameterIndex))
+                    {
+                        forwardedParameterMapping[parameterIndex] = callerParameterIndex;
+                    }
+                }
+
                 info.OutgoingCalls.Add(new DataFlowMethodCallSite
                 {
                     TargetMethodKey = calledMethod.GetMethodKey(),
                     TargetDisplayName = calledMethod.GetDisplayName(),
                     InstructionOffset = instruction.Offset,
                     InstructionIndex = index,
-                    ParameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(instructions, index, calledMethod),
+                    ParameterMapping = parameterMapping,
+                    ParameterReachingStoreIndexes = parameterReachingStoreIndexes,
+                    ForwardedParameterMapping = forwardedParameterMapping,
                     ReturnValueUsed = DataFlowInstructionHelper.IsReturnValueUsed(instructions, index),
                     CalledMethodReturnsData = calledMethod.ReturnType.FullName != "System.Void"
                 });

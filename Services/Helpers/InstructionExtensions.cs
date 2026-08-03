@@ -298,8 +298,7 @@ namespace MLVScan.Services.Helpers
         public static bool IsSimpleConstantLoad(this Instruction instruction)
         {
             return instruction.OpCode == OpCodes.Ldstr ||
-                   instruction.OpCode == OpCodes.Ldc_I4 ||
-                   instruction.OpCode == OpCodes.Ldc_I4_S ||
+                   instruction.TryResolveInt32Literal(out _) ||
                    instruction.OpCode == OpCodes.Ldnull;
         }
     }

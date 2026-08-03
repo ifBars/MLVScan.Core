@@ -106,19 +106,22 @@ namespace MLVScan.Models.Rules.Helpers
         }
 
         /// <summary>
-        /// Tries to resolve one argument supplied to a call site.
+        /// Tries to resolve one argument passed to a call site. This is used by data-flow analysis to
+        /// compare file-write destinations with later process targets without relying on nearby calls.
         /// </summary>
         public static bool TryResolveCallArgumentDisplay(
             MethodDefinition? containingMethod,
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int callIndex,
-            int parameterIndex,
+            int argumentIndex,
             out string valueDisplay)
         {
             valueDisplay = "<unknown/non-literal>";
-            if (parameterIndex < 0 || parameterIndex >= calledMethod.Parameters.Count)
+            if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
+            {
                 return false;
+            }
 
             var context = new ResolverContext(containingMethod?.Module);
             if (!TryResolveCallArguments(context, containingMethod, instructions, callIndex,
@@ -127,7 +130,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
-            valueDisplay = arguments[parameterIndex].Display;
+            valueDisplay = arguments[argumentIndex].Display;
             return true;
         }
 

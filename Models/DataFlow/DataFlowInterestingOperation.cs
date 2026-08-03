@@ -19,5 +19,12 @@ namespace MLVScan.Models.DataFlow
         public string DataDescription { get; set; } = string.Empty;
 
         public int? LocalVariableIndex { get; set; }
+
+        /// <summary>
+        /// Stable identity for the file path consumed by a file-write or process-execution operation.
+        /// Local identities include the containing method so unrelated locals in cross-method chains
+        /// cannot be mistaken for the same payload.
+        /// </summary>
+        public HashSet<string> PayloadPathIdentities { get; set; } = new(StringComparer.Ordinal);
     }
 }

@@ -224,6 +224,7 @@ public class InstructionExtensionsTests
         Instruction.Create(OpCodes.Ldstr, "value").IsSimpleConstantLoad().Should().BeTrue();
         Instruction.Create(OpCodes.Ldc_I4, 5).IsSimpleConstantLoad().Should().BeTrue();
         Instruction.Create(OpCodes.Ldc_I4_S, (sbyte)2).IsSimpleConstantLoad().Should().BeTrue();
+        Instruction.Create(OpCodes.Ldc_I4_2).IsSimpleConstantLoad().Should().BeTrue();
         Instruction.Create(OpCodes.Ldnull).IsSimpleConstantLoad().Should().BeTrue();
         Instruction.Create(OpCodes.Ldc_I8, 5L).IsSimpleConstantLoad().Should().BeFalse();
     }

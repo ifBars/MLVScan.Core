@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using MLVScan.Models.DataFlow;
+using MLVScan.Models.Rules.Helpers;
 using MLVScan.Services.Helpers;
 using Mono.Collections.Generic;
 using Mono.Cecil;
@@ -19,8 +20,20 @@ namespace MLVScan.Services.DataFlow
             {
                 var instruction = instructions[index];
 
-                if (!instruction.IsCallOrCallvirt() ||
-                    instruction.Operand is not MethodReference calledMethod)
+                if (instruction.Operand is not MethodReference calledMethod)
+                {
+                    continue;
+                }
+
+                var isFileStreamConstructor = instruction.OpCode == OpCodes.Newobj &&
+                    IsFileStreamSink(calledMethod.DeclaringType?.FullName ?? string.Empty, calledMethod.Name);
+                if (!instruction.IsCallOrCallvirt() && !isFileStreamConstructor)
+                {
+                    continue;
+                }
+
+                if (isFileStreamConstructor &&
+                    !IsWritableFileStreamConstructor(method, instructions, index, calledMethod))
                 {
                     continue;
                 }
@@ -28,6 +41,13 @@ namespace MLVScan.Services.DataFlow
                 var operationInfo = ClassifyOperation(calledMethod);
                 if (operationInfo != null)
                 {
+                    var payloadPathIdentities = TryGetPayloadPathIdentities(
+                        method,
+                        instructions,
+                        index,
+                        calledMethod,
+                        operationInfo.Value.Operation,
+                        operationInfo.Value.NodeType);
                     operations.Add(new DataFlowInterestingOperation
                     {
                         Instruction = instruction,
@@ -36,7 +56,8 @@ namespace MLVScan.Services.DataFlow
                         NodeType = operationInfo.Value.NodeType,
                         Operation = operationInfo.Value.Operation,
                         DataDescription = operationInfo.Value.DataDescription,
-                        LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index)
+                        LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index),
+                        PayloadPathIdentities = payloadPathIdentities
                     });
                 }
 
@@ -57,6 +78,680 @@ namespace MLVScan.Services.DataFlow
             }
 
             return operations;
+        }
+
+        private static HashSet<string> TryGetPayloadPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation,
+            DataFlowNodeType nodeType)
+        {
+            if (nodeType != DataFlowNodeType.Sink)
+            {
+                return EmptyIdentities();
+            }
+
+            if (IsFilePathSink(operation))
+            {
+                return TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, 0);
+            }
+
+            if (operation.Equals("Process.Start", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryGetProcessStartPathIdentities(method, instructions, callIndex, calledMethod);
+            }
+
+            return TryGetNativeExecutionPathIdentities(method, instructions, callIndex, calledMethod, operation);
+        }
+
+        private static bool IsFilePathSink(string operation)
+        {
+            return operation.Contains("File.", StringComparison.OrdinalIgnoreCase) ||
+                   operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsWritableFileStreamConstructor(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int constructorIndex,
+            MethodReference constructor)
+        {
+            var accessParameterIndex = constructor.Parameters
+                .Select((parameter, index) => (parameter, index))
+                .Where(static entry => entry.parameter.ParameterType.FullName == "System.IO.FileAccess")
+                .Select(static entry => (int?)entry.index)
+                .FirstOrDefault();
+            if (!accessParameterIndex.HasValue)
+            {
+                return true;
+            }
+
+            return !InstructionValueResolver.TryResolveCallArgumentDisplay(
+                       method,
+                       constructor,
+                       instructions,
+                       constructorIndex,
+                       accessParameterIndex.Value,
+                       out var accessDisplay) ||
+                   !int.TryParse(accessDisplay, out var accessValue) ||
+                   accessValue != 1;
+        }
+
+        private static HashSet<string> TryGetProcessStartPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int processStartIndex,
+            MethodReference processStartMethod)
+        {
+            int? startInfoLocal = null;
+            int? processLocal = null;
+            int? processReceiverLoadIndex = null;
+
+            if (!processStartMethod.HasThis &&
+                processStartMethod.Parameters.Count == 1 &&
+                processStartMethod.Parameters[0].ParameterType.FullName == "System.Diagnostics.ProcessStartInfo")
+            {
+                if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                        instructions, processStartIndex, processStartMethod, 0, out var resolvedStartInfoLocal))
+                {
+                    startInfoLocal = resolvedStartInfoLocal;
+                }
+                else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                             instructions, processStartIndex, processStartMethod, 0, out var producerIndex))
+                {
+                    return TryGetStartInfoProducerIdentities(
+                        method, instructions, producerIndex, processStartIndex);
+                }
+                else
+                {
+                    return EmptyIdentities();
+                }
+            }
+            else if (processStartMethod.HasThis)
+            {
+                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, processStartIndex, processStartMethod, out var receiverLoadIndex) ||
+                    !instructions[receiverLoadIndex].TryGetLocalIndex(out var resolvedProcessLocal))
+                {
+                    return EmptyIdentities();
+                }
+
+                processLocal = resolvedProcessLocal;
+                processReceiverLoadIndex = receiverLoadIndex;
+            }
+            else if (processStartMethod.Parameters.Count > 0)
+            {
+                return TryGetCallArgumentIdentities(method, instructions, processStartIndex, processStartMethod, 0);
+            }
+
+            IReadOnlyCollection<int> startInfoDefinitionIndexes = Array.Empty<int>();
+            IReadOnlyCollection<int> processDefinitionIndexes = Array.Empty<int>();
+            if (startInfoLocal.HasValue &&
+                DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    instructions, processStartIndex, processStartMethod, 0, out var startInfoLoadIndex))
+            {
+                startInfoDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, startInfoLoadIndex, startInfoLocal.Value);
+            }
+            else if (processLocal.HasValue && processReceiverLoadIndex.HasValue)
+            {
+                processDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, processReceiverLoadIndex.Value, processLocal.Value);
+            }
+
+            var setterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                processStartIndex,
+                index => TryGetStartInfoFileNameSetter(instructions[index], out var setter) &&
+                         StartInfoSetterBelongsToStartedProcess(
+                             instructions,
+                             index,
+                             setter,
+                             startInfoLocal,
+                             processLocal,
+                             startInfoDefinitionIndexes,
+                             processDefinitionIndexes));
+            var identities = EmptyIdentities();
+            foreach (var definitionIndex in startInfoDefinitionIndexes)
+            {
+                identities.UnionWith(TryGetStoredStartInfoConstructorIdentities(
+                    method, instructions, definitionIndex));
+            }
+
+            foreach (var setterIndex in setterIndexes)
+            {
+                var setter = (MethodReference)instructions[setterIndex].Operand;
+                identities.UnionWith(
+                    TryGetCallArgumentIdentities(method, instructions, setterIndex, setter, 0));
+            }
+
+            if (processLocal.HasValue)
+            {
+                var startInfoAssignmentIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                    instructions,
+                    processStartIndex,
+                    index => TryGetProcessStartInfoSetter(instructions[index], out var setter) &&
+                             ProcessReceiverMatchesStartedProcess(
+                                 instructions,
+                                 index,
+                                 setter,
+                                 processLocal.Value,
+                                 processDefinitionIndexes));
+                foreach (var assignmentIndex in startInfoAssignmentIndexes)
+                {
+                    var setter = (MethodReference)instructions[assignmentIndex].Operand;
+                    identities.UnionWith(TryGetAssignedStartInfoIdentities(
+                        method, instructions, assignmentIndex, setter));
+                }
+            }
+
+            return identities;
+        }
+
+        private static HashSet<string> TryGetAssignedStartInfoIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int setterIndex,
+            MethodReference setter)
+        {
+            if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    instructions, setterIndex, setter, 0, out var producerIndex))
+            {
+                return EmptyIdentities();
+            }
+
+            var producerIdentities = TryGetStartInfoProducerIdentities(
+                method, instructions, producerIndex, setterIndex);
+            if (producerIdentities.Count > 0)
+            {
+                return producerIdentities;
+            }
+
+            if (!instructions[producerIndex].TryGetLocalIndex(out var startInfoLocal))
+            {
+                return EmptyIdentities();
+            }
+
+            var definitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, producerIndex, startInfoLocal);
+            var identities = EmptyIdentities();
+            foreach (var definitionIndex in definitions)
+            {
+                identities.UnionWith(TryGetStoredStartInfoConstructorIdentities(
+                    method, instructions, definitionIndex));
+            }
+
+            var fileNameSetterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                setterIndex,
+                index => TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) &&
+                         StartInfoSetterBelongsToStartedProcess(
+                             instructions,
+                             index,
+                             fileNameSetter,
+                             startInfoLocal,
+                             null,
+                             definitions,
+                             Array.Empty<int>()));
+            foreach (var fileNameSetterIndex in fileNameSetterIndexes)
+            {
+                var fileNameSetter = (MethodReference)instructions[fileNameSetterIndex].Operand;
+                identities.UnionWith(TryGetCallArgumentIdentities(
+                    method, instructions, fileNameSetterIndex, fileNameSetter, 0));
+            }
+
+            return identities;
+        }
+
+        private static HashSet<string> TryGetStartInfoProducerIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int producerIndex,
+            int consumerIndex)
+        {
+            var initializerStartIndex = producerIndex;
+            var constructorIndex = producerIndex;
+            if (instructions[producerIndex].OpCode == OpCodes.Dup)
+            {
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, producerIndex, out constructorIndex))
+                {
+                    return EmptyIdentities();
+                }
+            }
+
+            if (instructions[constructorIndex].OpCode != OpCodes.Newobj ||
+                instructions[constructorIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return EmptyIdentities();
+            }
+
+            var identities = constructor.Parameters.Count > 0
+                ? TryGetCallArgumentIdentities(method, instructions, constructorIndex, constructor, 0)
+                : EmptyIdentities();
+            if (instructions[producerIndex].OpCode != OpCodes.Dup)
+            {
+                return identities;
+            }
+
+            for (var index = initializerStartIndex + 1; index < consumerIndex; index++)
+            {
+                if (!TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) ||
+                    !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, index, fileNameSetter, out var receiverProducerIndex) ||
+                    receiverProducerIndex != initializerStartIndex)
+                {
+                    continue;
+                }
+
+                identities.UnionWith(TryGetCallArgumentIdentities(
+                    method, instructions, index, fileNameSetter, 0));
+            }
+
+            return identities;
+        }
+
+        private static HashSet<string> TryGetStoredStartInfoConstructorIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int storeIndex)
+        {
+            if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                    instructions, storeIndex, out var producerIndex))
+            {
+                return EmptyIdentities();
+            }
+
+            return TryGetStartInfoProducerIdentities(method, instructions, producerIndex, storeIndex);
+        }
+
+        private static bool TryGetStartInfoFileNameSetter(
+            Instruction instruction,
+            out MethodReference setter)
+        {
+            setter = null!;
+            if (!instruction.IsCallOrCallvirt() ||
+                instruction.Operand is not MethodReference candidate ||
+                candidate.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                candidate.Name != "set_FileName")
+            {
+                return false;
+            }
+
+            setter = candidate;
+            return true;
+        }
+
+        private static bool TryGetProcessStartInfoSetter(
+            Instruction instruction,
+            out MethodReference setter)
+        {
+            setter = null!;
+            if (!instruction.IsCallOrCallvirt() ||
+                instruction.Operand is not MethodReference candidate ||
+                candidate.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                candidate.Name != "set_StartInfo")
+            {
+                return false;
+            }
+
+            setter = candidate;
+            return true;
+        }
+
+        private static bool StartInfoSetterBelongsToStartedProcess(
+            Collection<Instruction> instructions,
+            int setterIndex,
+            MethodReference setter,
+            int? startInfoLocal,
+            int? processLocal,
+            IReadOnlyCollection<int> startedStartInfoDefinitions,
+            IReadOnlyCollection<int> startedProcessDefinitions)
+        {
+            if (startInfoLocal.HasValue)
+            {
+                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, setterIndex, setter, out var receiverProducerIndex) ||
+                    !instructions[receiverProducerIndex].TryGetLocalIndex(out var setterStartInfoLocal) ||
+                    setterStartInfoLocal != startInfoLocal.Value)
+                {
+                    return false;
+                }
+
+                if (startedStartInfoDefinitions.Count == 0)
+                {
+                    return true;
+                }
+
+                var setterStartInfoDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, receiverProducerIndex, setterStartInfoLocal);
+                return setterStartInfoDefinitions.Intersect(startedStartInfoDefinitions).Any();
+            }
+
+            if (!processLocal.HasValue ||
+                !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                    instructions, setterIndex, setter, out var setterReceiverProducerIndex))
+            {
+                return false;
+            }
+
+            var setterReceiverProducer = instructions[setterReceiverProducerIndex];
+            if (!setterReceiverProducer.IsCallOrCallvirt() ||
+                setterReceiverProducer.Operand is not MethodReference getter ||
+                getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                getter.Name != "get_StartInfo")
+            {
+                return false;
+            }
+
+            return ProcessReceiverMatchesStartedProcess(
+                instructions,
+                setterReceiverProducerIndex,
+                getter,
+                processLocal.Value,
+                startedProcessDefinitions);
+        }
+
+        private static bool ProcessReceiverMatchesStartedProcess(
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            int processLocal,
+            IReadOnlyCollection<int> startedProcessDefinitions)
+        {
+            if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                    instructions, callIndex, calledMethod, out var receiverProducerIndex) ||
+                !instructions[receiverProducerIndex].TryGetLocalIndex(out var receiverProcessLocal) ||
+                receiverProcessLocal != processLocal)
+            {
+                return false;
+            }
+
+            if (startedProcessDefinitions.Count == 0)
+            {
+                return true;
+            }
+
+            var receiverDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, receiverProducerIndex, receiverProcessLocal);
+            return receiverDefinitions.Intersect(startedProcessDefinitions).Any();
+        }
+
+        private static HashSet<string> TryGetNativeExecutionPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation)
+        {
+            if (operation.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryGetShellExecuteExFileIdentities(method, instructions, callIndex, calledMethod);
+            }
+
+            if (operation.Contains("CreateProcess", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryGetCreateProcessPathIdentities(method, instructions, callIndex, calledMethod, operation);
+            }
+
+            var argumentIndex = operation switch
+            {
+                var value when value.Contains("WinExec", StringComparison.OrdinalIgnoreCase) => 0,
+                var value when value.Contains("ShellExecute", StringComparison.OrdinalIgnoreCase) &&
+                                   !value.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase) => 2,
+                _ => -1
+            };
+
+            return argumentIndex >= 0
+                ? TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, argumentIndex)
+                : EmptyIdentities();
+        }
+
+        private static HashSet<string> TryGetCreateProcessPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation)
+        {
+            var (applicationNameIndex, commandLineIndex) = operation switch
+            {
+                var value when value.Contains("CreateProcessWithLogon", StringComparison.OrdinalIgnoreCase) => (4, 5),
+                var value when value.Contains("CreateProcessWithToken", StringComparison.OrdinalIgnoreCase) => (2, 3),
+                var value when value.Contains("CreateProcessAsUser", StringComparison.OrdinalIgnoreCase) => (1, 2),
+                _ => (0, 1)
+            };
+
+            var applicationIdentities = TryGetCallArgumentIdentities(
+                method, instructions, callIndex, calledMethod, applicationNameIndex);
+            if (applicationIdentities.Count > 0)
+            {
+                return applicationIdentities;
+            }
+
+            var commandLineIdentities = TryGetCallArgumentIdentities(
+                method, instructions, callIndex, calledMethod, commandLineIndex);
+            if (InstructionValueResolver.TryResolveCallArgumentDisplay(
+                    method,
+                    calledMethod,
+                    instructions,
+                    callIndex,
+                    commandLineIndex,
+                    out var commandLine) &&
+                IsConcreteResolvedPath(commandLine) &&
+                TryExtractCommandExecutable(commandLine, out var executable))
+            {
+                commandLineIdentities.Add(NormalizeResolvedPathIdentity(executable));
+            }
+
+            return commandLineIdentities;
+        }
+
+        private static bool TryExtractCommandExecutable(string commandLine, out string executable)
+        {
+            executable = string.Empty;
+            var trimmed = commandLine.Trim();
+            if (trimmed.Length == 0)
+            {
+                return false;
+            }
+
+            if (trimmed[0] == '"')
+            {
+                var closingQuote = trimmed.IndexOf('"', 1);
+                if (closingQuote <= 1)
+                {
+                    return false;
+                }
+
+                executable = trimmed[1..closingQuote];
+                return true;
+            }
+
+            var separatorIndex = trimmed.IndexOfAny(new[] { ' ', '\t', '\r', '\n' });
+            executable = separatorIndex < 0 ? trimmed : trimmed[..separatorIndex];
+            return executable.Length > 0;
+        }
+
+        private static HashSet<string> TryGetShellExecuteExFileIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod)
+        {
+            if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                    instructions, callIndex, calledMethod, 0, out var shellExecuteInfoLocal))
+            {
+                return EmptyIdentities();
+            }
+
+            var fieldStoreIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                callIndex,
+                index => IsShellExecuteFileStoreForLocal(
+                    instructions, index, shellExecuteInfoLocal));
+            var identities = EmptyIdentities();
+            foreach (var index in fieldStoreIndexes)
+            {
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, index, out var valueProducerIndex))
+                {
+                    continue;
+                }
+
+                if (instructions[valueProducerIndex].TryGetLocalIndex(out var localIndex))
+                {
+                    identities.UnionWith(
+                        BuildLocalPathIdentities(method, instructions, valueProducerIndex, localIndex));
+                    continue;
+                }
+
+                if (InstructionValueResolver.TryResolveStackValueDisplay(
+                        method, instructions, index - 1, out var display) &&
+                    IsConcreteResolvedPath(display))
+                {
+                    identities.Add(NormalizeResolvedPathIdentity(display));
+                }
+            }
+
+            return identities;
+        }
+
+        private static bool IsShellExecuteFileStoreForLocal(
+            Collection<Instruction> instructions,
+            int index,
+            int shellExecuteInfoLocal)
+        {
+            return instructions[index].OpCode == OpCodes.Stfld &&
+                   instructions[index].Operand is FieldReference field &&
+                   field.Name.Equals("lpFile", StringComparison.OrdinalIgnoreCase) &&
+                   DataFlowInstructionHelper.TryGetFieldStoreReceiverLocalVariable(
+                       instructions, index, out var fieldReceiverLocal) &&
+                   fieldReceiverLocal == shellExecuteInfoLocal;
+        }
+
+        private static HashSet<string> TryGetCallArgumentIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            int argumentIndex)
+        {
+            var resolved = InstructionValueResolver.TryResolveCallArgumentDisplay(
+                method, calledMethod, instructions, callIndex, argumentIndex, out var display);
+            if (resolved && display.Contains("<null>", StringComparison.OrdinalIgnoreCase))
+            {
+                return EmptyIdentities();
+            }
+
+            var identities = EmptyIdentities();
+            if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                    instructions, callIndex, calledMethod, argumentIndex, out var localIndex, out var producerIndex))
+            {
+                identities.UnionWith(BuildLocalPathIdentities(method, instructions, producerIndex, localIndex));
+            }
+            else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                         instructions, callIndex, calledMethod, argumentIndex, out producerIndex) &&
+                     DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                         method, instructions[producerIndex], out var parameterIndex))
+            {
+                identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
+            }
+
+            if (resolved && IsConcreteResolvedPath(display))
+            {
+                identities.Add(NormalizeResolvedPathIdentity(display));
+            }
+
+            return identities;
+        }
+
+        private static string BuildArgumentPathIdentity(MethodDefinition method, int parameterIndex)
+        {
+            return $"{method.GetMethodKey()}::argument:{parameterIndex}";
+        }
+
+        private static bool IsConcreteResolvedPath(string display)
+        {
+            return !string.IsNullOrWhiteSpace(display) &&
+                   !display.Contains('<') &&
+                   !display.Contains('>');
+        }
+
+        private static HashSet<string> BuildLocalPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int localLoadIndex,
+            int localIndex)
+        {
+            return BuildLocalPathIdentities(
+                method,
+                instructions,
+                localLoadIndex,
+                localIndex,
+                new HashSet<(int LoadIndex, int LocalIndex)>());
+        }
+
+        private static HashSet<string> BuildLocalPathIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int localLoadIndex,
+            int localIndex,
+            HashSet<(int LoadIndex, int LocalIndex)> visited)
+        {
+            if (!visited.Add((localLoadIndex, localIndex)))
+            {
+                return EmptyIdentities();
+            }
+
+            var storeIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, localLoadIndex, localIndex);
+            if (storeIndexes.Count == 0)
+            {
+                return SingleIdentity($"{method.GetMethodKey()}::local:{localIndex}@parameter");
+            }
+
+            var identities = storeIndexes
+                .Select(index => $"{method.GetMethodKey()}::local:{localIndex}@instruction:{index}")
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var storeIndex in storeIndexes)
+            {
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, storeIndex, out var producerIndex))
+                {
+                    continue;
+                }
+
+                if (DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                        method, instructions[producerIndex], out var parameterIndex))
+                {
+                    identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
+                }
+                else if (instructions[producerIndex].TryGetLocalIndex(out var sourceLocalIndex))
+                {
+                    identities.UnionWith(BuildLocalPathIdentities(
+                        method,
+                        instructions,
+                        producerIndex,
+                        sourceLocalIndex,
+                        visited));
+                }
+            }
+
+            return identities;
+        }
+
+        private static HashSet<string> EmptyIdentities() => new(StringComparer.Ordinal);
+
+        private static HashSet<string> SingleIdentity(string identity) =>
+            new(StringComparer.Ordinal) { identity };
+
+        private static string NormalizeResolvedPathIdentity(string display)
+        {
+            return $"value:{display.Trim().Trim('"').Replace('\\', '/').ToUpperInvariant()}";
         }
 
         private (DataFlowNodeType NodeType, string Operation, string DataDescription)? ClassifyOperation(MethodReference method)
