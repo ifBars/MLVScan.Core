@@ -15,6 +15,7 @@ public class FalsePositiveScanTests
 {
     private static readonly HashSet<string> TrackedTopLevelFalsePositiveSamples = new(StringComparer.OrdinalIgnoreCase)
     {
+        "AngleSharp.dll",
         "AudioImportLib.dll",
         "Bannerlord.ButterLib.dll",
         "BankApp.dll",
@@ -46,6 +47,8 @@ public class FalsePositiveScanTests
         "Personify.dll",
         "S1APILoader.MelonLoader.dll",
         "S1MAPI_Mono.dll",
+        "SideHustle.dll",
+        "Sideload.dll",
         "SaveFileSharing.dll",
         "SIAKImperium.dll",
         "SimpleSingleplayerRespawn.dll",
@@ -54,6 +57,8 @@ public class FalsePositiveScanTests
         "UniverseLib.ML.IL2CPP.Interop.dll",
         "UnlimitedLaundering.dll",
         "UpdateTraduccionScheduleI.dll",
+        "WhatsDab.dll",
+        "ZeroBrowser.dll",
         "XUnity.AutoTranslator.Plugin.Core.dll"
     };
 

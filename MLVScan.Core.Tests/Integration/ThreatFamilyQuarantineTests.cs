@@ -21,7 +21,6 @@ public class ThreatFamilyQuarantineTests
         "MoreTrees.dll.di",
         "NoMoreTrash.dll.di",
         "NoPolice.dll.di",
-        "NeedolinSilkRegeneration.dll.di",
         "PlayMakerX.dll.di",
         "RealRadio.dll.di",
         "RentalCars.dll.di",
@@ -31,19 +30,6 @@ public class ThreatFamilyQuarantineTests
         "StorageHub.dll.di",
         "UnlimitedGraffiti.dll.di",
         "vortex_backuprtilizer.dll.di"
-    };
-
-    private static readonly HashSet<string> RecursiveSamplesAwaitingBehaviorModel = new(StringComparer.OrdinalIgnoreCase)
-    {
-        @"malware-clean-with-findings\MaterialDesignThemes.Wpf.dll.di",
-        @"malware-clean-zero-findings\ImprovedStamina.dll.di",
-        @"malware-clean-zero-findings\MovePlayers.dll.di",
-        @"malware-clean-zero-findings\NeedolinSilkRegeneration.dll.di",
-        @"malware-clean-zero-findings\REPONoItemsLeft.dll.di",
-        @"malware-clean-zero-findings\REPO_HD.dll.di",
-        @"malware-clean-zero-findings\REPO_Shop_Items_in_Level.dll.di",
-        @"malware-clean-zero-findings\S1APILoader.MelonLoader.dll.di",
-        "NeedolinSilkRegeneration.dll.di"
     };
 
     private static readonly string[] NewQuarantineSubFolders =
@@ -235,11 +221,6 @@ public class ThreatFamilyQuarantineTests
 
             _output.WriteLine(
                 $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
-
-            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath))
-            {
-                continue;
-            }
 
             if (!string.Equals(classification, "KnownThreat", StringComparison.Ordinal))
             {
