@@ -40,7 +40,7 @@ public class DataFlowOperationClassifierTests
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
-        processStart.PayloadPathIdentity.Should().Be(fileWrite.PayloadPathIdentity);
+        processStart.PayloadPathIdentities.Should().BeEquivalentTo(fileWrite.PayloadPathIdentities);
     }
 
     [Fact]
@@ -87,8 +87,9 @@ public class DataFlowOperationClassifierTests
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
-        processStart.PayloadPathIdentity.Should().NotBe(fileWrite.PayloadPathIdentity);
-        processStart.PayloadPathIdentity.Should().Contain("BENIGN-HELPER.EXE");
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().BeEmpty();
+        processStart.PayloadPathIdentities.Should().ContainSingle(identity =>
+            identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -137,7 +138,91 @@ public class DataFlowOperationClassifierTests
         var createProcessOperation = operations.Single(operation =>
             operation.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase));
 
-        createProcessOperation.PayloadPathIdentity.Should().Be(fileWrite.PayloadPathIdentity);
+        createProcessOperation.PayloadPathIdentities.Should().BeEquivalentTo(fileWrite.PayloadPathIdentities);
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_ConditionalPathReassignment_PreservesPossiblePayloadLink()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+
+        var launch = Instruction.Create(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Brfalse_S, launch);
+        il.Emit(OpCodes.Ldstr, "other.exe");
+        il.Emit(OpCodes.Stloc, pathLocal);
+        il.Append(launch);
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, module.TypeSystem.String);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+        processStart.PayloadPathIdentities.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_ShellExecuteEx_IgnoresLpFileFromDifferentStruct()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var shellInfoType = new TypeDefinition(
+            "Test", "SHELLEXECUTEINFO", TypeAttributes.Public | TypeAttributes.SequentialLayout |
+                                               TypeAttributes.Sealed | TypeAttributes.AnsiClass,
+            module.ImportReference(typeof(ValueType)));
+        var lpFile = new FieldDefinition("lpFile", FieldAttributes.Public, module.TypeSystem.String);
+        shellInfoType.Fields.Add(lpFile);
+        module.Types.Add(shellInfoType);
+        var launchedInfoLocal = AddLocal(method, shellInfoType);
+        var unrelatedInfoLocal = AddLocal(method, shellInfoType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        il.Emit(OpCodes.Ldloca, launchedInfoLocal);
+        il.Emit(OpCodes.Ldstr, "benign-helper.exe");
+        il.Emit(OpCodes.Stfld, lpFile);
+        il.Emit(OpCodes.Ldloca, unrelatedInfoLocal);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Stfld, lpFile);
+
+        var nativeType = new TypeDefinition(
+            "Test", "ShellNativeMethods", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(nativeType);
+        var nativeModule = new ModuleReference("shell32.dll");
+        module.ModuleReferences.Add(nativeModule);
+        var shellExecute = new MethodDefinition(
+            "ShellExecuteExW",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            module.TypeSystem.Boolean);
+        shellExecute.Parameters.Add(new ParameterDefinition(new ByReferenceType(shellInfoType)));
+        shellExecute.PInvokeInfo = new PInvokeInfo(
+            PInvokeAttributes.CallConvWinapi, "ShellExecuteExW", nativeModule);
+        nativeType.Methods.Add(shellExecute);
+        il.Emit(OpCodes.Ldloca, launchedInfoLocal);
+        il.Emit(OpCodes.Call, shellExecute);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var shellStart = operations.Single(operation =>
+            operation.Operation.Contains("PInvoke.ShellExecuteEx", StringComparison.OrdinalIgnoreCase));
+
+        shellStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().BeEmpty();
+        shellStart.PayloadPathIdentities.Should().ContainSingle(identity =>
+            identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
     }
 
     private static MethodDefinition CreateCallerMethod(out ModuleDefinition module)

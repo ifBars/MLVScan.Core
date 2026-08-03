@@ -77,14 +77,14 @@ public class DataFlowPatternEvaluatorTests
                 NodeType = DataFlowNodeType.Sink,
                 Operation = "File.Create",
                 DataDescription = "Writes to file",
-                PayloadPathIdentity = writtenPath
+                PayloadPathIdentities = new HashSet<string>(StringComparer.Ordinal) { writtenPath }
             },
             new()
             {
                 NodeType = DataFlowNodeType.Sink,
                 Operation = "Process.Start",
                 DataDescription = "Executes process",
-                PayloadPathIdentity = executedPath
+                PayloadPathIdentities = new HashSet<string>(StringComparer.Ordinal) { executedPath }
             }
         };
     }

@@ -31,7 +31,7 @@ namespace MLVScan.Services.DataFlow
                 var operationInfo = ClassifyOperation(calledMethod);
                 if (operationInfo != null)
                 {
-                    var payloadPathIdentity = TryGetPayloadPathIdentity(
+                    var payloadPathIdentities = TryGetPayloadPathIdentities(
                         method,
                         instructions,
                         index,
@@ -47,7 +47,7 @@ namespace MLVScan.Services.DataFlow
                         Operation = operationInfo.Value.Operation,
                         DataDescription = operationInfo.Value.DataDescription,
                         LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index),
-                        PayloadPathIdentity = payloadPathIdentity
+                        PayloadPathIdentities = payloadPathIdentities
                     });
                 }
 
@@ -70,7 +70,7 @@ namespace MLVScan.Services.DataFlow
             return operations;
         }
 
-        private static string? TryGetPayloadPathIdentity(
+        private static HashSet<string> TryGetPayloadPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -80,20 +80,20 @@ namespace MLVScan.Services.DataFlow
         {
             if (nodeType != DataFlowNodeType.Sink)
             {
-                return null;
+                return EmptyIdentities();
             }
 
             if (IsFilePathSink(operation))
             {
-                return TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, 0);
+                return TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, 0);
             }
 
             if (operation.Equals("Process.Start", StringComparison.OrdinalIgnoreCase))
             {
-                return TryGetProcessStartPathIdentity(method, instructions, callIndex, calledMethod);
+                return TryGetProcessStartPathIdentities(method, instructions, callIndex, calledMethod);
             }
 
-            return TryGetNativeExecutionPathIdentity(method, instructions, callIndex, calledMethod, operation);
+            return TryGetNativeExecutionPathIdentities(method, instructions, callIndex, calledMethod, operation);
         }
 
         private static bool IsFilePathSink(string operation)
@@ -102,7 +102,7 @@ namespace MLVScan.Services.DataFlow
                    operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string? TryGetProcessStartPathIdentity(
+        private static HashSet<string> TryGetProcessStartPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int processStartIndex,
@@ -118,7 +118,7 @@ namespace MLVScan.Services.DataFlow
                 if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
                         instructions, processStartIndex, processStartMethod, 0, out var resolvedStartInfoLocal))
                 {
-                    return null;
+                    return EmptyIdentities();
                 }
 
                 startInfoLocal = resolvedStartInfoLocal;
@@ -128,14 +128,14 @@ namespace MLVScan.Services.DataFlow
                 if (!DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
                         instructions, processStartIndex, processStartMethod, out var resolvedProcessLocal))
                 {
-                    return null;
+                    return EmptyIdentities();
                 }
 
                 processLocal = resolvedProcessLocal;
             }
             else if (processStartMethod.Parameters.Count > 0)
             {
-                return TryGetCallArgumentIdentity(method, instructions, processStartIndex, processStartMethod, 0);
+                return TryGetCallArgumentIdentities(method, instructions, processStartIndex, processStartMethod, 0);
             }
 
             var searchStart = Math.Max(0, processStartIndex - 400);
@@ -155,10 +155,10 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
-                return TryGetCallArgumentIdentity(method, instructions, index, setter, 0);
+                return TryGetCallArgumentIdentities(method, instructions, index, setter, 0);
             }
 
-            return null;
+            return EmptyIdentities();
         }
 
         private static bool StartInfoSetterBelongsToStartedProcess(
@@ -196,7 +196,7 @@ namespace MLVScan.Services.DataFlow
                    setterProcessLocal == processLocal.Value;
         }
 
-        private static string? TryGetNativeExecutionPathIdentity(
+        private static HashSet<string> TryGetNativeExecutionPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -205,12 +205,12 @@ namespace MLVScan.Services.DataFlow
         {
             if (operation.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase))
             {
-                return TryGetShellExecuteExFileIdentity(method, instructions, callIndex);
+                return TryGetShellExecuteExFileIdentities(method, instructions, callIndex, calledMethod);
             }
 
             if (operation.Contains("CreateProcess", StringComparison.OrdinalIgnoreCase))
             {
-                return TryGetCreateProcessPathIdentity(method, instructions, callIndex, calledMethod, operation);
+                return TryGetCreateProcessPathIdentities(method, instructions, callIndex, calledMethod, operation);
             }
 
             var argumentIndex = operation switch
@@ -222,11 +222,11 @@ namespace MLVScan.Services.DataFlow
             };
 
             return argumentIndex >= 0
-                ? TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, argumentIndex)
-                : null;
+                ? TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, argumentIndex)
+                : EmptyIdentities();
         }
 
-        private static string? TryGetCreateProcessPathIdentity(
+        private static HashSet<string> TryGetCreateProcessPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -241,17 +241,25 @@ namespace MLVScan.Services.DataFlow
                 _ => (0, 1)
             };
 
-            var applicationIdentity = TryGetCallArgumentIdentity(
+            var applicationIdentities = TryGetCallArgumentIdentities(
                 method, instructions, callIndex, calledMethod, applicationNameIndex);
-            return applicationIdentity ?? TryGetCallArgumentIdentity(
-                method, instructions, callIndex, calledMethod, commandLineIndex);
+            return applicationIdentities.Count > 0
+                ? applicationIdentities
+                : TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, commandLineIndex);
         }
 
-        private static string? TryGetShellExecuteExFileIdentity(
+        private static HashSet<string> TryGetShellExecuteExFileIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            int callIndex)
+            int callIndex,
+            MethodReference calledMethod)
         {
+            if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                    instructions, callIndex, calledMethod, 0, out var shellExecuteInfoLocal))
+            {
+                return EmptyIdentities();
+            }
+
             var searchStart = Math.Max(0, callIndex - 400);
             for (var index = callIndex - 1; index >= searchStart; index--)
             {
@@ -262,9 +270,16 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
+                if (!DataFlowInstructionHelper.TryGetFieldStoreReceiverLocalVariable(
+                        instructions, index, out var fieldReceiverLocal) ||
+                    fieldReceiverLocal != shellExecuteInfoLocal)
+                {
+                    continue;
+                }
+
                 if (index > 0 && instructions[index - 1].TryGetLocalIndex(out var localIndex))
                 {
-                    return BuildLocalPathIdentity(method, instructions, index, localIndex);
+                    return BuildLocalPathIdentities(method, instructions, index - 1, localIndex);
                 }
 
                 if (InstructionValueResolver.TryResolveStackValueDisplay(
@@ -272,14 +287,14 @@ namespace MLVScan.Services.DataFlow
                     !string.IsNullOrWhiteSpace(display) &&
                     !display.Contains("<unknown", StringComparison.OrdinalIgnoreCase))
                 {
-                    return NormalizeResolvedPathIdentity(display);
+                    return SingleIdentity(NormalizeResolvedPathIdentity(display));
                 }
             }
 
-            return null;
+            return EmptyIdentities();
         }
 
-        private static string? TryGetCallArgumentIdentity(
+        private static HashSet<string> TryGetCallArgumentIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -290,13 +305,13 @@ namespace MLVScan.Services.DataFlow
                 method, calledMethod, instructions, callIndex, argumentIndex, out var display);
             if (resolved && display.Contains("<null>", StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return EmptyIdentities();
             }
 
             if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
-                    instructions, callIndex, calledMethod, argumentIndex, out var localIndex))
+                    instructions, callIndex, calledMethod, argumentIndex, out var localIndex, out var producerIndex))
             {
-                return BuildLocalPathIdentity(method, instructions, callIndex, localIndex);
+                return BuildLocalPathIdentities(method, instructions, producerIndex, localIndex);
             }
 
             if (resolved &&
@@ -305,29 +320,34 @@ namespace MLVScan.Services.DataFlow
                 !display.Contains("<local:", StringComparison.OrdinalIgnoreCase) &&
                 !display.Contains("<argument:", StringComparison.OrdinalIgnoreCase))
             {
-                return NormalizeResolvedPathIdentity(display);
+                return SingleIdentity(NormalizeResolvedPathIdentity(display));
             }
 
-            return null;
+            return EmptyIdentities();
         }
 
-        private static string BuildLocalPathIdentity(
+        private static HashSet<string> BuildLocalPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            int consumerIndex,
+            int localLoadIndex,
             int localIndex)
         {
-            for (var index = consumerIndex - 1; index >= 0; index--)
+            var storeIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, localLoadIndex, localIndex);
+            if (storeIndexes.Count == 0)
             {
-                if (instructions[index].TryGetStoredLocalIndex(out var storedLocalIndex) &&
-                    storedLocalIndex == localIndex)
-                {
-                    return $"{method.GetMethodKey()}::local:{localIndex}@{instructions[index].Offset}";
-                }
+                return SingleIdentity($"{method.GetMethodKey()}::local:{localIndex}@parameter");
             }
 
-            return $"{method.GetMethodKey()}::local:{localIndex}@parameter";
+            return storeIndexes
+                .Select(index => $"{method.GetMethodKey()}::local:{localIndex}@instruction:{index}")
+                .ToHashSet(StringComparer.Ordinal);
         }
+
+        private static HashSet<string> EmptyIdentities() => new(StringComparer.Ordinal);
+
+        private static HashSet<string> SingleIdentity(string identity) =>
+            new(StringComparer.Ordinal) { identity };
 
         private static string NormalizeResolvedPathIdentity(string display)
         {

@@ -25,6 +25,6 @@ namespace MLVScan.Models.DataFlow
         /// Local identities include the containing method so unrelated locals in cross-method chains
         /// cannot be mistaken for the same payload.
         /// </summary>
-        public string? PayloadPathIdentity { get; set; }
+        public HashSet<string> PayloadPathIdentities { get; set; } = new(StringComparer.Ordinal);
     }
 }

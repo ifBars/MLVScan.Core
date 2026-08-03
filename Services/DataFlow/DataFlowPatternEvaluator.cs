@@ -170,8 +170,7 @@ namespace MLVScan.Services.DataFlow
         {
             var writtenPaths = operations
                 .Where(static operation => HasFileWrite(new[] { operation }))
-                .Select(static operation => operation.PayloadPathIdentity)
-                .Where(static identity => !string.IsNullOrWhiteSpace(identity))
+                .SelectMany(static operation => operation.PayloadPathIdentities)
                 .ToHashSet(StringComparer.Ordinal);
 
             if (writtenPaths.Count == 0)
@@ -181,8 +180,7 @@ namespace MLVScan.Services.DataFlow
 
             return operations.Any(operation =>
                 HasProcessStart(new[] { operation }) &&
-                operation.PayloadPathIdentity != null &&
-                writtenPaths.Contains(operation.PayloadPathIdentity));
+                operation.PayloadPathIdentities.Overlaps(writtenPaths));
         }
 
         private static bool HasNetworkSink(IEnumerable<DataFlowInterestingOperation> operations)
