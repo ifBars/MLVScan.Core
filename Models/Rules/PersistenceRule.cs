@@ -40,9 +40,6 @@ namespace MLVScan.Models.Rules
             return folderValue is
                 7 or  // Startup
                 24 or // CommonStartup
-                26 or // ApplicationData
-                28 or // LocalApplicationData
-                35 or // CommonApplicationData / ProgramData
                 36 or // Windows
                 37 or // System
                 38 or // ProgramFiles

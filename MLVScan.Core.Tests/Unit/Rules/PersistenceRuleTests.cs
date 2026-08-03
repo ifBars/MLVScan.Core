@@ -33,9 +33,9 @@ public class PersistenceRuleTests
     [Theory]
     [InlineData(7, true, "Startup")]
     [InlineData(24, true, "CommonStartup")]
-    [InlineData(26, true, "ApplicationData")]
-    [InlineData(28, true, "LocalApplicationData")]
-    [InlineData(35, true, "CommonApplicationData")]
+    [InlineData(26, false, "ApplicationData")]
+    [InlineData(28, false, "LocalApplicationData")]
+    [InlineData(35, false, "CommonApplicationData")]
     [InlineData(36, true, "Windows")]
     [InlineData(37, true, "System")]
     [InlineData(5, false, "Folder(5)")]
@@ -153,7 +153,7 @@ public class PersistenceRuleTests
     }
 
     [Fact]
-    public void AnalyzeContextualPattern_DoesNotDetect_WhenNoTempPath()
+    public void AnalyzeContextualPattern_DetectsExecutableWriteToAppDataWithoutTempPath()
     {
         var context = CreateContext("System.IO.File", "WriteAllBytes", builder =>
         {
@@ -161,7 +161,11 @@ public class PersistenceRuleTests
             builder.EmitString("content");
         });
 
-        Analyze(context, 2).Should().BeEmpty();
+        var findings = Analyze(context, 2);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Potential persistence");
     }
 
     [Fact]
