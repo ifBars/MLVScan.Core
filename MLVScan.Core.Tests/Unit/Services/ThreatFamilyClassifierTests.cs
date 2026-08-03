@@ -36,6 +36,10 @@ public class ThreatFamilyClassifierTests
         matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
         matches[0].MatchKind.Should().Be(ThreatMatchKind.ExactSampleHash);
         matches[0].ExactHashMatch.Should().BeTrue();
+
+        var disposition = new ThreatDispositionClassifier().Classify(Array.Empty<ScanFinding>(), matches);
+        disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        disposition.PrimaryThreatFamilyId.Should().Be("family-webdownload-stage-exec-v3");
     }
 
     [Fact]
