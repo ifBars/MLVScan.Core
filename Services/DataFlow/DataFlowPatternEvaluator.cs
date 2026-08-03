@@ -168,19 +168,22 @@ namespace MLVScan.Services.DataFlow
         private static bool HasLinkedEmbeddedPayloadExecution(
             IReadOnlyList<DataFlowInterestingOperation> operations)
         {
-            var writtenPaths = operations
-                .Where(static operation => HasFileWrite(new[] { operation }))
-                .SelectMany(static operation => operation.PayloadPathIdentities)
-                .ToHashSet(StringComparer.Ordinal);
-
-            if (writtenPaths.Count == 0)
+            var writtenPaths = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var operation in operations)
             {
-                return false;
+                if (HasProcessStart(new[] { operation }) &&
+                    operation.PayloadPathIdentities.Overlaps(writtenPaths))
+                {
+                    return true;
+                }
+
+                if (HasFileWrite(new[] { operation }))
+                {
+                    writtenPaths.UnionWith(operation.PayloadPathIdentities);
+                }
             }
 
-            return operations.Any(operation =>
-                HasProcessStart(new[] { operation }) &&
-                operation.PayloadPathIdentities.Overlaps(writtenPaths));
+            return false;
         }
 
         private static bool HasNetworkSink(IEnumerable<DataFlowInterestingOperation> operations)

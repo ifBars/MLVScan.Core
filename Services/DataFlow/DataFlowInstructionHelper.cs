@@ -186,12 +186,13 @@ namespace MLVScan.Services.DataFlow
             var cursor = callIndex - 1;
             for (var argumentIndex = calledMethod.Parameters.Count - 1; argumentIndex >= 0; argumentIndex--)
             {
-                if (!TryFindTopValueProducer(instructions, cursor, out var argumentProducer))
+                if (!TryFindTopValueProducer(instructions, cursor, out var argumentProducer) ||
+                    !TryFindValueExpressionStart(instructions, argumentProducer, out var argumentStart))
                 {
                     return false;
                 }
 
-                cursor = argumentProducer - 1;
+                cursor = argumentStart - 1;
             }
 
             return TryFindTopValueProducer(instructions, cursor, out producerIndex);
@@ -234,7 +235,12 @@ namespace MLVScan.Services.DataFlow
                     return true;
                 }
 
-                cursor = currentProducer - 1;
+                if (!TryFindValueExpressionStart(instructions, currentProducer, out var expressionStart))
+                {
+                    return false;
+                }
+
+                cursor = expressionStart - 1;
             }
 
             return false;
@@ -259,6 +265,27 @@ namespace MLVScan.Services.DataFlow
                 }
 
                 needed += instruction.GetPopCount();
+            }
+
+            return false;
+        }
+
+        private static bool TryFindValueExpressionStart(
+            Collection<Instruction> instructions,
+            int producerIndex,
+            out int expressionStart)
+        {
+            expressionStart = -1;
+            var needed = 1;
+            for (var index = producerIndex; index >= 0; index--)
+            {
+                needed -= instructions[index].GetPushCount();
+                needed += instructions[index].GetPopCount();
+                if (needed <= 0)
+                {
+                    expressionStart = index;
+                    return true;
+                }
             }
 
             return false;

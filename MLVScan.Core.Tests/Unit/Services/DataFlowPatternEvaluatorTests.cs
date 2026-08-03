@@ -28,6 +28,17 @@ public class DataFlowPatternEvaluatorTests
     }
 
     [Fact]
+    public void RecognizePattern_WithExecutionBeforeMatchingWrite_DoesNotReturnEmbeddedDropper()
+    {
+        var operations = CreateEmbeddedResourceOperations("method::local:4", "method::local:4");
+        (operations[1], operations[2]) = (operations[2], operations[1]);
+
+        new DataFlowPatternEvaluator().RecognizePattern(operations)
+            .Should().Be(DataFlowPattern.Unknown,
+                "a payload written only after execution was not dropped and executed");
+    }
+
+    [Fact]
     public void CreateFinding_WithEmbeddedExecutableDropperWithoutScriptMarkers_PreservesSeverity()
     {
         var chain = new DataFlowChain(

@@ -147,6 +147,7 @@ namespace MLVScan.Services.DataFlow
         {
             int? startInfoLocal = null;
             int? processLocal = null;
+            int? processReceiverLoadIndex = null;
 
             if (!processStartMethod.HasThis &&
                 processStartMethod.Parameters.Count == 1 &&
@@ -173,13 +174,15 @@ namespace MLVScan.Services.DataFlow
             }
             else if (processStartMethod.HasThis)
             {
-                if (!DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
-                        instructions, processStartIndex, processStartMethod, out var resolvedProcessLocal))
+                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, processStartIndex, processStartMethod, out var receiverLoadIndex) ||
+                    !instructions[receiverLoadIndex].TryGetLocalIndex(out var resolvedProcessLocal))
                 {
                     return EmptyIdentities();
                 }
 
                 processLocal = resolvedProcessLocal;
+                processReceiverLoadIndex = receiverLoadIndex;
             }
             else if (processStartMethod.Parameters.Count > 0)
             {
@@ -187,12 +190,18 @@ namespace MLVScan.Services.DataFlow
             }
 
             IReadOnlyCollection<int> startInfoDefinitionIndexes = Array.Empty<int>();
+            IReadOnlyCollection<int> processDefinitionIndexes = Array.Empty<int>();
             if (startInfoLocal.HasValue &&
                 DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
                     instructions, processStartIndex, processStartMethod, 0, out var startInfoLoadIndex))
             {
                 startInfoDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
                     instructions, startInfoLoadIndex, startInfoLocal.Value);
+            }
+            else if (processLocal.HasValue && processReceiverLoadIndex.HasValue)
+            {
+                processDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, processReceiverLoadIndex.Value, processLocal.Value);
             }
 
             var setterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
@@ -205,7 +214,8 @@ namespace MLVScan.Services.DataFlow
                              setter,
                              startInfoLocal,
                              processLocal,
-                             startInfoDefinitionIndexes));
+                             startInfoDefinitionIndexes,
+                             processDefinitionIndexes));
             var identities = EmptyIdentities();
             foreach (var definitionIndex in startInfoDefinitionIndexes)
             {
@@ -218,6 +228,82 @@ namespace MLVScan.Services.DataFlow
                 var setter = (MethodReference)instructions[setterIndex].Operand;
                 identities.UnionWith(
                     TryGetCallArgumentIdentities(method, instructions, setterIndex, setter, 0));
+            }
+
+            if (processLocal.HasValue)
+            {
+                var startInfoAssignmentIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                    instructions,
+                    processStartIndex,
+                    index => TryGetProcessStartInfoSetter(instructions[index], out var setter) &&
+                             ProcessReceiverMatchesStartedProcess(
+                                 instructions,
+                                 index,
+                                 setter,
+                                 processLocal.Value,
+                                 processDefinitionIndexes));
+                foreach (var assignmentIndex in startInfoAssignmentIndexes)
+                {
+                    var setter = (MethodReference)instructions[assignmentIndex].Operand;
+                    identities.UnionWith(TryGetAssignedStartInfoIdentities(
+                        method, instructions, assignmentIndex, setter));
+                }
+            }
+
+            return identities;
+        }
+
+        private static HashSet<string> TryGetAssignedStartInfoIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int setterIndex,
+            MethodReference setter)
+        {
+            if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    instructions, setterIndex, setter, 0, out var producerIndex))
+            {
+                return EmptyIdentities();
+            }
+
+            if (instructions[producerIndex].OpCode == OpCodes.Newobj &&
+                instructions[producerIndex].Operand is MethodReference constructor &&
+                constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                constructor.Parameters.Count > 0)
+            {
+                return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
+            }
+
+            if (!instructions[producerIndex].TryGetLocalIndex(out var startInfoLocal))
+            {
+                return EmptyIdentities();
+            }
+
+            var definitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, producerIndex, startInfoLocal);
+            var identities = EmptyIdentities();
+            foreach (var definitionIndex in definitions)
+            {
+                identities.UnionWith(TryGetStoredStartInfoConstructorIdentities(
+                    method, instructions, definitionIndex));
+            }
+
+            var fileNameSetterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                setterIndex,
+                index => TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) &&
+                         StartInfoSetterBelongsToStartedProcess(
+                             instructions,
+                             index,
+                             fileNameSetter,
+                             startInfoLocal,
+                             null,
+                             definitions,
+                             Array.Empty<int>()));
+            foreach (var fileNameSetterIndex in fileNameSetterIndexes)
+            {
+                var fileNameSetter = (MethodReference)instructions[fileNameSetterIndex].Operand;
+                identities.UnionWith(TryGetCallArgumentIdentities(
+                    method, instructions, fileNameSetterIndex, fileNameSetter, 0));
             }
 
             return identities;
@@ -258,13 +344,31 @@ namespace MLVScan.Services.DataFlow
             return true;
         }
 
+        private static bool TryGetProcessStartInfoSetter(
+            Instruction instruction,
+            out MethodReference setter)
+        {
+            setter = null!;
+            if (!instruction.IsCallOrCallvirt() ||
+                instruction.Operand is not MethodReference candidate ||
+                candidate.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                candidate.Name != "set_StartInfo")
+            {
+                return false;
+            }
+
+            setter = candidate;
+            return true;
+        }
+
         private static bool StartInfoSetterBelongsToStartedProcess(
             Collection<Instruction> instructions,
             int setterIndex,
             MethodReference setter,
             int? startInfoLocal,
             int? processLocal,
-            IReadOnlyCollection<int> startedStartInfoDefinitions)
+            IReadOnlyCollection<int> startedStartInfoDefinitions,
+            IReadOnlyCollection<int> startedProcessDefinitions)
         {
             if (startInfoLocal.HasValue)
             {
@@ -302,9 +406,37 @@ namespace MLVScan.Services.DataFlow
                 return false;
             }
 
-            return DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
-                       instructions, setterReceiverProducerIndex, getter, out var setterProcessLocal) &&
-                   setterProcessLocal == processLocal.Value;
+            return ProcessReceiverMatchesStartedProcess(
+                instructions,
+                setterReceiverProducerIndex,
+                getter,
+                processLocal.Value,
+                startedProcessDefinitions);
+        }
+
+        private static bool ProcessReceiverMatchesStartedProcess(
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            int processLocal,
+            IReadOnlyCollection<int> startedProcessDefinitions)
+        {
+            if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                    instructions, callIndex, calledMethod, out var receiverProducerIndex) ||
+                !instructions[receiverProducerIndex].TryGetLocalIndex(out var receiverProcessLocal) ||
+                receiverProcessLocal != processLocal)
+            {
+                return false;
+            }
+
+            if (startedProcessDefinitions.Count == 0)
+            {
+                return true;
+            }
+
+            var receiverDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                instructions, receiverProducerIndex, receiverProcessLocal);
+            return receiverDefinitions.Intersect(startedProcessDefinitions).Any();
         }
 
         private static HashSet<string> TryGetNativeExecutionPathIdentities(

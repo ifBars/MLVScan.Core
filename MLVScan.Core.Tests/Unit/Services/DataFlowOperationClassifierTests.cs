@@ -121,6 +121,44 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
+    public void IdentifyInterestingOperations_InstanceStart_ResolvesAssignedStartInfoConstructor()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var processLocal = AddLocal(method, processType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Stloc, processLocal);
+
+        var constructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        var setStartInfo = CreateMethodReference(
+            processType, "set_StartInfo", module.TypeSystem.Void, hasThis: true, startInfoType);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+
+        var start = CreateMethodReference(
+            processType, "Start", module.TypeSystem.Boolean, hasThis: true);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_CreateProcessWithNullApplication_UsesCommandLineIdentity()
     {
         var method = CreateCallerMethod(out var module);
