@@ -362,7 +362,9 @@ public class ProcessStartRuleTests
         using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
             module.TypeSystem.Void);
-        module.Types.Add(new TypeDefinition("Tests", "TestType", TypeAttributes.Public)).Methods.Add(method);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
 
         var missingAssembly = new AssemblyNameReference("MissingDependency", new Version(1, 0, 0, 0));
         module.AssemblyReferences.Add(missingAssembly);
