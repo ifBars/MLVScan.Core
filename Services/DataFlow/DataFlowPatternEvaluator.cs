@@ -7,7 +7,7 @@ namespace MLVScan.Services.DataFlow
     {
         public DataFlowPattern RecognizePattern(IReadOnlyList<DataFlowInterestingOperation> operations)
         {
-            if (HasResourceSource(operations) && HasProcessStart(operations) && (HasFileWrite(operations) || HasTransform(operations)))
+            if (HasResourceSource(operations) && HasLinkedEmbeddedPayloadExecution(operations))
             {
                 return DataFlowPattern.EmbeddedResourceDropAndExecute;
             }
@@ -163,6 +163,26 @@ namespace MLVScan.Services.DataFlow
                  operation.Operation.Contains("PInvoke.ShellExecute", StringComparison.OrdinalIgnoreCase) ||
                  operation.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase) ||
                  operation.Operation.Contains("PInvoke.WinExec", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static bool HasLinkedEmbeddedPayloadExecution(
+            IReadOnlyList<DataFlowInterestingOperation> operations)
+        {
+            var writtenPaths = operations
+                .Where(static operation => HasFileWrite(new[] { operation }))
+                .Select(static operation => operation.PayloadPathIdentity)
+                .Where(static identity => !string.IsNullOrWhiteSpace(identity))
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (writtenPaths.Count == 0)
+            {
+                return false;
+            }
+
+            return operations.Any(operation =>
+                HasProcessStart(new[] { operation }) &&
+                operation.PayloadPathIdentity != null &&
+                writtenPaths.Contains(operation.PayloadPathIdentity));
         }
 
         private static bool HasNetworkSink(IEnumerable<DataFlowInterestingOperation> operations)

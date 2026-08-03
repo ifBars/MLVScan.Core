@@ -106,6 +106,35 @@ namespace MLVScan.Models.Rules.Helpers
         }
 
         /// <summary>
+        /// Tries to resolve one argument passed to a call site. This is used by data-flow analysis to
+        /// compare file-write destinations with later process targets without relying on nearby calls.
+        /// </summary>
+        public static bool TryResolveCallArgumentDisplay(
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            out string valueDisplay)
+        {
+            valueDisplay = "<unknown/non-literal>";
+            if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
+            {
+                return false;
+            }
+
+            var context = new ResolverContext(containingMethod?.Module);
+            if (!TryResolveCallArguments(context, containingMethod, instructions, callIndex,
+                    calledMethod.Parameters.Count, null, 0, out var arguments))
+            {
+                return false;
+            }
+
+            valueDisplay = arguments[argumentIndex].Display;
+            return true;
+        }
+
+        /// <summary>
         /// Tries to recover a constant value assigned to <c>ProcessStartInfo.UseShellExecute</c>.
         /// </summary>
         /// <param name="containingMethod">The method containing the process launch.</param>

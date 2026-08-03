@@ -9,6 +9,25 @@ namespace MLVScan.Core.Tests.Unit.Services;
 public class DataFlowPatternEvaluatorTests
 {
     [Fact]
+    public void RecognizePattern_WithLinkedFileWriteAndProcessTarget_ReturnsEmbeddedDropper()
+    {
+        var operations = CreateEmbeddedResourceOperations("method::local:4", "method::local:4");
+
+        new DataFlowPatternEvaluator().RecognizePattern(operations)
+            .Should().Be(DataFlowPattern.EmbeddedResourceDropAndExecute);
+    }
+
+    [Fact]
+    public void RecognizePattern_WithUnrelatedFileWriteAndProcessTarget_DoesNotReturnEmbeddedDropper()
+    {
+        var operations = CreateEmbeddedResourceOperations("method::local:4", "method::local:7");
+
+        new DataFlowPatternEvaluator().RecognizePattern(operations)
+            .Should().Be(DataFlowPattern.Unknown,
+                "nearby resource handling and process execution are not a linked payload flow");
+    }
+
+    [Fact]
     public void CreateFinding_WithEmbeddedExecutableDropperWithoutScriptMarkers_PreservesSeverity()
     {
         var chain = new DataFlowChain(
@@ -39,5 +58,34 @@ public class DataFlowPatternEvaluatorTests
         var finding = new DataFlowPatternEvaluator().CreateFinding(chain);
 
         finding.Severity.Should().Be(Severity.Critical);
+    }
+
+    private static List<DataFlowInterestingOperation> CreateEmbeddedResourceOperations(
+        string writtenPath,
+        string executedPath)
+    {
+        return new List<DataFlowInterestingOperation>
+        {
+            new()
+            {
+                NodeType = DataFlowNodeType.Source,
+                Operation = "Assembly.GetManifestResourceStream",
+                DataDescription = "embedded resource"
+            },
+            new()
+            {
+                NodeType = DataFlowNodeType.Sink,
+                Operation = "File.Create",
+                DataDescription = "Writes to file",
+                PayloadPathIdentity = writtenPath
+            },
+            new()
+            {
+                NodeType = DataFlowNodeType.Sink,
+                Operation = "Process.Start",
+                DataDescription = "Executes process",
+                PayloadPathIdentity = executedPath
+            }
+        };
     }
 }

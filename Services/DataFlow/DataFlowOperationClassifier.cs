@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using MLVScan.Models.DataFlow;
+using MLVScan.Models.Rules.Helpers;
 using MLVScan.Services.Helpers;
 using Mono.Collections.Generic;
 using Mono.Cecil;
@@ -19,8 +20,10 @@ namespace MLVScan.Services.DataFlow
             {
                 var instruction = instructions[index];
 
-                if (!instruction.IsCallOrCallvirt() ||
-                    instruction.Operand is not MethodReference calledMethod)
+                if (instruction.Operand is not MethodReference calledMethod ||
+                    (!instruction.IsCallOrCallvirt() &&
+                     !(instruction.OpCode == OpCodes.Newobj &&
+                       IsFileStreamSink(calledMethod.DeclaringType?.FullName ?? string.Empty, calledMethod.Name))))
                 {
                     continue;
                 }
@@ -28,6 +31,13 @@ namespace MLVScan.Services.DataFlow
                 var operationInfo = ClassifyOperation(calledMethod);
                 if (operationInfo != null)
                 {
+                    var payloadPathIdentity = TryGetPayloadPathIdentity(
+                        method,
+                        instructions,
+                        index,
+                        calledMethod,
+                        operationInfo.Value.Operation,
+                        operationInfo.Value.NodeType);
                     operations.Add(new DataFlowInterestingOperation
                     {
                         Instruction = instruction,
@@ -36,7 +46,8 @@ namespace MLVScan.Services.DataFlow
                         NodeType = operationInfo.Value.NodeType,
                         Operation = operationInfo.Value.Operation,
                         DataDescription = operationInfo.Value.DataDescription,
-                        LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index)
+                        LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index),
+                        PayloadPathIdentity = payloadPathIdentity
                     });
                 }
 
@@ -57,6 +68,172 @@ namespace MLVScan.Services.DataFlow
             }
 
             return operations;
+        }
+
+        private static string? TryGetPayloadPathIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation,
+            DataFlowNodeType nodeType)
+        {
+            if (nodeType != DataFlowNodeType.Sink)
+            {
+                return null;
+            }
+
+            if (IsFilePathSink(operation))
+            {
+                return TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, 0);
+            }
+
+            if (operation.Equals("Process.Start", StringComparison.OrdinalIgnoreCase))
+            {
+                if (calledMethod.Parameters.Count > 0)
+                {
+                    return TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, 0);
+                }
+
+                return TryGetStartInfoFileNameIdentity(method, instructions, callIndex);
+            }
+
+            return TryGetNativeExecutionPathIdentity(method, instructions, callIndex, calledMethod, operation);
+        }
+
+        private static bool IsFilePathSink(string operation)
+        {
+            return operation.Contains("File.", StringComparison.OrdinalIgnoreCase) ||
+                   operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? TryGetStartInfoFileNameIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int processStartIndex)
+        {
+            var searchStart = Math.Max(0, processStartIndex - 400);
+            for (var index = processStartIndex - 1; index >= searchStart; index--)
+            {
+                if (!instructions[index].IsCallOrCallvirt() ||
+                    instructions[index].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    setter.Name != "set_FileName")
+                {
+                    continue;
+                }
+
+                return TryGetCallArgumentIdentity(method, instructions, index, setter, 0);
+            }
+
+            return null;
+        }
+
+        private static string? TryGetNativeExecutionPathIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation)
+        {
+            if (operation.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryGetShellExecuteExFileIdentity(method, instructions, callIndex);
+            }
+
+            var argumentIndex = operation switch
+            {
+                var value when value.Contains("WinExec", StringComparison.OrdinalIgnoreCase) => 0,
+                var value when value.Contains("CreateProcess", StringComparison.OrdinalIgnoreCase) => 0,
+                var value when value.Contains("ShellExecute", StringComparison.OrdinalIgnoreCase) &&
+                                   !value.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase) => 2,
+                _ => -1
+            };
+
+            return argumentIndex >= 0
+                ? TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, argumentIndex)
+                : null;
+        }
+
+        private static string? TryGetShellExecuteExFileIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex)
+        {
+            var searchStart = Math.Max(0, callIndex - 400);
+            for (var index = callIndex - 1; index >= searchStart; index--)
+            {
+                if (instructions[index].OpCode != OpCodes.Stfld ||
+                    instructions[index].Operand is not FieldReference field ||
+                    !field.Name.Equals("lpFile", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (index > 0 && instructions[index - 1].TryGetLocalIndex(out var localIndex))
+                {
+                    return BuildLocalPathIdentity(method, instructions, index, localIndex);
+                }
+
+                if (InstructionValueResolver.TryResolveStackValueDisplay(
+                        method, instructions, index - 1, out var display) &&
+                    !string.IsNullOrWhiteSpace(display) &&
+                    !display.Contains("<unknown", StringComparison.OrdinalIgnoreCase))
+                {
+                    return NormalizeResolvedPathIdentity(display);
+                }
+            }
+
+            return null;
+        }
+
+        private static string? TryGetCallArgumentIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            int argumentIndex)
+        {
+            var mapping = DataFlowInstructionHelper.TryGetParameterMapping(instructions, callIndex, calledMethod);
+            if (mapping.TryGetValue(argumentIndex, out var localIndex))
+            {
+                return BuildLocalPathIdentity(method, instructions, callIndex, localIndex);
+            }
+
+            if (!InstructionValueResolver.TryResolveCallArgumentDisplay(
+                    method, calledMethod, instructions, callIndex, argumentIndex, out var display) ||
+                string.IsNullOrWhiteSpace(display) ||
+                display.Contains("<unknown", StringComparison.OrdinalIgnoreCase) ||
+                display.Contains("<local:", StringComparison.OrdinalIgnoreCase) ||
+                display.Contains("<argument:", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return NormalizeResolvedPathIdentity(display);
+        }
+
+        private static string BuildLocalPathIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int consumerIndex,
+            int localIndex)
+        {
+            for (var index = consumerIndex - 1; index >= 0; index--)
+            {
+                if (instructions[index].TryGetStoredLocalIndex(out var storedLocalIndex) &&
+                    storedLocalIndex == localIndex)
+                {
+                    return $"{method.GetMethodKey()}::local:{localIndex}@{instructions[index].Offset}";
+                }
+            }
+
+            return $"{method.GetMethodKey()}::local:{localIndex}@parameter";
+        }
+
+        private static string NormalizeResolvedPathIdentity(string display)
+        {
+            return $"value:{display.Trim().Trim('"').Replace('\\', '/').ToUpperInvariant()}";
         }
 
         private (DataFlowNodeType NodeType, string Operation, string DataDescription)? ClassifyOperation(MethodReference method)
