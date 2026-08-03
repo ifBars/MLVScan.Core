@@ -186,27 +186,38 @@ namespace MLVScan.Services.DataFlow
                 return TryGetCallArgumentIdentities(method, instructions, processStartIndex, processStartMethod, 0);
             }
 
-            var searchStart = Math.Max(0, processStartIndex - 400);
-            for (var index = processStartIndex - 1; index >= searchStart; index--)
+            var setterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                instructions,
+                processStartIndex,
+                index => TryGetStartInfoFileNameSetter(instructions[index], out var setter) &&
+                         StartInfoSetterBelongsToStartedProcess(
+                             instructions, index, setter, startInfoLocal, processLocal));
+            var identities = EmptyIdentities();
+            foreach (var setterIndex in setterIndexes)
             {
-                if (!instructions[index].IsCallOrCallvirt() ||
-                    instructions[index].Operand is not MethodReference setter ||
-                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
-                    setter.Name != "set_FileName")
-                {
-                    continue;
-                }
-
-                if (!StartInfoSetterBelongsToStartedProcess(
-                        instructions, index, setter, startInfoLocal, processLocal))
-                {
-                    continue;
-                }
-
-                return TryGetCallArgumentIdentities(method, instructions, index, setter, 0);
+                var setter = (MethodReference)instructions[setterIndex].Operand;
+                identities.UnionWith(
+                    TryGetCallArgumentIdentities(method, instructions, setterIndex, setter, 0));
             }
 
-            return EmptyIdentities();
+            return identities;
+        }
+
+        private static bool TryGetStartInfoFileNameSetter(
+            Instruction instruction,
+            out MethodReference setter)
+        {
+            setter = null!;
+            if (!instruction.IsCallOrCallvirt() ||
+                instruction.Operand is not MethodReference candidate ||
+                candidate.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                candidate.Name != "set_FileName")
+            {
+                return false;
+            }
+
+            setter = candidate;
+            return true;
         }
 
         private static bool StartInfoSetterBelongsToStartedProcess(
@@ -332,8 +343,7 @@ namespace MLVScan.Services.DataFlow
 
                 if (InstructionValueResolver.TryResolveStackValueDisplay(
                         method, instructions, index - 1, out var display) &&
-                    !string.IsNullOrWhiteSpace(display) &&
-                    !display.Contains("<unknown", StringComparison.OrdinalIgnoreCase))
+                    IsConcreteResolvedPath(display))
                 {
                     return SingleIdentity(NormalizeResolvedPathIdentity(display));
                 }
@@ -356,22 +366,26 @@ namespace MLVScan.Services.DataFlow
                 return EmptyIdentities();
             }
 
+            var identities = EmptyIdentities();
             if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
                     instructions, callIndex, calledMethod, argumentIndex, out var localIndex, out var producerIndex))
             {
-                return BuildLocalPathIdentities(method, instructions, producerIndex, localIndex);
+                identities.UnionWith(BuildLocalPathIdentities(method, instructions, producerIndex, localIndex));
             }
 
-            if (resolved &&
-                !string.IsNullOrWhiteSpace(display) &&
-                !display.Contains("<unknown", StringComparison.OrdinalIgnoreCase) &&
-                !display.Contains("<local:", StringComparison.OrdinalIgnoreCase) &&
-                !display.Contains("<argument:", StringComparison.OrdinalIgnoreCase))
+            if (resolved && IsConcreteResolvedPath(display))
             {
-                return SingleIdentity(NormalizeResolvedPathIdentity(display));
+                identities.Add(NormalizeResolvedPathIdentity(display));
             }
 
-            return EmptyIdentities();
+            return identities;
+        }
+
+        private static bool IsConcreteResolvedPath(string display)
+        {
+            return !string.IsNullOrWhiteSpace(display) &&
+                   !display.Contains('<') &&
+                   !display.Contains('>');
         }
 
         private static HashSet<string> BuildLocalPathIdentities(

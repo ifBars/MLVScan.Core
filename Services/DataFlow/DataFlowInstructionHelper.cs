@@ -123,7 +123,19 @@ namespace MLVScan.Services.DataFlow
             int localLoadIndex,
             int localIndex)
         {
-            if (localLoadIndex < 0 || localLoadIndex >= instructions.Count)
+            return GetReachingInstructionIndexes(
+                instructions,
+                localLoadIndex,
+                index => instructions[index].TryGetStoredLocalIndex(out var storedLocalIndex) &&
+                         storedLocalIndex == localIndex);
+        }
+
+        public static IReadOnlyCollection<int> GetReachingInstructionIndexes(
+            Collection<Instruction> instructions,
+            int consumerIndex,
+            Func<int, bool> isDefinition)
+        {
+            if (consumerIndex < 0 || consumerIndex >= instructions.Count)
             {
                 return Array.Empty<int>();
             }
@@ -143,8 +155,8 @@ namespace MLVScan.Services.DataFlow
                 }
             }
 
-            var offsets = new HashSet<int>();
-            var pending = new Stack<int>(predecessors[localLoadIndex]);
+            var definitions = new HashSet<int>();
+            var pending = new Stack<int>(predecessors[consumerIndex]);
             var visited = new HashSet<int>();
             while (pending.Count > 0)
             {
@@ -154,10 +166,9 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
-                if (instructions[index].TryGetStoredLocalIndex(out var storedLocalIndex) &&
-                    storedLocalIndex == localIndex)
+                if (isDefinition(index))
                 {
-                    offsets.Add(index);
+                    definitions.Add(index);
                     continue;
                 }
 
@@ -167,7 +178,7 @@ namespace MLVScan.Services.DataFlow
                 }
             }
 
-            return offsets;
+            return definitions;
         }
 
         public static bool TryGetCallReceiverProducerIndex(
