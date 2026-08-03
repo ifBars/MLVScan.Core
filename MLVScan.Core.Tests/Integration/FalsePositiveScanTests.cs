@@ -555,6 +555,9 @@ public class FalsePositiveScanTests
         var allowedHighSeveritySamples = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Bannerlord.ButterLib.dll",
+            // Known benign sample, but its embedded resource -> disk -> execute chain is intentionally
+            // review-required because the same static behavior is indistinguishable from a dropper.
+            "BoneLibUpdater.dll",
             "CustomTV.dll",
             "IllegalRave.dll",
             "LabFusion.dll",
