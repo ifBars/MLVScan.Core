@@ -2,6 +2,7 @@ using System.Linq;
 using FluentAssertions;
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules;
 using MLVScan.Services;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -99,6 +100,36 @@ public class MethodScannerTests
 
         result.Findings.Should().ContainSingle();
         countingRule.AnalyzeInstructionsCallCount.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(0xD800)]
+    [InlineData(0xDC00)]
+    public void ScanMethod_UnpairedSurrogateDoesNotSuppressProcessStartFinding(int malformedCodeUnit)
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true };
+        var scanner = CreateScanner(config, new IScanRule[]
+        {
+            new ObfuscatedReflectiveExecutionRule(),
+            new ProcessStartRule()
+        });
+        var method = CreateMethod();
+        var processor = method.Body.GetILProcessor();
+        var ret = method.Body.Instructions.Single();
+        var processStart = method.Module.ImportReference(
+            typeof(System.Diagnostics.Process).GetMethod(
+                nameof(System.Diagnostics.Process.Start),
+                new[] { typeof(string) })!);
+
+        processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldstr, new string((char)malformedCodeUnit, 1)));
+        processor.InsertBefore(ret, Instruction.Create(OpCodes.Pop));
+        processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldstr, "cmd.exe"));
+        processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, processStart));
+        processor.InsertBefore(ret, Instruction.Create(OpCodes.Pop));
+
+        var result = scanner.ScanMethod(method, "Test.Type");
+
+        result.Findings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
     }
 
     private static MethodScanner CreateScanner(ScanConfig config, IEnumerable<IScanRule> rules)

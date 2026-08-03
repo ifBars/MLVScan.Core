@@ -28,10 +28,11 @@ public class InvisibleUnicodeAnalyzerTests
     }
 
     [Theory]
-    [InlineData("\uD800")]
-    [InlineData("\uDC00")]
-    public void Analyze_DoesNotThrowForUnpairedSurrogate(string malformedLiteral)
+    [InlineData(0xD800)]
+    [InlineData(0xDC00)]
+    public void Analyze_DoesNotThrowForUnpairedSurrogate(int malformedCodeUnit)
     {
+        string malformedLiteral = new((char)malformedCodeUnit, 1);
         var act = () => InvisibleUnicodeAnalyzer.Analyze(malformedLiteral);
 
         act.Should().NotThrow();
