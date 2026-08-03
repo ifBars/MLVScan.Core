@@ -90,12 +90,7 @@ namespace MLVScan.Services.DataFlow
 
             if (operation.Equals("Process.Start", StringComparison.OrdinalIgnoreCase))
             {
-                if (calledMethod.Parameters.Count > 0)
-                {
-                    return TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, 0);
-                }
-
-                return TryGetStartInfoFileNameIdentity(method, instructions, callIndex);
+                return TryGetProcessStartPathIdentity(method, instructions, callIndex, calledMethod);
             }
 
             return TryGetNativeExecutionPathIdentity(method, instructions, callIndex, calledMethod, operation);
@@ -107,11 +102,42 @@ namespace MLVScan.Services.DataFlow
                    operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string? TryGetStartInfoFileNameIdentity(
+        private static string? TryGetProcessStartPathIdentity(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex,
+            MethodReference processStartMethod)
         {
+            int? startInfoLocal = null;
+            int? processLocal = null;
+
+            if (!processStartMethod.HasThis &&
+                processStartMethod.Parameters.Count == 1 &&
+                processStartMethod.Parameters[0].ParameterType.FullName == "System.Diagnostics.ProcessStartInfo")
+            {
+                if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                        instructions, processStartIndex, processStartMethod, 0, out var resolvedStartInfoLocal))
+                {
+                    return null;
+                }
+
+                startInfoLocal = resolvedStartInfoLocal;
+            }
+            else if (processStartMethod.HasThis)
+            {
+                if (!DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
+                        instructions, processStartIndex, processStartMethod, out var resolvedProcessLocal))
+                {
+                    return null;
+                }
+
+                processLocal = resolvedProcessLocal;
+            }
+            else if (processStartMethod.Parameters.Count > 0)
+            {
+                return TryGetCallArgumentIdentity(method, instructions, processStartIndex, processStartMethod, 0);
+            }
+
             var searchStart = Math.Max(0, processStartIndex - 400);
             for (var index = processStartIndex - 1; index >= searchStart; index--)
             {
@@ -123,10 +149,51 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
+                if (!StartInfoSetterBelongsToStartedProcess(
+                        instructions, index, setter, startInfoLocal, processLocal))
+                {
+                    continue;
+                }
+
                 return TryGetCallArgumentIdentity(method, instructions, index, setter, 0);
             }
 
             return null;
+        }
+
+        private static bool StartInfoSetterBelongsToStartedProcess(
+            Collection<Instruction> instructions,
+            int setterIndex,
+            MethodReference setter,
+            int? startInfoLocal,
+            int? processLocal)
+        {
+            if (startInfoLocal.HasValue)
+            {
+                return DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
+                           instructions, setterIndex, setter, out var setterStartInfoLocal) &&
+                       setterStartInfoLocal == startInfoLocal.Value;
+            }
+
+            if (!processLocal.HasValue ||
+                !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                    instructions, setterIndex, setter, out var setterReceiverProducerIndex))
+            {
+                return false;
+            }
+
+            var setterReceiverProducer = instructions[setterReceiverProducerIndex];
+            if (!setterReceiverProducer.IsCallOrCallvirt() ||
+                setterReceiverProducer.Operand is not MethodReference getter ||
+                getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                getter.Name != "get_StartInfo")
+            {
+                return false;
+            }
+
+            return DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
+                       instructions, setterReceiverProducerIndex, getter, out var setterProcessLocal) &&
+                   setterProcessLocal == processLocal.Value;
         }
 
         private static string? TryGetNativeExecutionPathIdentity(
@@ -141,10 +208,14 @@ namespace MLVScan.Services.DataFlow
                 return TryGetShellExecuteExFileIdentity(method, instructions, callIndex);
             }
 
+            if (operation.Contains("CreateProcess", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryGetCreateProcessPathIdentity(method, instructions, callIndex, calledMethod, operation);
+            }
+
             var argumentIndex = operation switch
             {
                 var value when value.Contains("WinExec", StringComparison.OrdinalIgnoreCase) => 0,
-                var value when value.Contains("CreateProcess", StringComparison.OrdinalIgnoreCase) => 0,
                 var value when value.Contains("ShellExecute", StringComparison.OrdinalIgnoreCase) &&
                                    !value.Contains("ShellExecuteEx", StringComparison.OrdinalIgnoreCase) => 2,
                 _ => -1
@@ -153,6 +224,27 @@ namespace MLVScan.Services.DataFlow
             return argumentIndex >= 0
                 ? TryGetCallArgumentIdentity(method, instructions, callIndex, calledMethod, argumentIndex)
                 : null;
+        }
+
+        private static string? TryGetCreateProcessPathIdentity(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            string operation)
+        {
+            var (applicationNameIndex, commandLineIndex) = operation switch
+            {
+                var value when value.Contains("CreateProcessWithLogon", StringComparison.OrdinalIgnoreCase) => (4, 5),
+                var value when value.Contains("CreateProcessWithToken", StringComparison.OrdinalIgnoreCase) => (2, 3),
+                var value when value.Contains("CreateProcessAsUser", StringComparison.OrdinalIgnoreCase) => (1, 2),
+                _ => (0, 1)
+            };
+
+            var applicationIdentity = TryGetCallArgumentIdentity(
+                method, instructions, callIndex, calledMethod, applicationNameIndex);
+            return applicationIdentity ?? TryGetCallArgumentIdentity(
+                method, instructions, callIndex, calledMethod, commandLineIndex);
         }
 
         private static string? TryGetShellExecuteExFileIdentity(
@@ -194,23 +286,29 @@ namespace MLVScan.Services.DataFlow
             MethodReference calledMethod,
             int argumentIndex)
         {
-            var mapping = DataFlowInstructionHelper.TryGetParameterMapping(instructions, callIndex, calledMethod);
-            if (mapping.TryGetValue(argumentIndex, out var localIndex))
-            {
-                return BuildLocalPathIdentity(method, instructions, callIndex, localIndex);
-            }
-
-            if (!InstructionValueResolver.TryResolveCallArgumentDisplay(
-                    method, calledMethod, instructions, callIndex, argumentIndex, out var display) ||
-                string.IsNullOrWhiteSpace(display) ||
-                display.Contains("<unknown", StringComparison.OrdinalIgnoreCase) ||
-                display.Contains("<local:", StringComparison.OrdinalIgnoreCase) ||
-                display.Contains("<argument:", StringComparison.OrdinalIgnoreCase))
+            var resolved = InstructionValueResolver.TryResolveCallArgumentDisplay(
+                method, calledMethod, instructions, callIndex, argumentIndex, out var display);
+            if (resolved && display.Contains("<null>", StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
-            return NormalizeResolvedPathIdentity(display);
+            if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                    instructions, callIndex, calledMethod, argumentIndex, out var localIndex))
+            {
+                return BuildLocalPathIdentity(method, instructions, callIndex, localIndex);
+            }
+
+            if (resolved &&
+                !string.IsNullOrWhiteSpace(display) &&
+                !display.Contains("<unknown", StringComparison.OrdinalIgnoreCase) &&
+                !display.Contains("<local:", StringComparison.OrdinalIgnoreCase) &&
+                !display.Contains("<argument:", StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeResolvedPathIdentity(display);
+            }
+
+            return null;
         }
 
         private static string BuildLocalPathIdentity(
