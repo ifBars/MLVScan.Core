@@ -186,13 +186,33 @@ namespace MLVScan.Services.DataFlow
                 return TryGetCallArgumentIdentities(method, instructions, processStartIndex, processStartMethod, 0);
             }
 
+            IReadOnlyCollection<int> startInfoDefinitionIndexes = Array.Empty<int>();
+            if (startInfoLocal.HasValue &&
+                DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    instructions, processStartIndex, processStartMethod, 0, out var startInfoLoadIndex))
+            {
+                startInfoDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, startInfoLoadIndex, startInfoLocal.Value);
+            }
+
             var setterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
                 instructions,
                 processStartIndex,
                 index => TryGetStartInfoFileNameSetter(instructions[index], out var setter) &&
                          StartInfoSetterBelongsToStartedProcess(
-                             instructions, index, setter, startInfoLocal, processLocal));
+                             instructions,
+                             index,
+                             setter,
+                             startInfoLocal,
+                             processLocal,
+                             startInfoDefinitionIndexes));
             var identities = EmptyIdentities();
+            foreach (var definitionIndex in startInfoDefinitionIndexes)
+            {
+                identities.UnionWith(TryGetStoredStartInfoConstructorIdentities(
+                    method, instructions, definitionIndex));
+            }
+
             foreach (var setterIndex in setterIndexes)
             {
                 var setter = (MethodReference)instructions[setterIndex].Operand;
@@ -201,6 +221,24 @@ namespace MLVScan.Services.DataFlow
             }
 
             return identities;
+        }
+
+        private static HashSet<string> TryGetStoredStartInfoConstructorIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int storeIndex)
+        {
+            if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                    instructions, storeIndex, out var producerIndex) ||
+                instructions[producerIndex].OpCode != OpCodes.Newobj ||
+                instructions[producerIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                constructor.Parameters.Count == 0)
+            {
+                return EmptyIdentities();
+            }
+
+            return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
         }
 
         private static bool TryGetStartInfoFileNameSetter(
@@ -225,13 +263,27 @@ namespace MLVScan.Services.DataFlow
             int setterIndex,
             MethodReference setter,
             int? startInfoLocal,
-            int? processLocal)
+            int? processLocal,
+            IReadOnlyCollection<int> startedStartInfoDefinitions)
         {
             if (startInfoLocal.HasValue)
             {
-                return DataFlowInstructionHelper.TryGetCallReceiverLocalVariable(
-                           instructions, setterIndex, setter, out var setterStartInfoLocal) &&
-                       setterStartInfoLocal == startInfoLocal.Value;
+                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, setterIndex, setter, out var receiverProducerIndex) ||
+                    !instructions[receiverProducerIndex].TryGetLocalIndex(out var setterStartInfoLocal) ||
+                    setterStartInfoLocal != startInfoLocal.Value)
+                {
+                    return false;
+                }
+
+                if (startedStartInfoDefinitions.Count == 0)
+                {
+                    return true;
+                }
+
+                var setterStartInfoDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                    instructions, receiverProducerIndex, setterStartInfoLocal);
+                return setterStartInfoDefinitions.Intersect(startedStartInfoDefinitions).Any();
             }
 
             if (!processLocal.HasValue ||
@@ -302,9 +354,53 @@ namespace MLVScan.Services.DataFlow
 
             var applicationIdentities = TryGetCallArgumentIdentities(
                 method, instructions, callIndex, calledMethod, applicationNameIndex);
-            return applicationIdentities.Count > 0
-                ? applicationIdentities
-                : TryGetCallArgumentIdentities(method, instructions, callIndex, calledMethod, commandLineIndex);
+            if (applicationIdentities.Count > 0)
+            {
+                return applicationIdentities;
+            }
+
+            var commandLineIdentities = TryGetCallArgumentIdentities(
+                method, instructions, callIndex, calledMethod, commandLineIndex);
+            if (InstructionValueResolver.TryResolveCallArgumentDisplay(
+                    method,
+                    calledMethod,
+                    instructions,
+                    callIndex,
+                    commandLineIndex,
+                    out var commandLine) &&
+                IsConcreteResolvedPath(commandLine) &&
+                TryExtractCommandExecutable(commandLine, out var executable))
+            {
+                commandLineIdentities.Add(NormalizeResolvedPathIdentity(executable));
+            }
+
+            return commandLineIdentities;
+        }
+
+        private static bool TryExtractCommandExecutable(string commandLine, out string executable)
+        {
+            executable = string.Empty;
+            var trimmed = commandLine.Trim();
+            if (trimmed.Length == 0)
+            {
+                return false;
+            }
+
+            if (trimmed[0] == '"')
+            {
+                var closingQuote = trimmed.IndexOf('"', 1);
+                if (closingQuote <= 1)
+                {
+                    return false;
+                }
+
+                executable = trimmed[1..closingQuote];
+                return true;
+            }
+
+            var separatorIndex = trimmed.IndexOfAny(new[] { ' ', '\t', '\r', '\n' });
+            executable = separatorIndex < 0 ? trimmed : trimmed[..separatorIndex];
+            return executable.Length > 0;
         }
 
         private static HashSet<string> TryGetShellExecuteExFileIdentities(

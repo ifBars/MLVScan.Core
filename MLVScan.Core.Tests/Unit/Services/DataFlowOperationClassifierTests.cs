@@ -170,6 +170,52 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
+    public void IdentifyInterestingOperations_CreateProcessCommandWithArguments_ExtractsExecutableIdentity()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+
+        var nativeType = new TypeDefinition(
+            "Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(nativeType);
+        var nativeModule = new ModuleReference("kernel32.dll");
+        module.ModuleReferences.Add(nativeModule);
+        var createProcess = new MethodDefinition(
+            "CreateProcessW",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            module.TypeSystem.Boolean);
+        createProcess.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        createProcess.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        for (var index = 2; index < 10; index++)
+        {
+            createProcess.Parameters.Add(new ParameterDefinition(module.TypeSystem.Object));
+        }
+        createProcess.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, "CreateProcessW", nativeModule);
+        nativeType.Methods.Add(createProcess);
+
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ldstr, "\"payload.exe\" /silent");
+        for (var index = 2; index < 10; index++)
+        {
+            il.Emit(OpCodes.Ldnull);
+        }
+        il.Emit(OpCodes.Call, createProcess);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var createProcessOperation = operations.Single(operation =>
+            operation.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase));
+
+        createProcessOperation.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_ConditionalPathReassignment_PreservesPossiblePayloadLink()
     {
         var method = CreateCallerMethod(out var module);
@@ -324,6 +370,81 @@ public class DataFlowOperationClassifierTests
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
         processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+        processStart.PayloadPathIdentities.Should().Contain(identity =>
+            identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_StoredStartInfoConstructor_ResolvesFileName()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var startInfoLocal = AddLocal(method, startInfoType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        var constructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, startInfoType);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_ReassignedStartInfo_IgnoresSettersOnOldObject()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var startInfoLocal = AddLocal(method, startInfoType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        var defaultConstructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true);
+        il.Emit(OpCodes.Newobj, defaultConstructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        var setFileName = CreateMethodReference(
+            startInfoType, "set_FileName", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Callvirt, setFileName);
+
+        var fileNameConstructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Ldstr, "benign-helper.exe");
+        il.Emit(OpCodes.Newobj, fileNameConstructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, startInfoType);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().BeEmpty();
         processStart.PayloadPathIdentities.Should().Contain(identity =>
             identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
     }

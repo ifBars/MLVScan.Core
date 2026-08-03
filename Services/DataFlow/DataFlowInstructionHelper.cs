@@ -197,6 +197,16 @@ namespace MLVScan.Services.DataFlow
             return TryFindTopValueProducer(instructions, cursor, out producerIndex);
         }
 
+        public static bool TryGetConsumedValueProducerIndex(
+            Collection<Instruction> instructions,
+            int consumerIndex,
+            out int producerIndex)
+        {
+            producerIndex = -1;
+            return consumerIndex > 0 &&
+                   TryFindTopValueProducer(instructions, consumerIndex - 1, out producerIndex);
+        }
+
         public static bool TryGetCallArgumentProducerIndex(
             Collection<Instruction> instructions,
             int callIndex,
