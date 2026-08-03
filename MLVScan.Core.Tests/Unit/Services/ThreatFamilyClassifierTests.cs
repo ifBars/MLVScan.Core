@@ -646,6 +646,34 @@ public class ThreatFamilyClassifierTests
     }
 
     [Fact]
+    public void Classify_WithPathBasedDynamicLoadAndHiddenSvchost_ReturnsDynamicAssemblyLoaderFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Plugin.Loader.Load:38",
+                "Detected dynamic assembly loading via Assembly.LoadFrom(string).",
+                Severity.High)
+            {
+                RuleId = "AssemblyDynamicLoadRule",
+                RiskScore = 60
+            },
+            new("Plugin.Runner.Start:42",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"svchost.exe\". Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-dynamic-assembly-reflection-loader-v2" &&
+            match.VariantId == "dynamic-code-loader-hidden-system-process");
+    }
+
+    [Fact]
     public void Classify_WithCorrelatedDownloadExecuteWithoutDataInfiltrationFinding_ReturnsWebDownloadFamily()
     {
         var classifier = new ThreatFamilyClassifier();
