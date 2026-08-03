@@ -3,6 +3,7 @@ using MLVScan.Models;
 using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.Runtime.CompilerServices;
 
 namespace MLVScan.Models.Rules
 {
@@ -12,6 +13,25 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class Base64Rule : IScanRule
     {
+        private readonly Func<Mono.Collections.Generic.Collection<Instruction>, ObfuscatedExecutionEvidence>
+            _evidenceCollector;
+        private readonly ConditionalWeakTable<Mono.Collections.Generic.Collection<Instruction>,
+            Lazy<ObfuscatedExecutionEvidence>> _evidenceByMethod = new();
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Base64Rule"/> class.
+        /// </summary>
+        public Base64Rule()
+            : this(ObfuscatedExecutionHeuristics.CollectEvidence)
+        {
+        }
+
+        internal Base64Rule(
+            Func<Mono.Collections.Generic.Collection<Instruction>, ObfuscatedExecutionEvidence> evidenceCollector)
+        {
+            _evidenceCollector = evidenceCollector ?? throw new ArgumentNullException(nameof(evidenceCollector));
+        }
+
         /// <summary>
         /// Gets the human-readable description for this rule.
         /// </summary>
@@ -85,8 +105,13 @@ namespace MLVScan.Models.Rules
             if (!IsSuspicious(method))
                 return true;
 
-            ObfuscatedExecutionEvidence evidence =
-                ObfuscatedExecutionHeuristics.CollectEvidence(instructions);
+            // Instruction collections are stable while a method is being analyzed. Cache the method-wide
+            // evidence so a method containing many Base64 calls is scanned only once, rather than once per call.
+            ObfuscatedExecutionEvidence evidence = _evidenceByMethod.GetValue(
+                instructions,
+                methodInstructions => new Lazy<ObfuscatedExecutionEvidence>(
+                    () => _evidenceCollector(methodInstructions),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
             bool hasExecutionOrDynamicSink =
                 evidence.HasProcessLikeSink ||
