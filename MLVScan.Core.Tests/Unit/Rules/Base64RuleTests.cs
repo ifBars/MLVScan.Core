@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil.Cil;
 using Xunit;
 
@@ -123,5 +124,29 @@ public class Base64RuleTests
         };
 
         _rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_MultipleCallsInSameMethod_CollectsEvidenceOnce()
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Convert", "FromBase64String");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldarg_0),
+            Instruction.Create(OpCodes.Call, methodRef),
+            Instruction.Create(OpCodes.Ldarg_0),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+        int collectionCount = 0;
+        var rule = new Base64Rule(methodInstructions =>
+        {
+            collectionCount++;
+            return ObfuscatedExecutionHeuristics.CollectEvidence(methodInstructions);
+        });
+
+        rule.ShouldSuppressFinding(methodRef, instructions, 1, new MethodSignals()).Should().BeTrue();
+        rule.ShouldSuppressFinding(methodRef, instructions, 3, new MethodSignals()).Should().BeTrue();
+
+        collectionCount.Should().Be(1);
     }
 }

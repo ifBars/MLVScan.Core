@@ -23,6 +23,25 @@ public class ThreatFamilyClassifierTests
         matches[0].ExactHashMatch.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e")]
+    [InlineData("b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4")]
+    public void Classify_WithKnownWebDownloadHashAndNoFindings_ReturnsExactHashMatch(string sha256Hash)
+    {
+        var classifier = new ThreatFamilyClassifier();
+
+        var matches = classifier.Classify([], sha256Hash);
+
+        matches.Should().ContainSingle();
+        matches[0].FamilyId.Should().Be("family-webdownload-stage-exec-v3");
+        matches[0].MatchKind.Should().Be(ThreatMatchKind.ExactSampleHash);
+        matches[0].ExactHashMatch.Should().BeTrue();
+
+        var disposition = new ThreatDispositionClassifier().Classify(Array.Empty<ScanFinding>(), matches);
+        disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        disposition.PrimaryThreatFamilyId.Should().Be("family-webdownload-stage-exec-v3");
+    }
+
     [Fact]
     public void Classify_WithPowerShellDownloaderBehavior_ReturnsBehaviorMatch()
     {
@@ -643,6 +662,38 @@ public class ThreatFamilyClassifierTests
         matches.Should().ContainSingle(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v2");
         matches.Single(m => m.FamilyId == "family-dynamic-assembly-reflection-loader-v2").VariantId
             .Should().Be("dynamic-code-loader-hidden-system-process");
+    }
+
+    [Fact]
+    public void Classify_WithPathBasedDynamicLoadAndHiddenSvchost_ReturnsDynamicAssemblyLoaderFamily()
+    {
+        var classifier = new ThreatFamilyClassifier();
+        var findings = new List<ScanFinding>
+        {
+            new("Plugin.Loader.Load:38",
+                "Detected dynamic assembly loading via Assembly.LoadFrom(string).",
+                Severity.High)
+            {
+                RuleId = "AssemblyDynamicLoadRule",
+                RiskScore = 60
+            },
+            new("Plugin.Runner.Start:42",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"svchost.exe\". Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden)]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var matches = classifier.Classify(findings, null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-dynamic-assembly-reflection-loader-v2" &&
+            match.VariantId == "dynamic-code-loader-hidden-system-process");
+
+        var disposition = new ThreatDispositionClassifier().Classify(findings, matches);
+        disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        disposition.PrimaryThreatFamilyId.Should().Be("family-dynamic-assembly-reflection-loader-v2");
     }
 
     [Fact]

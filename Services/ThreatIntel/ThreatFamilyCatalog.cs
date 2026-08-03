@@ -90,7 +90,11 @@ internal static partial class ThreatFamilyCatalog
                 "2026-03-malware-vortex-backuprtilizer",
                 "2026-04-malware-dynamicorders"
             ],
-            ExactSampleHashes = [],
+            ExactSampleHashes =
+            [
+                "6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e",
+                "b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4"
+            ],
             Variants =
             [
                 new ThreatFamilyVariantDefinition
@@ -611,7 +615,7 @@ internal static partial class ThreatFamilyCatalog
         var dynamicCodeFlow = context.FindDataFlow(DataFlowPattern.DynamicCodeLoading);
 
         if (processFinding == null ||
-            (dynamicCodeFlow == null && !IsHighRiskOpaqueDynamicLoad(dynamicLoadFinding)))
+            (dynamicLoadFinding == null && dynamicCodeFlow == null))
         {
             return null;
         }

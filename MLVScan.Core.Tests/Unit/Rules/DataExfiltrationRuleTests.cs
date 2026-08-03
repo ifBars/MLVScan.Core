@@ -103,6 +103,40 @@ public class DataExfiltrationRuleTests
         findings[0].Description.Should().Contain("exfiltration");
     }
 
+    [Theory]
+    [InlineData("discord.com/api/webhooks/123456/abcdef")]
+    [InlineData("discordapp.com/api/webhooks/123456/abcdef")]
+    public void AnalyzeContextualPattern_SchemelessDiscordWebhookPost_ReturnsCriticalFinding(string endpoint)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "PostAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, endpoint));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Critical);
+        findings[0].Description.Should().Contain("Discord webhook");
+    }
+
+    [Theory]
+    [InlineData("discord.com.evil.example/api/webhooks/123456/abcdef")]
+    [InlineData("notdiscord.com/api/webhooks/123456/abcdef")]
+    public void AnalyzeContextualPattern_MasqueradedSchemelessDiscordWebhookPost_ReturnsNoFinding(string endpoint)
+    {
+        var methodRef = MethodReferenceFactory.Create("System.Net.Http.HttpClient", "PostAsync");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>();
+        instructions.Add(Instruction.Create(OpCodes.Ldstr, endpoint));
+        instructions.Add(Instruction.Create(OpCodes.Call, methodRef));
+        var methodSignals = new MethodSignals();
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, methodSignals).ToList();
+
+        findings.Should().BeEmpty();
+    }
+
     [Fact]
     public void AnalyzeContextualPattern_FragmentedDiscordWebhookPost_ReturnsCriticalFinding()
     {

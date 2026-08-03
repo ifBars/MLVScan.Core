@@ -848,7 +848,17 @@ namespace MLVScan.Models.Rules.Helpers
                 return true;
             }
 
-            var resolvedMethod = method.Resolve();
+            MethodDefinition? resolvedMethod;
+            try
+            {
+                resolvedMethod = method.Resolve();
+            }
+            catch (Exception)
+            {
+                // References originate in untrusted assemblies. Resolution is best-effort; an
+                // unavailable or malformed dependency must not abort the enclosing rule.
+                resolvedMethod = null;
+            }
             if (resolvedMethod != null && resolvedMethod.HasBody && context.Module != null &&
                 resolvedMethod.Module == context.Module)
             {

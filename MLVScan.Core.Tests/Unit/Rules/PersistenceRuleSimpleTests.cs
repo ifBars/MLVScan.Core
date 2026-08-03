@@ -16,15 +16,15 @@ public class PersistenceRuleSimpleTests
     }
 
     [Fact]
-    public void Severity_ReturnsMedium()
+    public void Severity_ReturnsHigh()
     {
-        _rule.Severity.Should().Be(Severity.Medium);
+        _rule.Severity.Should().Be(Severity.High);
     }
 
     [Fact]
-    public void RequiresCompanionFinding_ReturnsTrue()
+    public void RequiresCompanionFinding_ReturnsFalse()
     {
-        _rule.RequiresCompanionFinding.Should().BeTrue();
+        _rule.RequiresCompanionFinding.Should().BeFalse();
     }
 
     [Fact]
