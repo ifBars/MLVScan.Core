@@ -54,10 +54,14 @@ const mockScanResult: ScanResult = {
     triggeredRules: [],
   },
   analysisCompleteness: {
-    status: 'Complete',
-    isComplete: true,
-    reviewRecommended: false,
-    reasons: [],
+    status: 'Incomplete',
+    isComplete: false,
+    reviewRecommended: true,
+    reasons: [{
+      reasonId: 'MockScanner',
+      summary: 'The WASM scanner did not run; this mock result must not be treated as a completed analysis.',
+      phase: 'Initialization',
+    }],
   },
   findings: []
 }
