@@ -671,6 +671,10 @@ public class ThreatFamilyClassifierTests
         matches.Should().ContainSingle(match =>
             match.FamilyId == "family-dynamic-assembly-reflection-loader-v2" &&
             match.VariantId == "dynamic-code-loader-hidden-system-process");
+
+        var disposition = new ThreatDispositionClassifier().Classify(findings, matches);
+        disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        disposition.PrimaryThreatFamilyId.Should().Be("family-dynamic-assembly-reflection-loader-v2");
     }
 
     [Fact]
