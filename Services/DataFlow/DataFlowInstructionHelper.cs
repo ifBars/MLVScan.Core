@@ -196,7 +196,7 @@ namespace MLVScan.Services.DataFlow
             return TryFindTopValueProducer(instructions, cursor, out producerIndex);
         }
 
-        private static bool TryGetCallArgumentProducerIndex(
+        public static bool TryGetCallArgumentProducerIndex(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,

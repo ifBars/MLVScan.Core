@@ -44,6 +44,34 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
+    public void IdentifyInterestingOperations_InlineProcessStartInfoConstructor_UsesFileNameIdentity()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var constructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Newobj, constructor);
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, startInfoType);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Should().BeEquivalentTo(fileWrite.PayloadPathIdentities);
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_InstanceStart_IgnoresSetterForDifferentProcess()
     {
         var method = CreateCallerMethod(out var module);
@@ -223,6 +251,37 @@ public class DataFlowOperationClassifierTests
         shellStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().BeEmpty();
         shellStart.PayloadPathIdentities.Should().ContainSingle(identity =>
             identity.Contains("BENIGN-HELPER.EXE", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_ReadOnlyFileStream_IsNotAWriteSink()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+        EmitStoredPayloadPath(il, pathLocal);
+
+        var fileStreamType = CreateTypeReference(module, "System.IO", "FileStream");
+        var fileModeType = CreateTypeReference(module, "System.IO", "FileMode");
+        var fileAccessType = CreateTypeReference(module, "System.IO", "FileAccess");
+        var constructor = CreateMethodReference(
+            fileStreamType,
+            ".ctor",
+            module.TypeSystem.Void,
+            hasThis: true,
+            module.TypeSystem.String,
+            fileModeType,
+            fileAccessType);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Ldc_I4_3); // FileMode.Open
+        il.Emit(OpCodes.Ldc_I4_1); // FileAccess.Read
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+
+        operations.Should().NotContain(operation => operation.Operation.Contains("FileStream"));
     }
 
     private static MethodDefinition CreateCallerMethod(out ModuleDefinition module)

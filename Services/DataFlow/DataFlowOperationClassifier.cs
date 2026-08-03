@@ -20,10 +20,20 @@ namespace MLVScan.Services.DataFlow
             {
                 var instruction = instructions[index];
 
-                if (instruction.Operand is not MethodReference calledMethod ||
-                    (!instruction.IsCallOrCallvirt() &&
-                     !(instruction.OpCode == OpCodes.Newobj &&
-                       IsFileStreamSink(calledMethod.DeclaringType?.FullName ?? string.Empty, calledMethod.Name))))
+                if (instruction.Operand is not MethodReference calledMethod)
+                {
+                    continue;
+                }
+
+                var isFileStreamConstructor = instruction.OpCode == OpCodes.Newobj &&
+                    IsFileStreamSink(calledMethod.DeclaringType?.FullName ?? string.Empty, calledMethod.Name);
+                if (!instruction.IsCallOrCallvirt() && !isFileStreamConstructor)
+                {
+                    continue;
+                }
+
+                if (isFileStreamConstructor &&
+                    !IsWritableFileStreamConstructor(method, instructions, index, calledMethod))
                 {
                     continue;
                 }
@@ -102,6 +112,33 @@ namespace MLVScan.Services.DataFlow
                    operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsWritableFileStreamConstructor(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int constructorIndex,
+            MethodReference constructor)
+        {
+            var accessParameterIndex = constructor.Parameters
+                .Select((parameter, index) => (parameter, index))
+                .Where(static entry => entry.parameter.ParameterType.FullName == "System.IO.FileAccess")
+                .Select(static entry => (int?)entry.index)
+                .FirstOrDefault();
+            if (!accessParameterIndex.HasValue)
+            {
+                return true;
+            }
+
+            return !InstructionValueResolver.TryResolveCallArgumentDisplay(
+                       method,
+                       constructor,
+                       instructions,
+                       constructorIndex,
+                       accessParameterIndex.Value,
+                       out var accessDisplay) ||
+                   !int.TryParse(accessDisplay, out var accessValue) ||
+                   accessValue != 1;
+        }
+
         private static HashSet<string> TryGetProcessStartPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
@@ -115,13 +152,24 @@ namespace MLVScan.Services.DataFlow
                 processStartMethod.Parameters.Count == 1 &&
                 processStartMethod.Parameters[0].ParameterType.FullName == "System.Diagnostics.ProcessStartInfo")
             {
-                if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
                         instructions, processStartIndex, processStartMethod, 0, out var resolvedStartInfoLocal))
+                {
+                    startInfoLocal = resolvedStartInfoLocal;
+                }
+                else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                             instructions, processStartIndex, processStartMethod, 0, out var producerIndex) &&
+                         instructions[producerIndex].OpCode == OpCodes.Newobj &&
+                         instructions[producerIndex].Operand is MethodReference constructor &&
+                         constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                         constructor.Parameters.Count > 0)
+                {
+                    return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
+                }
+                else
                 {
                     return EmptyIdentities();
                 }
-
-                startInfoLocal = resolvedStartInfoLocal;
             }
             else if (processStartMethod.HasThis)
             {
