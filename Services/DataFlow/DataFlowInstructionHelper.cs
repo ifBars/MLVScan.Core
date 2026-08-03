@@ -23,22 +23,12 @@ namespace MLVScan.Services.DataFlow
             MethodReference calledMethod)
         {
             var mapping = new Dictionary<int, int>();
-            var paramCount = calledMethod.Parameters.Count;
-            var foundParams = 0;
-
-            for (var index = callIndex - 1; index >= 0 && foundParams < paramCount; index--)
+            for (var parameterIndex = 0; parameterIndex < calledMethod.Parameters.Count; parameterIndex++)
             {
-                var instruction = instructions[index];
-                if (instruction.TryGetLocalIndex(out var localIndex))
+                if (TryGetCallArgumentLocalVariable(
+                        instructions, callIndex, calledMethod, parameterIndex, out var localIndex))
                 {
-                    mapping[paramCount - 1 - foundParams] = localIndex;
-                    foundParams++;
-                    continue;
-                }
-
-                if (instruction.IsArgumentLoad() || instruction.IsSimpleConstantLoad())
-                {
-                    foundParams++;
+                    mapping[parameterIndex] = localIndex;
                 }
             }
 

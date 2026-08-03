@@ -372,6 +372,12 @@ namespace MLVScan.Services.DataFlow
             {
                 identities.UnionWith(BuildLocalPathIdentities(method, instructions, producerIndex, localIndex));
             }
+            else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                         instructions, callIndex, calledMethod, argumentIndex, out producerIndex) &&
+                     TryGetMethodParameterIndex(method, instructions[producerIndex], out var parameterIndex))
+            {
+                identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
+            }
 
             if (resolved && IsConcreteResolvedPath(display))
             {
@@ -379,6 +385,28 @@ namespace MLVScan.Services.DataFlow
             }
 
             return identities;
+        }
+
+        private static bool TryGetMethodParameterIndex(
+            MethodDefinition method,
+            Instruction instruction,
+            out int parameterIndex)
+        {
+            parameterIndex = -1;
+            if (!instruction.TryGetArgumentIndex(out var rawIndex))
+            {
+                return false;
+            }
+
+            parameterIndex = instruction.Operand is ParameterDefinition parameter
+                ? parameter.Index
+                : rawIndex - (method.HasThis ? 1 : 0);
+            return parameterIndex >= 0 && parameterIndex < method.Parameters.Count;
+        }
+
+        private static string BuildArgumentPathIdentity(MethodDefinition method, int parameterIndex)
+        {
+            return $"{method.GetMethodKey()}::argument:{parameterIndex}";
         }
 
         private static bool IsConcreteResolvedPath(string display)

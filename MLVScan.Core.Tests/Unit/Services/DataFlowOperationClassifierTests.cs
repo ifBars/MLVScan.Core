@@ -329,7 +329,7 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
-    public void IdentifyInterestingOperations_UnresolvedArguments_AreNotPathIdentities()
+    public void IdentifyInterestingOperations_UnresolvedArguments_UseDistinctMethodScopedIdentities()
     {
         var method = CreateCallerMethod(out var module);
         method.Parameters.Add(new ParameterDefinition("writePath", ParameterAttributes.None, module.TypeSystem.String));
@@ -360,8 +360,11 @@ public class DataFlowOperationClassifierTests
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
-        fileWrite.PayloadPathIdentities.Should().BeEmpty();
-        processStart.PayloadPathIdentities.Should().BeEmpty();
+        fileWrite.PayloadPathIdentities.Should().ContainSingle(identity =>
+            identity.EndsWith("::argument:0", StringComparison.Ordinal));
+        processStart.PayloadPathIdentities.Should().ContainSingle(identity =>
+            identity.EndsWith("::argument:1", StringComparison.Ordinal));
+        fileWrite.PayloadPathIdentities.Intersect(processStart.PayloadPathIdentities).Should().BeEmpty();
     }
 
     [Fact]
