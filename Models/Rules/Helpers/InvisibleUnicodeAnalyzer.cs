@@ -31,8 +31,11 @@ namespace MLVScan.Models.Rules.Helpers
 
             for (int i = 0; i < literal.Length; i++)
             {
-                int codePoint = char.ConvertToUtf32(literal, i);
-                if (char.IsSurrogatePair(literal, i))
+                bool isSurrogatePair = char.IsSurrogatePair(literal, i);
+                int codePoint = isSurrogatePair
+                    ? char.ConvertToUtf32(literal, i)
+                    : literal[i];
+                if (isSurrogatePair)
                 {
                     i++;
                 }

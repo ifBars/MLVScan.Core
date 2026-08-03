@@ -26,4 +26,14 @@ public class InvisibleUnicodeAnalyzerTests
         analysis.HasVariationSelectorPayload.Should().BeFalse();
         analysis.DecodedText.Should().BeNull();
     }
+
+    [Theory]
+    [InlineData("\uD800")]
+    [InlineData("\uDC00")]
+    public void Analyze_DoesNotThrowForUnpairedSurrogate(string malformedLiteral)
+    {
+        var act = () => InvisibleUnicodeAnalyzer.Analyze(malformedLiteral);
+
+        act.Should().NotThrow();
+    }
 }
