@@ -21,7 +21,7 @@ public class PersistenceRuleTests
     [Fact]
     public void Description_ReturnsExpectedValue()
     {
-        _rule.Description.Should().Be("Detected file write to %TEMP% folder (companion finding).");
+        _rule.Description.Should().Be("Detected executable or script write to a persistence folder.");
     }
 
     [Fact]
@@ -33,9 +33,9 @@ public class PersistenceRuleTests
     [Theory]
     [InlineData(7, true, "Startup")]
     [InlineData(24, true, "CommonStartup")]
-    [InlineData(26, false, "ApplicationData")]
-    [InlineData(28, false, "LocalApplicationData")]
-    [InlineData(35, false, "CommonApplicationData")]
+    [InlineData(26, true, "ApplicationData")]
+    [InlineData(28, true, "LocalApplicationData")]
+    [InlineData(35, true, "CommonApplicationData")]
     [InlineData(36, true, "Windows")]
     [InlineData(37, true, "System")]
     [InlineData(5, false, "Folder(5)")]
@@ -175,7 +175,7 @@ public class PersistenceRuleTests
         Analyze(context, 1).Should().BeEmpty();
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_DetectsPs1WriteToPersistenceLocation()
     {
         var context = CreateContext("System.IO.File", "Copy", builder =>
@@ -191,7 +191,7 @@ public class PersistenceRuleTests
     [InlineData(@"C:\Users\Test\AppData\Startup\config.txt", false)]
     [InlineData(@"C:\Temp\output.exe", false)]
     [InlineData("", false)]
-    [InlineData(@"C:\AppData\malware.exe", false)]
+    [InlineData(@"C:\Users\Test\Documents\malware.exe", false)]
     public void AnalyzeContextualPattern_DoesNotDetect_ForNonMatchingPaths(string path, bool useNops)
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
@@ -244,7 +244,7 @@ public class PersistenceRuleTests
         Analyze(methodReference, context.Method, 0).Should().BeEmpty();
     }
 
-    [Theory(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Theory]
     [InlineData("System.IO.File", "WriteAllText", @"C:\ProgramData\payload.exe", 1)]
     [InlineData("System.IO.Directory", "Move", @"C:\Users\Test\AppData\dest.exe", 2)]
     public void AnalyzeContextualPattern_DetectsTrackedSystemIoTypes(
@@ -266,7 +266,7 @@ public class PersistenceRuleTests
         Analyze(context, callIndex).Should().HaveCount(1);
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_SearchesWithin10InstructionWindow()
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
@@ -296,7 +296,7 @@ public class PersistenceRuleTests
         Analyze(context, 12).Should().BeEmpty();
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_IncludesCodeSnippet()
     {
         var context = CreateContext("System.IO.File", "WriteAllText", builder =>
@@ -313,7 +313,7 @@ public class PersistenceRuleTests
         findings[0].CodeSnippet.Should().Contain("call");
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_CaseInsensitiveDirectoryMatching()
     {
         var context = CreateContext("System.IO.File", "Create", builder =>

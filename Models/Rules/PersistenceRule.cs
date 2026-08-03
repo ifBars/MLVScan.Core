@@ -6,7 +6,7 @@ using Mono.Cecil.Cil;
 namespace MLVScan.Models.Rules
 {
     /// <summary>
-    /// Companion rule that detects file writes to payload staging folders.
+    /// Detects file writes to payload staging and persistence folders.
     /// Triggers on Path.GetTempPath() writes and executable/script writes to sensitive folders.
     /// </summary>
     public class PersistenceRule : IScanRule
@@ -16,10 +16,10 @@ namespace MLVScan.Models.Rules
             ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
         };
 
-        public string Description => "Detected file write to %TEMP% folder (companion finding).";
-        public Severity Severity => Severity.Medium;
+        public string Description => "Detected executable or script write to a persistence folder.";
+        public Severity Severity => Severity.High;
         public string RuleId => "PersistenceRule";
-        public bool RequiresCompanionFinding => true;
+        public bool RequiresCompanionFinding => false;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
             "Use your mod framework's configuration system instead of direct file I/O. " +
@@ -40,6 +40,9 @@ namespace MLVScan.Models.Rules
             return folderValue is
                 7 or  // Startup
                 24 or // CommonStartup
+                26 or // ApplicationData
+                28 or // LocalApplicationData
+                35 or // CommonApplicationData / ProgramData
                 36 or // Windows
                 37 or // System
                 38 or // ProgramFiles
@@ -142,8 +145,9 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            bool foundSensitivePayloadWrite = sensitiveFolderName != null &&
-                                              HasSuspiciousPayloadPath(instructions, instructionIndex);
+            bool foundSensitivePayloadWrite =
+                (sensitiveFolderName != null || HasSensitiveFolderLiteral(instructions, instructionIndex)) &&
+                HasSuspiciousPayloadPath(instructions, instructionIndex);
 
             if (foundTempPath || foundSensitivePayloadWrite)
             {
@@ -158,13 +162,13 @@ namespace MLVScan.Models.Rules
                 }
 
                 string description = foundTempPath
-                    ? "Potential payload drop: Writing to TEMP folder (companion finding)"
-                    : $"Potential payload drop: Writing executable/script payload to sensitive folder {sensitiveFolderName} (companion finding)";
+                    ? "Potential payload drop: Writing to TEMP folder"
+                    : $"Potential persistence: Writing executable/script payload to sensitive folder{(sensitiveFolderName == null ? string.Empty : $" {sensitiveFolderName}")}";
 
                 yield return new ScanFinding(
                     $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
                     description,
-                    Severity.Medium,
+                    foundTempPath ? Severity.Medium : Severity.High,
                     snippetBuilder.ToString().TrimEnd());
             }
         }
@@ -182,7 +186,7 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int instructionIndex)
         {
-            int start = Math.Max(0, instructionIndex - 12);
+            int start = Math.Max(0, instructionIndex - 10);
             int end = Math.Min(instructions.Count, instructionIndex + 3);
 
             for (int i = start; i < end; i++)
@@ -202,6 +206,27 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        private static bool HasSensitiveFolderLiteral(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex)
+        {
+            int start = Math.Max(0, instructionIndex - 10);
+            int end = Math.Min(instructions.Count, instructionIndex + 3);
+
+            for (int i = start; i < end; i++)
+            {
+                if (instructions[i].OpCode == OpCodes.Ldstr && instructions[i].Operand is string literal &&
+                    (literal.Contains("Startup", StringComparison.OrdinalIgnoreCase) ||
+                     literal.Contains("AppData", StringComparison.OrdinalIgnoreCase) ||
+                     literal.Contains("ProgramData", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool IsFileWriteOperation(
             string typeName,
             string methodName,
@@ -211,7 +236,15 @@ namespace MLVScan.Models.Rules
             if (typeName.Equals("System.IO.File", StringComparison.OrdinalIgnoreCase) &&
                 (methodName.Contains("Write", StringComparison.OrdinalIgnoreCase) ||
                  methodName.Contains("Create", StringComparison.OrdinalIgnoreCase) ||
-                 methodName.Contains("Append", StringComparison.OrdinalIgnoreCase)))
+                 methodName.Contains("Append", StringComparison.OrdinalIgnoreCase) ||
+                 methodName.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
+                 methodName.Equals("Move", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (typeName.Equals("System.IO.Directory", StringComparison.OrdinalIgnoreCase) &&
+                methodName.Equals("Move", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
