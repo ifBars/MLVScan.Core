@@ -21,7 +21,7 @@ public class PersistenceRuleTests
     [Fact]
     public void Description_ReturnsExpectedValue()
     {
-        _rule.Description.Should().Be("Detected file write to %TEMP% folder (companion finding).");
+        _rule.Description.Should().Be("Detected executable or script write to a persistence folder.");
     }
 
     [Fact]
@@ -55,9 +55,16 @@ public class PersistenceRuleTests
         {
             builder.EmitCall("System.IO.Path", "GetTempPath", builder.Module.TypeSystem.String);
             builder.EmitString("payload.exe");
+            builder.EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String,
+                builder.Module.TypeSystem.String);
+            builder.EmitString("content");
         });
 
-        var findings = Analyze(context, 2);
+        var findings = Analyze(context, 4);
 
         findings.Should().HaveCount(1);
         findings[0].Severity.Should().Be(Severity.Medium);
@@ -153,7 +160,7 @@ public class PersistenceRuleTests
     }
 
     [Fact]
-    public void AnalyzeContextualPattern_DoesNotDetect_WhenNoTempPath()
+    public void AnalyzeContextualPattern_DetectsExecutableWriteToAppDataWithoutTempPath()
     {
         var context = CreateContext("System.IO.File", "WriteAllBytes", builder =>
         {
@@ -161,7 +168,11 @@ public class PersistenceRuleTests
             builder.EmitString("content");
         });
 
-        Analyze(context, 2).Should().BeEmpty();
+        var findings = Analyze(context, 2);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Potential persistence");
     }
 
     [Fact]
@@ -175,7 +186,7 @@ public class PersistenceRuleTests
         Analyze(context, 1).Should().BeEmpty();
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_DetectsPs1WriteToPersistenceLocation()
     {
         var context = CreateContext("System.IO.File", "Copy", builder =>
@@ -187,11 +198,71 @@ public class PersistenceRuleTests
         Analyze(context, 2).Should().HaveCount(1);
     }
 
+    [Fact]
+    public void AnalyzeContextualPattern_DoesNotTreatCopySourceAsDestination()
+    {
+        var context = CreateContext("System.IO.File", "Copy", builder =>
+        {
+            builder.EmitString(@"C:\Users\Test\AppData\payload.exe");
+            builder.EmitString(@"C:\Backup\payload.exe");
+        });
+
+        Analyze(context, 2).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(@"C:\Temp\StartupHelper.exe")]
+    [InlineData(@"C:\Temp\AppDataExporter.exe")]
+    public void AnalyzeContextualPattern_DoesNotTreatFilenameAsSensitiveDirectory(string destination)
+    {
+        var context = CreateContext("System.IO.File", "Create", builder => builder.EmitString(destination));
+
+        Analyze(context, 1).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DoesNotAssociateUnrelatedTempLookupWithWrite()
+    {
+        var context = CreateContext("System.IO.File", "WriteAllText", builder =>
+        {
+            builder.EmitCall("System.IO.Path", "GetTempPath", builder.Module.TypeSystem.String);
+            builder.Emit(OpCodes.Pop);
+            builder.EmitString(@"C:\Users\Test\Documents\output.exe");
+            builder.EmitString("content");
+        });
+
+        Analyze(context, 4).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_PrefersHighSeverityWhenTempAndSensitiveDestinationOverlap()
+    {
+        var context = CreateContext("System.IO.File", "Create", builder =>
+            builder.EmitString(@"%TEMP%\AppData\payload.exe"));
+
+        var findings = Analyze(context, 1);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Potential persistence");
+    }
+
+    [Theory]
+    [InlineData(@"C:\Windows\payload.exe")]
+    [InlineData(@"C:\Program Files\Example\payload.dll")]
+    [InlineData(@"C:\Program Files (x86)\Example\payload.cmd")]
+    public void AnalyzeContextualPattern_DetectsHardCodedSystemFolderDestinations(string destination)
+    {
+        var context = CreateContext("System.IO.File", "Create", builder => builder.EmitString(destination));
+
+        Analyze(context, 1).Should().ContainSingle();
+    }
+
     [Theory]
     [InlineData(@"C:\Users\Test\AppData\Startup\config.txt", false)]
     [InlineData(@"C:\Temp\output.exe", false)]
     [InlineData("", false)]
-    [InlineData(@"C:\AppData\malware.exe", false)]
+    [InlineData(@"C:\Users\Test\Documents\malware.exe", false)]
     public void AnalyzeContextualPattern_DoesNotDetect_ForNonMatchingPaths(string path, bool useNops)
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
@@ -244,8 +315,8 @@ public class PersistenceRuleTests
         Analyze(methodReference, context.Method, 0).Should().BeEmpty();
     }
 
-    [Theory(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
-    [InlineData("System.IO.File", "WriteAllText", @"C:\ProgramData\payload.exe", 1)]
+    [Theory]
+    [InlineData("System.IO.File", "WriteAllText", @"C:\ProgramData\payload.exe", 2)]
     [InlineData("System.IO.Directory", "Move", @"C:\Users\Test\AppData\dest.exe", 2)]
     public void AnalyzeContextualPattern_DetectsTrackedSystemIoTypes(
         string declaringType,
@@ -255,18 +326,22 @@ public class PersistenceRuleTests
     {
         var context = CreateContext(declaringType, methodName, builder =>
         {
-            if (callIndex == 2)
+            if (methodName.Equals("Move", StringComparison.OrdinalIgnoreCase))
             {
                 builder.EmitString("source.exe");
             }
 
             builder.EmitString(targetPath);
+            if (methodName.Contains("Write", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.EmitString("content");
+            }
         });
 
         Analyze(context, callIndex).Should().HaveCount(1);
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_SearchesWithin10InstructionWindow()
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
@@ -282,7 +357,7 @@ public class PersistenceRuleTests
     }
 
     [Fact]
-    public void AnalyzeContextualPattern_DoesNotFindStringBeyond10InstructionWindow()
+    public void AnalyzeContextualPattern_ResolvesDestinationAcrossInterveningNops()
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
         {
@@ -293,19 +368,20 @@ public class PersistenceRuleTests
             }
         });
 
-        Analyze(context, 12).Should().BeEmpty();
+        Analyze(context, 12).Should().ContainSingle();
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_IncludesCodeSnippet()
     {
         var context = CreateContext("System.IO.File", "WriteAllText", builder =>
         {
             builder.EmitString(@"C:\Startup\payload.exe");
+            builder.EmitString("content");
             builder.Emit(OpCodes.Nop);
         });
 
-        var findings = Analyze(context, 2);
+        var findings = Analyze(context, 3);
 
         findings.Should().HaveCount(1);
         findings[0].CodeSnippet.Should().NotBeNullOrEmpty();
@@ -313,7 +389,7 @@ public class PersistenceRuleTests
         findings[0].CodeSnippet.Should().Contain("call");
     }
 
-    [Fact(Skip = "Failing in CI - returns no findings when one is expected. Needs investigation.")]
+    [Fact]
     public void AnalyzeContextualPattern_CaseInsensitiveDirectoryMatching()
     {
         var context = CreateContext("System.IO.File", "Create", builder =>
@@ -361,6 +437,18 @@ public class PersistenceRuleTests
             methodName,
             methodBuilder.Module.TypeSystem.Void,
             CreateTypeReference(methodBuilder.Module, declaringType));
+
+        int parameterCount = methodName.Equals(".ctor", StringComparison.OrdinalIgnoreCase)
+            ? 3
+            : methodName.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
+              methodName.Equals("Move", StringComparison.OrdinalIgnoreCase) ||
+              methodName.Contains("Write", StringComparison.OrdinalIgnoreCase)
+                ? 2
+                : 1;
+        for (int i = 0; i < parameterCount; i++)
+        {
+            writeMethod.Parameters.Add(new ParameterDefinition(methodBuilder.Module.TypeSystem.String));
+        }
 
         methodBuilder.EmitCallInternal(CreateCallStub(methodBuilder.Module, writeMethod));
         methodBuilder.EndMethod();

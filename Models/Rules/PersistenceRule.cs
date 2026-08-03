@@ -1,12 +1,13 @@
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
 namespace MLVScan.Models.Rules
 {
     /// <summary>
-    /// Companion rule that detects file writes to payload staging folders.
+    /// Detects file writes to payload staging and persistence folders.
     /// Triggers on Path.GetTempPath() writes and executable/script writes to sensitive folders.
     /// </summary>
     public class PersistenceRule : IScanRule
@@ -16,10 +17,10 @@ namespace MLVScan.Models.Rules
             ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
         };
 
-        public string Description => "Detected file write to %TEMP% folder (companion finding).";
-        public Severity Severity => Severity.Medium;
+        public string Description => "Detected executable or script write to a persistence folder.";
+        public Severity Severity => Severity.High;
         public string RuleId => "PersistenceRule";
-        public bool RequiresCompanionFinding => true;
+        public bool RequiresCompanionFinding => false;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
             "Use your mod framework's configuration system instead of direct file I/O. " +
@@ -112,8 +113,6 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            // Only flag if we find actual Path.GetTempPath() call
-            bool foundTempPath = false;
             string? sensitiveFolderName = null;
 
             for (int i = 0; i < instructions.Count; i++)
@@ -124,12 +123,6 @@ namespace MLVScan.Models.Rules
                     instr.Operand is MethodReference pathMethod)
                 {
                     var pathDeclaringType = pathMethod.DeclaringType?.FullName ?? "";
-
-                    if (pathDeclaringType == "System.IO.Path" && pathMethod.Name == "GetTempPath")
-                    {
-                        foundTempPath = true;
-                        break;
-                    }
 
                     if (pathDeclaringType == "System.Environment" && pathMethod.Name == "GetFolderPath")
                     {
@@ -142,8 +135,13 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            bool foundSensitivePayloadWrite = sensitiveFolderName != null &&
-                                              HasSuspiciousPayloadPath(instructions, instructionIndex);
+            if (!TryResolveDestinationPath(method, instructions, instructionIndex, out string destinationPath))
+                yield break;
+
+            bool foundTempPath = HasDirectoryComponent(destinationPath, "%TEMP%");
+            bool foundSensitivePayloadWrite =
+                HasSuspiciousPayloadExtension(destinationPath) &&
+                (sensitiveFolderName != null || HasSensitiveDirectoryComponent(destinationPath));
 
             if (foundTempPath || foundSensitivePayloadWrite)
             {
@@ -157,14 +155,14 @@ namespace MLVScan.Models.Rules
                     snippetBuilder.AppendLine(instructions[j].ToString());
                 }
 
-                string description = foundTempPath
-                    ? "Potential payload drop: Writing to TEMP folder (companion finding)"
-                    : $"Potential payload drop: Writing executable/script payload to sensitive folder {sensitiveFolderName} (companion finding)";
+                string description = foundSensitivePayloadWrite
+                    ? $"Potential persistence: Writing executable/script payload to sensitive folder{(sensitiveFolderName == null ? string.Empty : $" {sensitiveFolderName}")}"
+                    : "Potential payload drop: Writing to TEMP folder";
 
                 yield return new ScanFinding(
                     $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
                     description,
-                    Severity.Medium,
+                    foundSensitivePayloadWrite ? Severity.High : Severity.Medium,
                     snippetBuilder.ToString().TrimEnd());
             }
         }
@@ -178,22 +176,41 @@ namespace MLVScan.Models.Rules
                        35;   // CommonApplicationData / ProgramData
         }
 
-        private static bool HasSuspiciousPayloadPath(
+        private static bool TryResolveDestinationPath(
+            MethodReference method,
             Mono.Collections.Generic.Collection<Instruction> instructions,
-            int instructionIndex)
+            int instructionIndex,
+            out string destinationPath)
         {
-            int start = Math.Max(0, instructionIndex - 12);
-            int end = Math.Min(instructions.Count, instructionIndex + 3);
+            bool isCopyOrMove = method.Name.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
+                                method.Name.Equals("Move", StringComparison.OrdinalIgnoreCase);
+            int destinationParameterIndex = isCopyOrMove ? 1 : 0;
+            return InstructionValueResolver.TryResolveCallArgumentDisplay(
+                null, method, instructions, instructionIndex, destinationParameterIndex, out destinationPath);
+        }
 
-            for (int i = start; i < end; i++)
+        private static bool HasSuspiciousPayloadExtension(string path)
+        {
+            return SuspiciousPayloadExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool HasSensitiveDirectoryComponent(string path)
+        {
+            return HasDirectoryComponent(path,
+                "Startup", "AppData", "ProgramData", "Windows", "System", "System32",
+                "Program Files", "Program Files (x86)", "ProgramFiles", "ProgramFilesX86");
+        }
+
+        private static bool HasDirectoryComponent(string path, params string[] expectedComponents)
+        {
+            string normalized = path.Replace('\\', '/').TrimEnd('/');
+            string[] components = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            int directoryComponentCount = Math.Max(0, components.Length - 1);
+
+            for (int i = 0; i < directoryComponentCount; i++)
             {
-                if (instructions[i].OpCode != OpCodes.Ldstr || instructions[i].Operand is not string literal)
-                    continue;
-
-                if (SuspiciousPayloadExtensions.Any(ext =>
-                        literal.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ||
-                        literal.Contains(ext + "\"", StringComparison.OrdinalIgnoreCase) ||
-                        literal.Contains(ext + "'", StringComparison.OrdinalIgnoreCase)))
+                if (expectedComponents.Any(expected =>
+                        components[i].Equals(expected, StringComparison.OrdinalIgnoreCase)))
                 {
                     return true;
                 }
@@ -211,7 +228,15 @@ namespace MLVScan.Models.Rules
             if (typeName.Equals("System.IO.File", StringComparison.OrdinalIgnoreCase) &&
                 (methodName.Contains("Write", StringComparison.OrdinalIgnoreCase) ||
                  methodName.Contains("Create", StringComparison.OrdinalIgnoreCase) ||
-                 methodName.Contains("Append", StringComparison.OrdinalIgnoreCase)))
+                 methodName.Contains("Append", StringComparison.OrdinalIgnoreCase) ||
+                 methodName.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
+                 methodName.Equals("Move", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (typeName.Equals("System.IO.Directory", StringComparison.OrdinalIgnoreCase) &&
+                methodName.Equals("Move", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
