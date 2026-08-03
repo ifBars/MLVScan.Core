@@ -595,12 +595,7 @@ public class FalsePositiveScanTests
         {
             // The embedded updater is benign, but its resource -> disk -> execute behavior is
             // intentionally indistinguishable from a dropper and therefore review-required.
-            ["BoneLibUpdater.dll"] = "Suspicious",
-            // These samples contain incomplete-scan warnings and must remain review-required rather
-            // than being represented as fully scanned Clean results.
-            [@"DexterTranslator\UserLibs\XUnity.AutoTranslator.Plugin.Core.dll"] = "ManualReviewRequired",
-            ["SideHustle.dll"] = "ManualReviewRequired",
-            ["XUnity.AutoTranslator.Plugin.Core.dll"] = "ManualReviewRequired"
+            ["BoneLibUpdater.dll"] = "Suspicious"
         };
 
         foreach (var path in assemblyPaths)

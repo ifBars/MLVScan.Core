@@ -239,10 +239,14 @@ public sealed class ThreatDispositionClassifier
             return false;
         }
 
+        if (finding.HasDataFlow && IsSuspiciousDataFlowSeed(finding))
+        {
+            return true;
+        }
+
         if (string.Equals(finding.RuleId, "DataFlowAnalysis", StringComparison.Ordinal))
         {
-            return finding.HasDataFlow &&
-                   IsSuspiciousDataFlowSeed(finding);
+            return false;
         }
 
         if (StrongStandaloneRuleIds.Contains(finding.RuleId ?? string.Empty))

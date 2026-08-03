@@ -182,10 +182,10 @@ public class ThreatDispositionClassifierTests
 
         var finding = new ScanFinding(
             "Benign.Updater.Run",
-            "Embedded updater executable extracted and launched with Process.Start",
+            "Detected Process.Start for an embedded updater executable with correlated data flow",
             Severity.Critical)
         {
-            RuleId = "DataFlowAnalysis",
+            RuleId = "ProcessStartRule",
             DataFlowChain = dataFlow
         };
 
