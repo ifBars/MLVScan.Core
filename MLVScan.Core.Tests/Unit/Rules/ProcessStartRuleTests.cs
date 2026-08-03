@@ -357,6 +357,41 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void GetFindingDescription_WithUnresolvableUseShellExecuteValue_PreservesFindingDescription()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        module.Types.Add(new TypeDefinition("Tests", "TestType", TypeAttributes.Public)).Methods.Add(method);
+
+        var missingAssembly = new AssemblyNameReference("MissingDependency", new Version(1, 0, 0, 0));
+        module.AssemblyReferences.Add(missingAssembly);
+        var missingType = new TypeReference("MissingDependency", "Helper", module, missingAssembly);
+        var getFlag = new MethodReference("GetFlag", module.TypeSystem.Boolean, missingType)
+        {
+            HasThis = false
+        };
+        var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "cmd.exe");
+        processor.Emit(OpCodes.Callvirt,
+            new MethodReference("set_FileName", module.TypeSystem.Void, processStartInfo));
+        processor.Emit(OpCodes.Call, getFlag);
+        processor.Emit(OpCodes.Callvirt,
+            new MethodReference("set_UseShellExecute", module.TypeSystem.Void, processStartInfo));
+        var start = new MethodReference("Start", module.TypeSystem.Boolean, process);
+        processor.Emit(OpCodes.Callvirt, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"cmd.exe\"");
+    }
+
+    [Fact]
     public void DetermineSeverity_KnownSafeToolWithCreateNoWindowAndPlaceholderArgs_ReturnsMedium()
     {
         var result = InvokeDetermineSeverity(
