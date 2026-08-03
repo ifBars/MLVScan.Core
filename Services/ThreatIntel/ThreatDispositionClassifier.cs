@@ -295,30 +295,7 @@ public sealed class ThreatDispositionClassifier
 
     private static bool IsSuspiciousDataFlowSeed(ScanFinding finding)
     {
-        var pattern = finding.DataFlowChain!.Pattern;
-        if (pattern == DataFlowPattern.EmbeddedResourceDropAndExecute)
-        {
-            return HasEmbeddedDropperExecutionMarkers(finding);
-        }
-
-        return SuspiciousDataFlowPatterns.Contains(pattern);
-    }
-
-    private static bool HasEmbeddedDropperExecutionMarkers(ScanFinding finding)
-    {
-        var texts = EnumerateEmbeddedDataFlowTexts(finding).ToList();
-        return ContainsAny(texts,
-            ".cmd",
-            ".bat",
-            "%TEMP%",
-            "ShellExecuteEx",
-            "PInvoke.ShellExecute",
-            "PInvoke.CreateProcess",
-            "PInvoke.WinExec",
-            "temp script dropper pattern",
-            "nShow=0",
-            "WindowStyle=Hidden",
-            "CreateNoWindow=true");
+        return SuspiciousDataFlowPatterns.Contains(finding.DataFlowChain!.Pattern);
     }
 
     private static IEnumerable<string> EnumerateEmbeddedDataFlowTexts(ScanFinding finding)

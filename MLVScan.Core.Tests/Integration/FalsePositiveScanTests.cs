@@ -272,7 +272,7 @@ public class FalsePositiveScanTests
     }
 
     [SkippableFact]
-    public void Scan_BoneLibUpdater_ShouldRemainCleanUnderThreatDisposition()
+    public void Scan_BoneLibUpdater_EmbeddedExecutableDropper_ShouldBeSuspicious()
     {
         var path = GetSamplePath("BoneLibUpdater.dll");
 
@@ -284,8 +284,9 @@ public class FalsePositiveScanTests
         var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
 
         dto.Disposition.Should().NotBeNull();
-        dto.Disposition!.Classification.Should().Be("Clean",
-            "BoneLibUpdater stages a bundled local updater executable, but it does not stage a temp script or invoke shell32 ShellExecuteEx like the malicious family");
+        dto.Disposition!.Classification.Should().Be("Suspicious",
+            "an embedded executable drop-and-execute chain must not evade disposition based on its path or launch API");
+        dto.Disposition.BlockingRecommended.Should().BeTrue();
         dto.ThreatFamilies.Should().BeNull();
     }
 

@@ -152,7 +152,7 @@ public class ThreatDispositionClassifierTests
     }
 
     [Fact]
-    public void Classify_WithEmbeddedUpdaterExeDataFlowAndNoDropperMarkers_ReturnsClean()
+    public void Classify_WithEmbeddedUpdaterExeDataFlowAndNoDropperMarkers_ReturnsSuspicious()
     {
         var classifier = new ThreatDispositionClassifier();
         var dataFlow = new DataFlowChain(
@@ -191,9 +191,9 @@ public class ThreatDispositionClassifierTests
 
         var result = classifier.Classify(new[] { finding }, threatFamilies: null);
 
-        result.Classification.Should().Be(ThreatDispositionClassification.Clean);
-        result.RelatedFindings.Should().BeEmpty();
-        result.BlockingRecommended.Should().BeFalse();
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
     }
 
     [Fact]
