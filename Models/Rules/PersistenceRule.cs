@@ -155,14 +155,14 @@ namespace MLVScan.Models.Rules
                     snippetBuilder.AppendLine(instructions[j].ToString());
                 }
 
-                string description = foundTempPath
-                    ? "Potential payload drop: Writing to TEMP folder"
-                    : $"Potential persistence: Writing executable/script payload to sensitive folder{(sensitiveFolderName == null ? string.Empty : $" {sensitiveFolderName}")}";
+                string description = foundSensitivePayloadWrite
+                    ? $"Potential persistence: Writing executable/script payload to sensitive folder{(sensitiveFolderName == null ? string.Empty : $" {sensitiveFolderName}")}"
+                    : "Potential payload drop: Writing to TEMP folder";
 
                 yield return new ScanFinding(
                     $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
                     description,
-                    foundTempPath ? Severity.Medium : Severity.High,
+                    foundSensitivePayloadWrite ? Severity.High : Severity.Medium,
                     snippetBuilder.ToString().TrimEnd());
             }
         }

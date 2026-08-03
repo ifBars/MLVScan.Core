@@ -234,6 +234,19 @@ public class PersistenceRuleTests
         Analyze(context, 4).Should().BeEmpty();
     }
 
+    [Fact]
+    public void AnalyzeContextualPattern_PrefersHighSeverityWhenTempAndSensitiveDestinationOverlap()
+    {
+        var context = CreateContext("System.IO.File", "Create", builder =>
+            builder.EmitString(@"%TEMP%\AppData\payload.exe"));
+
+        var findings = Analyze(context, 1);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Potential persistence");
+    }
+
     [Theory]
     [InlineData(@"C:\Windows\payload.exe")]
     [InlineData(@"C:\Program Files\Example\payload.dll")]
