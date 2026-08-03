@@ -75,6 +75,7 @@ namespace MLVScan.Services.DataFlow
                 var parameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(
                     instructions, index, calledMethod);
                 var parameterReachingStoreIndexes = new Dictionary<int, HashSet<int>>();
+                var forwardedParameterMapping = new Dictionary<int, int>();
                 foreach (var (parameterIndex, localIndex) in parameterMapping)
                 {
                     if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
@@ -87,6 +88,16 @@ namespace MLVScan.Services.DataFlow
                         .GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex)
                         .ToHashSet();
                 }
+                for (var parameterIndex = 0; parameterIndex < calledMethod.Parameters.Count; parameterIndex++)
+                {
+                    if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                            instructions, index, calledMethod, parameterIndex, out var producerIndex) &&
+                        DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                            method, instructions[producerIndex], out var callerParameterIndex))
+                    {
+                        forwardedParameterMapping[parameterIndex] = callerParameterIndex;
+                    }
+                }
 
                 info.OutgoingCalls.Add(new DataFlowMethodCallSite
                 {
@@ -96,6 +107,7 @@ namespace MLVScan.Services.DataFlow
                     InstructionIndex = index,
                     ParameterMapping = parameterMapping,
                     ParameterReachingStoreIndexes = parameterReachingStoreIndexes,
+                    ForwardedParameterMapping = forwardedParameterMapping,
                     ReturnValueUsed = DataFlowInstructionHelper.IsReturnValueUsed(instructions, index),
                     CalledMethodReturnsData = calledMethod.ReturnType.FullName != "System.Void"
                 });

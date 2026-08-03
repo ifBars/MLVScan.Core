@@ -81,6 +81,23 @@ namespace MLVScan.Services.DataFlow
                    TryGetLocalOrAddressedLocalIndex(instructions[producerIndex], out localIndex);
         }
 
+        public static bool TryGetMethodParameterIndex(
+            MethodDefinition method,
+            Instruction instruction,
+            out int parameterIndex)
+        {
+            parameterIndex = -1;
+            if (!instruction.TryGetArgumentIndex(out var rawIndex))
+            {
+                return false;
+            }
+
+            parameterIndex = instruction.Operand is ParameterDefinition parameter
+                ? parameter.Index
+                : rawIndex - (method.HasThis ? 1 : 0);
+            return parameterIndex >= 0 && parameterIndex < method.Parameters.Count;
+        }
+
         public static bool TryGetCallReceiverLocalVariable(
             Collection<Instruction> instructions,
             int callIndex,

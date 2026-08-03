@@ -159,13 +159,10 @@ namespace MLVScan.Services.DataFlow
                     startInfoLocal = resolvedStartInfoLocal;
                 }
                 else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
-                             instructions, processStartIndex, processStartMethod, 0, out var producerIndex) &&
-                         instructions[producerIndex].OpCode == OpCodes.Newobj &&
-                         instructions[producerIndex].Operand is MethodReference constructor &&
-                         constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
-                         constructor.Parameters.Count > 0)
+                             instructions, processStartIndex, processStartMethod, 0, out var producerIndex))
                 {
-                    return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
+                    return TryGetStartInfoProducerIdentities(
+                        method, instructions, producerIndex, processStartIndex);
                 }
                 else
                 {
@@ -265,12 +262,11 @@ namespace MLVScan.Services.DataFlow
                 return EmptyIdentities();
             }
 
-            if (instructions[producerIndex].OpCode == OpCodes.Newobj &&
-                instructions[producerIndex].Operand is MethodReference constructor &&
-                constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
-                constructor.Parameters.Count > 0)
+            var producerIdentities = TryGetStartInfoProducerIdentities(
+                method, instructions, producerIndex, setterIndex);
+            if (producerIdentities.Count > 0)
             {
-                return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
+                return producerIdentities;
             }
 
             if (!instructions[producerIndex].TryGetLocalIndex(out var startInfoLocal))
@@ -309,22 +305,67 @@ namespace MLVScan.Services.DataFlow
             return identities;
         }
 
+        private static HashSet<string> TryGetStartInfoProducerIdentities(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int producerIndex,
+            int consumerIndex)
+        {
+            var initializerStartIndex = producerIndex;
+            var constructorIndex = producerIndex;
+            if (instructions[producerIndex].OpCode == OpCodes.Dup)
+            {
+                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                        instructions, producerIndex, out constructorIndex))
+                {
+                    return EmptyIdentities();
+                }
+            }
+
+            if (instructions[constructorIndex].OpCode != OpCodes.Newobj ||
+                instructions[constructorIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return EmptyIdentities();
+            }
+
+            var identities = constructor.Parameters.Count > 0
+                ? TryGetCallArgumentIdentities(method, instructions, constructorIndex, constructor, 0)
+                : EmptyIdentities();
+            if (instructions[producerIndex].OpCode != OpCodes.Dup)
+            {
+                return identities;
+            }
+
+            for (var index = initializerStartIndex + 1; index < consumerIndex; index++)
+            {
+                if (!TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) ||
+                    !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                        instructions, index, fileNameSetter, out var receiverProducerIndex) ||
+                    receiverProducerIndex != initializerStartIndex)
+                {
+                    continue;
+                }
+
+                identities.UnionWith(TryGetCallArgumentIdentities(
+                    method, instructions, index, fileNameSetter, 0));
+            }
+
+            return identities;
+        }
+
         private static HashSet<string> TryGetStoredStartInfoConstructorIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int storeIndex)
         {
             if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
-                    instructions, storeIndex, out var producerIndex) ||
-                instructions[producerIndex].OpCode != OpCodes.Newobj ||
-                instructions[producerIndex].Operand is not MethodReference constructor ||
-                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
-                constructor.Parameters.Count == 0)
+                    instructions, storeIndex, out var producerIndex))
             {
                 return EmptyIdentities();
             }
 
-            return TryGetCallArgumentIdentities(method, instructions, producerIndex, constructor, 0);
+            return TryGetStartInfoProducerIdentities(method, instructions, producerIndex, storeIndex);
         }
 
         private static bool TryGetStartInfoFileNameSetter(
@@ -614,7 +655,8 @@ namespace MLVScan.Services.DataFlow
             }
             else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
                          instructions, callIndex, calledMethod, argumentIndex, out producerIndex) &&
-                     TryGetMethodParameterIndex(method, instructions[producerIndex], out var parameterIndex))
+                     DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                         method, instructions[producerIndex], out var parameterIndex))
             {
                 identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
             }
@@ -625,23 +667,6 @@ namespace MLVScan.Services.DataFlow
             }
 
             return identities;
-        }
-
-        private static bool TryGetMethodParameterIndex(
-            MethodDefinition method,
-            Instruction instruction,
-            out int parameterIndex)
-        {
-            parameterIndex = -1;
-            if (!instruction.TryGetArgumentIndex(out var rawIndex))
-            {
-                return false;
-            }
-
-            parameterIndex = instruction.Operand is ParameterDefinition parameter
-                ? parameter.Index
-                : rawIndex - (method.HasThis ? 1 : 0);
-            return parameterIndex >= 0 && parameterIndex < method.Parameters.Count;
         }
 
         private static string BuildArgumentPathIdentity(MethodDefinition method, int parameterIndex)
@@ -700,7 +725,8 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
-                if (TryGetMethodParameterIndex(method, instructions[producerIndex], out var parameterIndex))
+                if (DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                        method, instructions[producerIndex], out var parameterIndex))
                 {
                     identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
                 }

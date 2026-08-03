@@ -14,6 +14,8 @@ namespace MLVScan.Models.DataFlow
 
         public Dictionary<int, HashSet<int>> ParameterReachingStoreIndexes { get; set; } = new();
 
+        public Dictionary<int, int> ForwardedParameterMapping { get; set; } = new();
+
         public bool ReturnValueUsed { get; set; }
 
         public bool CalledMethodReturnsData { get; set; }

@@ -257,6 +257,31 @@ namespace MLVScan.Services.DataFlow
                             operation.PayloadPathIdentities.Add(bridgeIdentity);
                         }
                     }
+
+                    foreach (var (parameterIndex, callerParameterIndex) in callSite.ForwardedParameterMapping)
+                    {
+                        var callerArgumentIdentity =
+                            $"{callerNode.MethodInfo.MethodKey}::argument:{callerParameterIndex}";
+                        var calleeArgumentIdentity =
+                            $"{calleeNode.MethodInfo.MethodKey}::argument:{parameterIndex}";
+                        var callerOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Contains(callerArgumentIdentity))
+                            .ToList();
+                        var calleeOperations = operations
+                            .Where(operation => operation.PayloadPathIdentities.Contains(calleeArgumentIdentity))
+                            .ToList();
+                        if (callerOperations.Count == 0 || calleeOperations.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var bridgeIdentity =
+                            $"call:{callerNode.MethodInfo.MethodKey}@{callSite.InstructionIndex}:argument:{parameterIndex}";
+                        foreach (var operation in callerOperations.Concat(calleeOperations))
+                        {
+                            operation.PayloadPathIdentities.Add(bridgeIdentity);
+                        }
+                    }
                 }
 
                 ApplyCallSitePathMappings(calleeNode, operations);

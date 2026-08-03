@@ -72,6 +72,38 @@ public class DataFlowOperationClassifierTests
     }
 
     [Fact]
+    public void IdentifyInterestingOperations_InlineStartInfoInitializer_UsesFileNameIdentity()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var constructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true);
+        var setFileName = CreateMethodReference(
+            startInfoType, "set_FileName", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, startInfoType);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_InstanceStart_IgnoresSetterForDifferentProcess()
     {
         var method = CreateCallerMethod(out var module);
@@ -483,6 +515,42 @@ public class DataFlowOperationClassifierTests
             startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
         il.Emit(OpCodes.Ldloc, pathLocal);
         il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+
+        var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
+        var start = CreateMethodReference(
+            processType, "Start", processType, hasThis: false, startInfoType);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, start);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
+        var processStart = operations.Single(operation => operation.Operation == "Process.Start");
+
+        processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void IdentifyInterestingOperations_StoredStartInfoInitializer_UsesFileNameIdentity()
+    {
+        var method = CreateCallerMethod(out var module);
+        var pathLocal = AddLocal(method, module.TypeSystem.String);
+        var startInfoType = CreateTypeReference(module, "System.Diagnostics", "ProcessStartInfo");
+        var startInfoLocal = AddLocal(method, startInfoType);
+        var il = method.Body.GetILProcessor();
+
+        EmitStoredPayloadPath(il, pathLocal);
+        EmitFileWrite(il, module, pathLocal);
+        var constructor = CreateMethodReference(
+            startInfoType, ".ctor", module.TypeSystem.Void, hasThis: true);
+        var setFileName = CreateMethodReference(
+            startInfoType, "set_FileName", module.TypeSystem.Void, hasThis: true, module.TypeSystem.String);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Ldloc, pathLocal);
+        il.Emit(OpCodes.Callvirt, setFileName);
         il.Emit(OpCodes.Stloc, startInfoLocal);
 
         var processType = CreateTypeReference(module, "System.Diagnostics", "Process");
