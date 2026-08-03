@@ -20,6 +20,8 @@ namespace MLVScan.Models.Rules
         private const int MinimumTotalScore = 70;
         private const int ReflectionOnlyDangerFloor = 10;
         private const int ReflectionOnlyDecodeFloor = 45;
+        private const int MaximumDecodedStaticArrayStrings = 256;
+        private const int MaximumDecodedStaticArrayBytes = 256 * 1024;
 
         /// <summary>
         /// Gets the description emitted when the rule identifies an obfuscated execution chain.
@@ -491,6 +493,7 @@ namespace MLVScan.Models.Rules
         private static IReadOnlyList<string> CollectDecodedStaticArrayStrings(ModuleDefinition module)
         {
             var strings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int inspectedBytes = 0;
 
             foreach (TypeDefinition type in EnumerateTypes(module))
             {
@@ -501,6 +504,13 @@ namespace MLVScan.Models.Rules
                         continue;
                     }
 
+                    if (strings.Count >= MaximumDecodedStaticArrayStrings ||
+                        field.InitialValue.Length > MaximumDecodedStaticArrayBytes - inspectedBytes)
+                    {
+                        return strings.ToList();
+                    }
+
+                    inspectedBytes += field.InitialValue.Length;
                     if (TryDecodePrintableBytes(field.InitialValue, out string decoded))
                     {
                         strings.Add(decoded);
