@@ -611,7 +611,7 @@ internal static partial class ThreatFamilyCatalog
         var dynamicCodeFlow = context.FindDataFlow(DataFlowPattern.DynamicCodeLoading);
 
         if (processFinding == null ||
-            (dynamicCodeFlow == null && !IsHighRiskOpaqueDynamicLoad(dynamicLoadFinding)))
+            (dynamicLoadFinding == null && dynamicCodeFlow == null))
         {
             return null;
         }
