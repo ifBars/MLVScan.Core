@@ -102,11 +102,10 @@ namespace MLVScan.Services
 
             _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
 
-            var operationClassifier = new DataFlowOperationClassifier();
             var nodeFactory = new DataFlowNodeFactory(snippetBuilder);
 
             _patternEvaluator = new DataFlowPatternEvaluator();
-            _methodAnalyzer = new DataFlowMethodAnalyzer(operationClassifier, _patternEvaluator, nodeFactory);
+            _methodAnalyzer = new DataFlowMethodAnalyzer(_patternEvaluator, nodeFactory);
             _crossMethodAnalyzer = new CrossMethodDataFlowAnalyzer(_patternEvaluator, nodeFactory, config);
         }
 #pragma warning restore CS0618
@@ -191,8 +190,20 @@ namespace MLVScan.Services
                 }
             }
 
+            foreach (var methodKey in _state.IncompleteMethodKeys.OrderBy(static key => key, StringComparer.Ordinal))
+            {
+                findings.Add(new ScanFinding(
+                    methodKey,
+                    "Warning: Full IL analysis was skipped after the bounded data-flow work limit was reached. Manual review is required.",
+                    Severity.Low)
+                {
+                    RuleId = "DataFlowScanWarning"
+                });
+            }
+
             _telemetry.AddPhaseElapsed("DataFlowAnalyzer.BuildDataFlowFindings", buildFindingsStart);
             _telemetry.IncrementCounter("DataFlowAnalyzer.FindingsEmitted", findings.Count);
+            _telemetry.IncrementCounter("DataFlowAnalyzer.IncompleteMethods", _state.IncompleteMethodKeys.Count);
             return findings;
         }
 

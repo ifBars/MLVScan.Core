@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MLVScan.Models.DataFlow;
 using MLVScan.Services.DataFlow;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -36,7 +37,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -64,7 +65,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -96,7 +97,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -143,7 +144,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -183,7 +184,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -231,7 +232,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var createProcessOperation = operations.Single(operation =>
             operation.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase));
@@ -277,7 +278,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var createProcessOperation = operations.Single(operation =>
             operation.Operation.Contains("PInvoke.CreateProcess", StringComparison.OrdinalIgnoreCase));
@@ -308,7 +309,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -359,7 +360,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var shellStart = operations.Single(operation =>
             operation.Operation.Contains("PInvoke.ShellExecuteEx", StringComparison.OrdinalIgnoreCase));
@@ -415,7 +416,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var shellStart = operations.Single(operation =>
             operation.Operation.Contains("PInvoke.ShellExecuteEx", StringComparison.OrdinalIgnoreCase));
@@ -446,7 +447,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -491,7 +492,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -525,7 +526,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -561,7 +562,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -602,7 +603,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -639,7 +640,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -680,7 +681,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
         var fileWrite = operations.Single(operation => operation.Operation.Contains("File.WriteAllBytes"));
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
@@ -714,7 +715,7 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = Classify(method);
 
         operations.Should().NotContain(operation => operation.Operation.Contains("FileStream"));
     }
@@ -783,5 +784,11 @@ public class DataFlowOperationClassifierTests
         }
 
         return method;
+    }
+
+    private static List<DataFlowInterestingOperation> Classify(MethodDefinition method)
+    {
+        var classifier = new DataFlowOperationClassifier(method.Body.Instructions);
+        return classifier.IdentifyInterestingOperations(method, method.Body.Instructions);
     }
 }

@@ -16,12 +16,15 @@ namespace MLVScan.Services.DataFlow
         public Dictionary<string, Collection<Instruction>> MethodInstructions { get; } =
             new(StringComparer.Ordinal);
 
+        public HashSet<string> IncompleteMethodKeys { get; } = new(StringComparer.Ordinal);
+
         public void Clear()
         {
             MethodDataFlows.Clear();
             MethodFlowInfos.Clear();
             CrossMethodChains.Clear();
             MethodInstructions.Clear();
+            IncompleteMethodKeys.Clear();
         }
 
         public void StoreMethodAnalysis(DataFlowMethodAnalysisResult analysis)
@@ -29,6 +32,14 @@ namespace MLVScan.Services.DataFlow
             MethodInstructions[analysis.MethodKey] = analysis.Instructions;
             MethodFlowInfos[analysis.MethodKey] = analysis.FlowInfo;
             MethodDataFlows[analysis.MethodKey] = analysis.Chains;
+            if (!analysis.AnalysisComplete)
+            {
+                IncompleteMethodKeys.Add(analysis.MethodKey);
+            }
+            else
+            {
+                IncompleteMethodKeys.Remove(analysis.MethodKey);
+            }
         }
 
         public Collection<Instruction> GetInstructionsForMethod(string methodKey)

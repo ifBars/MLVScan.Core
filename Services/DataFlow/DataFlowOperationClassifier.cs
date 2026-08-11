@@ -10,6 +10,18 @@ namespace MLVScan.Services.DataFlow
 {
     internal sealed class DataFlowOperationClassifier
     {
+        private readonly DataFlowInstructionHelper _instructionHelper;
+
+        public DataFlowOperationClassifier(Collection<Instruction> instructions)
+            : this(new DataFlowInstructionHelper(instructions))
+        {
+        }
+
+        public DataFlowOperationClassifier(DataFlowInstructionHelper instructionHelper)
+        {
+            _instructionHelper = instructionHelper ?? throw new ArgumentNullException(nameof(instructionHelper));
+        }
+
         public List<DataFlowInterestingOperation> IdentifyInterestingOperations(
             MethodDefinition method,
             Collection<Instruction> instructions)
@@ -56,7 +68,7 @@ namespace MLVScan.Services.DataFlow
                         NodeType = operationInfo.Value.NodeType,
                         Operation = operationInfo.Value.Operation,
                         DataDescription = operationInfo.Value.DataDescription,
-                        LocalVariableIndex = DataFlowInstructionHelper.TryGetTargetLocalVariable(instructions, index),
+                        LocalVariableIndex = _instructionHelper.TryGetTargetLocalVariable(instructions, index),
                         PayloadPathIdentities = payloadPathIdentities
                     });
                 }
@@ -80,7 +92,7 @@ namespace MLVScan.Services.DataFlow
             return operations;
         }
 
-        private static HashSet<string> TryGetPayloadPathIdentities(
+        private HashSet<string> TryGetPayloadPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -112,7 +124,7 @@ namespace MLVScan.Services.DataFlow
                    operation.Contains("FileStream", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsWritableFileStreamConstructor(
+        private bool IsWritableFileStreamConstructor(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int constructorIndex,
@@ -139,7 +151,7 @@ namespace MLVScan.Services.DataFlow
                    accessValue != 1;
         }
 
-        private static HashSet<string> TryGetProcessStartPathIdentities(
+        private HashSet<string> TryGetProcessStartPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int processStartIndex,
@@ -153,12 +165,12 @@ namespace MLVScan.Services.DataFlow
                 processStartMethod.Parameters.Count == 1 &&
                 processStartMethod.Parameters[0].ParameterType.FullName == "System.Diagnostics.ProcessStartInfo")
             {
-                if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+                if (_instructionHelper.TryGetCallArgumentLocalVariable(
                         instructions, processStartIndex, processStartMethod, 0, out var resolvedStartInfoLocal))
                 {
                     startInfoLocal = resolvedStartInfoLocal;
                 }
-                else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                else if (_instructionHelper.TryGetCallArgumentProducerIndex(
                              instructions, processStartIndex, processStartMethod, 0, out var producerIndex))
                 {
                     return TryGetStartInfoProducerIdentities(
@@ -171,7 +183,7 @@ namespace MLVScan.Services.DataFlow
             }
             else if (processStartMethod.HasThis)
             {
-                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                if (!_instructionHelper.TryGetCallReceiverProducerIndex(
                         instructions, processStartIndex, processStartMethod, out var receiverLoadIndex) ||
                     !instructions[receiverLoadIndex].TryGetLocalIndex(out var resolvedProcessLocal))
                 {
@@ -189,19 +201,19 @@ namespace MLVScan.Services.DataFlow
             IReadOnlyCollection<int> startInfoDefinitionIndexes = Array.Empty<int>();
             IReadOnlyCollection<int> processDefinitionIndexes = Array.Empty<int>();
             if (startInfoLocal.HasValue &&
-                DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                _instructionHelper.TryGetCallArgumentProducerIndex(
                     instructions, processStartIndex, processStartMethod, 0, out var startInfoLoadIndex))
             {
-                startInfoDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                startInfoDefinitionIndexes = _instructionHelper.GetReachingLocalStoreIndexes(
                     instructions, startInfoLoadIndex, startInfoLocal.Value);
             }
             else if (processLocal.HasValue && processReceiverLoadIndex.HasValue)
             {
-                processDefinitionIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                processDefinitionIndexes = _instructionHelper.GetReachingLocalStoreIndexes(
                     instructions, processReceiverLoadIndex.Value, processLocal.Value);
             }
 
-            var setterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+            var setterIndexes = _instructionHelper.GetReachingInstructionIndexes(
                 instructions,
                 processStartIndex,
                 index => TryGetStartInfoFileNameSetter(instructions[index], out var setter) &&
@@ -229,7 +241,7 @@ namespace MLVScan.Services.DataFlow
 
             if (processLocal.HasValue)
             {
-                var startInfoAssignmentIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+                var startInfoAssignmentIndexes = _instructionHelper.GetReachingInstructionIndexes(
                     instructions,
                     processStartIndex,
                     index => TryGetProcessStartInfoSetter(instructions[index], out var setter) &&
@@ -250,13 +262,13 @@ namespace MLVScan.Services.DataFlow
             return identities;
         }
 
-        private static HashSet<string> TryGetAssignedStartInfoIdentities(
+        private HashSet<string> TryGetAssignedStartInfoIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int setterIndex,
             MethodReference setter)
         {
-            if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+            if (!_instructionHelper.TryGetCallArgumentProducerIndex(
                     instructions, setterIndex, setter, 0, out var producerIndex))
             {
                 return EmptyIdentities();
@@ -274,7 +286,7 @@ namespace MLVScan.Services.DataFlow
                 return EmptyIdentities();
             }
 
-            var definitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+            var definitions = _instructionHelper.GetReachingLocalStoreIndexes(
                 instructions, producerIndex, startInfoLocal);
             var identities = EmptyIdentities();
             foreach (var definitionIndex in definitions)
@@ -283,7 +295,7 @@ namespace MLVScan.Services.DataFlow
                     method, instructions, definitionIndex));
             }
 
-            var fileNameSetterIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+            var fileNameSetterIndexes = _instructionHelper.GetReachingInstructionIndexes(
                 instructions,
                 setterIndex,
                 index => TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) &&
@@ -305,7 +317,7 @@ namespace MLVScan.Services.DataFlow
             return identities;
         }
 
-        private static HashSet<string> TryGetStartInfoProducerIdentities(
+        private HashSet<string> TryGetStartInfoProducerIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int producerIndex,
@@ -315,7 +327,7 @@ namespace MLVScan.Services.DataFlow
             var constructorIndex = producerIndex;
             if (instructions[producerIndex].OpCode == OpCodes.Dup)
             {
-                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                if (!_instructionHelper.TryGetConsumedValueProducerIndex(
                         instructions, producerIndex, out constructorIndex))
                 {
                     return EmptyIdentities();
@@ -340,7 +352,7 @@ namespace MLVScan.Services.DataFlow
             for (var index = initializerStartIndex + 1; index < consumerIndex; index++)
             {
                 if (!TryGetStartInfoFileNameSetter(instructions[index], out var fileNameSetter) ||
-                    !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                    !_instructionHelper.TryGetCallReceiverProducerIndex(
                         instructions, index, fileNameSetter, out var receiverProducerIndex) ||
                     receiverProducerIndex != initializerStartIndex)
                 {
@@ -354,12 +366,12 @@ namespace MLVScan.Services.DataFlow
             return identities;
         }
 
-        private static HashSet<string> TryGetStoredStartInfoConstructorIdentities(
+        private HashSet<string> TryGetStoredStartInfoConstructorIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int storeIndex)
         {
-            if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+            if (!_instructionHelper.TryGetConsumedValueProducerIndex(
                     instructions, storeIndex, out var producerIndex))
             {
                 return EmptyIdentities();
@@ -368,7 +380,7 @@ namespace MLVScan.Services.DataFlow
             return TryGetStartInfoProducerIdentities(method, instructions, producerIndex, storeIndex);
         }
 
-        private static bool TryGetStartInfoFileNameSetter(
+        private bool TryGetStartInfoFileNameSetter(
             Instruction instruction,
             out MethodReference setter)
         {
@@ -385,7 +397,7 @@ namespace MLVScan.Services.DataFlow
             return true;
         }
 
-        private static bool TryGetProcessStartInfoSetter(
+        private bool TryGetProcessStartInfoSetter(
             Instruction instruction,
             out MethodReference setter)
         {
@@ -402,7 +414,7 @@ namespace MLVScan.Services.DataFlow
             return true;
         }
 
-        private static bool StartInfoSetterBelongsToStartedProcess(
+        private bool StartInfoSetterBelongsToStartedProcess(
             Collection<Instruction> instructions,
             int setterIndex,
             MethodReference setter,
@@ -413,7 +425,7 @@ namespace MLVScan.Services.DataFlow
         {
             if (startInfoLocal.HasValue)
             {
-                if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                if (!_instructionHelper.TryGetCallReceiverProducerIndex(
                         instructions, setterIndex, setter, out var receiverProducerIndex) ||
                     !instructions[receiverProducerIndex].TryGetLocalIndex(out var setterStartInfoLocal) ||
                     setterStartInfoLocal != startInfoLocal.Value)
@@ -426,13 +438,13 @@ namespace MLVScan.Services.DataFlow
                     return true;
                 }
 
-                var setterStartInfoDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+                var setterStartInfoDefinitions = _instructionHelper.GetReachingLocalStoreIndexes(
                     instructions, receiverProducerIndex, setterStartInfoLocal);
                 return setterStartInfoDefinitions.Intersect(startedStartInfoDefinitions).Any();
             }
 
             if (!processLocal.HasValue ||
-                !DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+                !_instructionHelper.TryGetCallReceiverProducerIndex(
                     instructions, setterIndex, setter, out var setterReceiverProducerIndex))
             {
                 return false;
@@ -455,14 +467,14 @@ namespace MLVScan.Services.DataFlow
                 startedProcessDefinitions);
         }
 
-        private static bool ProcessReceiverMatchesStartedProcess(
+        private bool ProcessReceiverMatchesStartedProcess(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
             int processLocal,
             IReadOnlyCollection<int> startedProcessDefinitions)
         {
-            if (!DataFlowInstructionHelper.TryGetCallReceiverProducerIndex(
+            if (!_instructionHelper.TryGetCallReceiverProducerIndex(
                     instructions, callIndex, calledMethod, out var receiverProducerIndex) ||
                 !instructions[receiverProducerIndex].TryGetLocalIndex(out var receiverProcessLocal) ||
                 receiverProcessLocal != processLocal)
@@ -475,12 +487,12 @@ namespace MLVScan.Services.DataFlow
                 return true;
             }
 
-            var receiverDefinitions = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+            var receiverDefinitions = _instructionHelper.GetReachingLocalStoreIndexes(
                 instructions, receiverProducerIndex, receiverProcessLocal);
             return receiverDefinitions.Intersect(startedProcessDefinitions).Any();
         }
 
-        private static HashSet<string> TryGetNativeExecutionPathIdentities(
+        private HashSet<string> TryGetNativeExecutionPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -510,7 +522,7 @@ namespace MLVScan.Services.DataFlow
                 : EmptyIdentities();
         }
 
-        private static HashSet<string> TryGetCreateProcessPathIdentities(
+        private HashSet<string> TryGetCreateProcessPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -576,19 +588,19 @@ namespace MLVScan.Services.DataFlow
             return executable.Length > 0;
         }
 
-        private static HashSet<string> TryGetShellExecuteExFileIdentities(
+        private HashSet<string> TryGetShellExecuteExFileIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod)
         {
-            if (!DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+            if (!_instructionHelper.TryGetCallArgumentLocalVariable(
                     instructions, callIndex, calledMethod, 0, out var shellExecuteInfoLocal))
             {
                 return EmptyIdentities();
             }
 
-            var fieldStoreIndexes = DataFlowInstructionHelper.GetReachingInstructionIndexes(
+            var fieldStoreIndexes = _instructionHelper.GetReachingInstructionIndexes(
                 instructions,
                 callIndex,
                 index => IsShellExecuteFileStoreForLocal(
@@ -596,7 +608,7 @@ namespace MLVScan.Services.DataFlow
             var identities = EmptyIdentities();
             foreach (var index in fieldStoreIndexes)
             {
-                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                if (!_instructionHelper.TryGetConsumedValueProducerIndex(
                         instructions, index, out var valueProducerIndex))
                 {
                     continue;
@@ -620,7 +632,7 @@ namespace MLVScan.Services.DataFlow
             return identities;
         }
 
-        private static bool IsShellExecuteFileStoreForLocal(
+        private bool IsShellExecuteFileStoreForLocal(
             Collection<Instruction> instructions,
             int index,
             int shellExecuteInfoLocal)
@@ -628,12 +640,12 @@ namespace MLVScan.Services.DataFlow
             return instructions[index].OpCode == OpCodes.Stfld &&
                    instructions[index].Operand is FieldReference field &&
                    field.Name.Equals("lpFile", StringComparison.OrdinalIgnoreCase) &&
-                   DataFlowInstructionHelper.TryGetFieldStoreReceiverLocalVariable(
+                   _instructionHelper.TryGetFieldStoreReceiverLocalVariable(
                        instructions, index, out var fieldReceiverLocal) &&
                    fieldReceiverLocal == shellExecuteInfoLocal;
         }
 
-        private static HashSet<string> TryGetCallArgumentIdentities(
+        private HashSet<string> TryGetCallArgumentIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int callIndex,
@@ -648,14 +660,14 @@ namespace MLVScan.Services.DataFlow
             }
 
             var identities = EmptyIdentities();
-            if (DataFlowInstructionHelper.TryGetCallArgumentLocalVariable(
+            if (_instructionHelper.TryGetCallArgumentLocalVariable(
                     instructions, callIndex, calledMethod, argumentIndex, out var localIndex, out var producerIndex))
             {
                 identities.UnionWith(BuildLocalPathIdentities(method, instructions, producerIndex, localIndex));
             }
-            else if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+            else if (_instructionHelper.TryGetCallArgumentProducerIndex(
                          instructions, callIndex, calledMethod, argumentIndex, out producerIndex) &&
-                     DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                     _instructionHelper.TryGetMethodParameterIndex(
                          method, instructions[producerIndex], out var parameterIndex))
             {
                 identities.Add(BuildArgumentPathIdentity(method, parameterIndex));
@@ -681,7 +693,7 @@ namespace MLVScan.Services.DataFlow
                    !display.Contains('>');
         }
 
-        private static HashSet<string> BuildLocalPathIdentities(
+        private HashSet<string> BuildLocalPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int localLoadIndex,
@@ -695,7 +707,7 @@ namespace MLVScan.Services.DataFlow
                 new HashSet<(int LoadIndex, int LocalIndex)>());
         }
 
-        private static HashSet<string> BuildLocalPathIdentities(
+        private HashSet<string> BuildLocalPathIdentities(
             MethodDefinition method,
             Collection<Instruction> instructions,
             int localLoadIndex,
@@ -707,7 +719,7 @@ namespace MLVScan.Services.DataFlow
                 return EmptyIdentities();
             }
 
-            var storeIndexes = DataFlowInstructionHelper.GetReachingLocalStoreIndexes(
+            var storeIndexes = _instructionHelper.GetReachingLocalStoreIndexes(
                 instructions, localLoadIndex, localIndex);
             if (storeIndexes.Count == 0)
             {
@@ -719,13 +731,13 @@ namespace MLVScan.Services.DataFlow
                 .ToHashSet(StringComparer.Ordinal);
             foreach (var storeIndex in storeIndexes)
             {
-                if (!DataFlowInstructionHelper.TryGetConsumedValueProducerIndex(
+                if (!_instructionHelper.TryGetConsumedValueProducerIndex(
                         instructions, storeIndex, out var producerIndex))
                 {
                     continue;
                 }
 
-                if (DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                if (_instructionHelper.TryGetMethodParameterIndex(
                         method, instructions[producerIndex], out var parameterIndex))
                 {
                     identities.Add(BuildArgumentPathIdentity(method, parameterIndex));

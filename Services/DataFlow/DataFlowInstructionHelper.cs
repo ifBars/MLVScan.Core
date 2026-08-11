@@ -5,9 +5,18 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Services.DataFlow
 {
-    internal static class DataFlowInstructionHelper
+    internal sealed class DataFlowInstructionHelper
     {
-        public static int? TryGetTargetLocalVariable(Collection<Instruction> instructions, int callIndex)
+        private readonly Collection<Instruction> _instructions;
+        private readonly DataFlowReachingDefinitionAnalysis _reachingDefinitionAnalysis;
+
+        public DataFlowInstructionHelper(Collection<Instruction> instructions)
+        {
+            _instructions = instructions ?? throw new ArgumentNullException(nameof(instructions));
+            _reachingDefinitionAnalysis = new DataFlowReachingDefinitionAnalysis(instructions);
+        }
+
+        public int? TryGetTargetLocalVariable(Collection<Instruction> instructions, int callIndex)
         {
             if (callIndex + 1 >= instructions.Count)
             {
@@ -17,7 +26,7 @@ namespace MLVScan.Services.DataFlow
             return instructions[callIndex + 1].TryGetStoredLocalIndex(out var localIndex) ? localIndex : null;
         }
 
-        public static Dictionary<int, int> TryGetParameterMapping(
+        public Dictionary<int, int> TryGetParameterMapping(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod)
@@ -35,7 +44,7 @@ namespace MLVScan.Services.DataFlow
             return mapping;
         }
 
-        public static bool IsReturnValueUsed(Collection<Instruction> instructions, int callIndex)
+        public bool IsReturnValueUsed(Collection<Instruction> instructions, int callIndex)
         {
             if (callIndex + 1 >= instructions.Count)
             {
@@ -55,7 +64,7 @@ namespace MLVScan.Services.DataFlow
                    nextInstruction.OpCode == OpCodes.Stsfld;
         }
 
-        public static bool TryGetCallArgumentLocalVariable(
+        public bool TryGetCallArgumentLocalVariable(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
@@ -66,7 +75,7 @@ namespace MLVScan.Services.DataFlow
                 instructions, callIndex, calledMethod, argumentIndex, out localIndex, out _);
         }
 
-        public static bool TryGetCallArgumentLocalVariable(
+        public bool TryGetCallArgumentLocalVariable(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
@@ -81,7 +90,7 @@ namespace MLVScan.Services.DataFlow
                    TryGetLocalOrAddressedLocalIndex(instructions[producerIndex], out localIndex);
         }
 
-        public static bool TryGetMethodParameterIndex(
+        public bool TryGetMethodParameterIndex(
             MethodDefinition method,
             Instruction instruction,
             out int parameterIndex)
@@ -98,7 +107,7 @@ namespace MLVScan.Services.DataFlow
             return parameterIndex >= 0 && parameterIndex < method.Parameters.Count;
         }
 
-        public static bool TryGetCallReceiverLocalVariable(
+        public bool TryGetCallReceiverLocalVariable(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
@@ -109,7 +118,7 @@ namespace MLVScan.Services.DataFlow
                    TryGetLocalOrAddressedLocalIndex(instructions[producerIndex], out localIndex);
         }
 
-        public static bool TryGetFieldStoreReceiverLocalVariable(
+        public bool TryGetFieldStoreReceiverLocalVariable(
             Collection<Instruction> instructions,
             int fieldStoreIndex,
             out int localIndex)
@@ -125,70 +134,46 @@ namespace MLVScan.Services.DataFlow
             return TryGetLocalOrAddressedLocalIndex(instructions[receiverProducerIndex], out localIndex);
         }
 
-        public static IReadOnlyCollection<int> GetReachingLocalStoreIndexes(
+        public IReadOnlyCollection<int> GetReachingLocalStoreIndexes(
             Collection<Instruction> instructions,
             int localLoadIndex,
             int localIndex)
         {
-            return GetReachingInstructionIndexes(
-                instructions,
+            return GetReachingDefinitionAnalysis(instructions).TryGetReachingLocalStoreIndexes(
                 localLoadIndex,
-                index => instructions[index].TryGetStoredLocalIndex(out var storedLocalIndex) &&
-                         storedLocalIndex == localIndex);
+                localIndex,
+                out var definitionIndexes)
+                    ? definitionIndexes
+                    : Array.Empty<int>();
         }
 
-        public static IReadOnlyCollection<int> GetReachingInstructionIndexes(
+        public IReadOnlyCollection<int> GetReachingInstructionIndexes(
             Collection<Instruction> instructions,
             int consumerIndex,
             Func<int, bool> isDefinition)
         {
-            if (consumerIndex < 0 || consumerIndex >= instructions.Count)
-            {
-                return Array.Empty<int>();
-            }
-
-            var instructionIndexes = instructions
-                .Select((instruction, index) => (instruction, index))
-                .ToDictionary(static entry => entry.instruction, static entry => entry.index);
-            var predecessors = Enumerable.Range(0, instructions.Count)
-                .Select(_ => new List<int>())
-                .ToArray();
-
-            for (var index = 0; index < instructions.Count; index++)
-            {
-                foreach (var successor in GetSuccessorIndexes(instructions, instructionIndexes, index))
-                {
-                    predecessors[successor].Add(index);
-                }
-            }
-
-            var definitions = new HashSet<int>();
-            var pending = new Stack<int>(predecessors[consumerIndex]);
-            var visited = new HashSet<int>();
-            while (pending.Count > 0)
-            {
-                var index = pending.Pop();
-                if (!visited.Add(index))
-                {
-                    continue;
-                }
-
-                if (isDefinition(index))
-                {
-                    definitions.Add(index);
-                    continue;
-                }
-
-                foreach (var predecessor in predecessors[index])
-                {
-                    pending.Push(predecessor);
-                }
-            }
-
-            return definitions;
+            return GetReachingDefinitionAnalysis(instructions).TryGetReachingInstructionIndexes(
+                consumerIndex,
+                isDefinition,
+                out var definitionIndexes)
+                    ? definitionIndexes
+                    : Array.Empty<int>();
         }
 
-        public static bool TryGetCallReceiverProducerIndex(
+        public DataFlowReachingDefinitionAnalysis GetReachingDefinitionAnalysis(
+            Collection<Instruction> instructions)
+        {
+            if (!ReferenceEquals(instructions, _instructions))
+            {
+                throw new ArgumentException(
+                    "The instruction collection must match this method analysis.",
+                    nameof(instructions));
+            }
+
+            return _reachingDefinitionAnalysis;
+        }
+
+        public bool TryGetCallReceiverProducerIndex(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
@@ -215,7 +200,7 @@ namespace MLVScan.Services.DataFlow
             return TryFindTopValueProducer(instructions, cursor, out producerIndex);
         }
 
-        public static bool TryGetConsumedValueProducerIndex(
+        public bool TryGetConsumedValueProducerIndex(
             Collection<Instruction> instructions,
             int consumerIndex,
             out int producerIndex)
@@ -225,7 +210,7 @@ namespace MLVScan.Services.DataFlow
                    TryFindTopValueProducer(instructions, consumerIndex - 1, out producerIndex);
         }
 
-        public static bool TryGetCallArgumentProducerIndex(
+        public bool TryGetCallArgumentProducerIndex(
             Collection<Instruction> instructions,
             int callIndex,
             MethodReference calledMethod,
@@ -263,79 +248,25 @@ namespace MLVScan.Services.DataFlow
             return false;
         }
 
-        private static bool TryFindTopValueProducer(
+        private bool TryFindTopValueProducer(
             Collection<Instruction> instructions,
             int beforeIndex,
             out int producerIndex)
         {
-            producerIndex = -1;
-            var needed = 1;
-
-            for (var index = beforeIndex; index >= 0; index--)
-            {
-                var instruction = instructions[index];
-                needed -= instruction.GetPushCount();
-                if (needed <= 0)
-                {
-                    producerIndex = index;
-                    return true;
-                }
-
-                needed += instruction.GetPopCount();
-            }
-
-            return false;
+            return GetReachingDefinitionAnalysis(instructions)
+                .TryFindTopValueProducer(beforeIndex, out producerIndex);
         }
 
-        private static bool TryFindValueExpressionStart(
+        private bool TryFindValueExpressionStart(
             Collection<Instruction> instructions,
             int producerIndex,
             out int expressionStart)
         {
-            expressionStart = -1;
-            var needed = 1;
-            for (var index = producerIndex; index >= 0; index--)
-            {
-                needed -= instructions[index].GetPushCount();
-                needed += instructions[index].GetPopCount();
-                if (needed <= 0)
-                {
-                    expressionStart = index;
-                    return true;
-                }
-            }
-
-            return false;
+            return GetReachingDefinitionAnalysis(instructions)
+                .TryFindValueExpressionStart(producerIndex, out expressionStart);
         }
 
-        private static IEnumerable<int> GetSuccessorIndexes(
-            Collection<Instruction> instructions,
-            IReadOnlyDictionary<Instruction, int> instructionIndexes,
-            int index)
-        {
-            var instruction = instructions[index];
-            if (instruction.Operand is Instruction target)
-            {
-                yield return instructionIndexes[target];
-            }
-            else if (instruction.Operand is Instruction[] targets)
-            {
-                foreach (var switchTarget in targets)
-                {
-                    yield return instructionIndexes[switchTarget];
-                }
-            }
-
-            if (index + 1 >= instructions.Count ||
-                instruction.OpCode.FlowControl is FlowControl.Branch or FlowControl.Return or FlowControl.Throw)
-            {
-                yield break;
-            }
-
-            yield return index + 1;
-        }
-
-        private static bool TryGetLocalOrAddressedLocalIndex(Instruction instruction, out int localIndex)
+        private bool TryGetLocalOrAddressedLocalIndex(Instruction instruction, out int localIndex)
         {
             if (instruction.TryGetLocalIndex(out localIndex))
             {
