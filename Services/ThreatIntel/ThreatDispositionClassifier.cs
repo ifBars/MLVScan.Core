@@ -51,13 +51,22 @@ public sealed class ThreatDispositionClassifier
         IEnumerable<ScanFinding> findings,
         IEnumerable<ThreatFamilyMatch>? threatFamilies)
     {
-        return Classify(findings, threatFamilies, null);
+        return Classify(findings, threatFamilies, null, null);
     }
 
     public ThreatDispositionResult Classify(
         IEnumerable<ScanFinding> findings,
         IEnumerable<ThreatFamilyMatch>? threatFamilies,
         AnalysisCompletenessResult? analysisCompleteness)
+    {
+        return Classify(findings, threatFamilies, analysisCompleteness, null);
+    }
+
+    public ThreatDispositionResult Classify(
+        IEnumerable<ScanFinding> findings,
+        IEnumerable<ThreatFamilyMatch>? threatFamilies,
+        AnalysisCompletenessResult? analysisCompleteness,
+        string? sha256Hash)
     {
         var findingsList = findings?.ToList() ?? new List<ScanFinding>();
         var threatFamilyList = threatFamilies?.ToList() ?? new List<ThreatFamilyMatch>();
@@ -70,6 +79,12 @@ public sealed class ThreatDispositionClassifier
         if (primaryFamily != null)
         {
             return BuildKnownThreatDisposition(findingsList, primaryFamily);
+        }
+
+        if (analysisCompleteness?.ReviewRecommended != true &&
+            KnownBenignSampleCatalog.MatchesReviewedBehavior(sha256Hash, findingsList))
+        {
+            return BuildCleanDisposition();
         }
 
         var suspiciousSeeds = findingsList
@@ -86,6 +101,11 @@ public sealed class ThreatDispositionClassifier
             return BuildManualReviewDisposition(analysisCompleteness);
         }
 
+        return BuildCleanDisposition();
+    }
+
+    private static ThreatDispositionResult BuildCleanDisposition()
+    {
         return new ThreatDispositionResult
         {
             Classification = ThreatDispositionClassification.Clean,

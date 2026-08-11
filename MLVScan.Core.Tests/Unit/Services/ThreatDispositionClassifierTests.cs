@@ -8,6 +8,9 @@ namespace MLVScan.Core.Tests.Unit.Services;
 
 public class ThreatDispositionClassifierTests
 {
+    private const string ReviewedBoneLibUpdaterSha256 =
+        "BAE327FACB187856E98F4A7997630762BAF0FE73962AAA0EEDB19F8235A9EA81";
+
     [Fact]
     public void Classify_WithFamilyMatch_ReturnsKnownThreat()
     {
@@ -155,44 +158,103 @@ public class ThreatDispositionClassifierTests
     public void Classify_WithEmbeddedUpdaterExeDataFlowAndNoDropperMarkers_ReturnsSuspicious()
     {
         var classifier = new ThreatDispositionClassifier();
-        var dataFlow = new DataFlowChain(
-            "df-local-updater",
-            DataFlowPattern.EmbeddedResourceDropAndExecute,
-            Severity.Critical,
-            "Extracts embedded updater executable and launches it from a local data directory",
-            "Benign.Updater.Run");
-        dataFlow.AppendNode(new DataFlowNode(
-            "Benign.Updater.Run:12",
-            "GetManifestResourceStream",
-            DataFlowNodeType.Source,
-            "embedded updater resource",
-            12));
-        dataFlow.AppendNode(new DataFlowNode(
-            "Benign.Updater.Run:24",
-            "File.Create",
-            DataFlowNodeType.Sink,
-            "C:/AppData/Vendor/updater.exe",
-            24));
-        dataFlow.AppendNode(new DataFlowNode(
-            "Benign.Updater.Run:36",
-            "Process.Start",
-            DataFlowNodeType.Sink,
-            "run local updater executable",
-            36));
-
-        var finding = new ScanFinding(
-            "Benign.Updater.Run",
-            "Detected Process.Start for an embedded updater executable with correlated data flow",
-            Severity.Critical)
-        {
-            RuleId = "ProcessStartRule",
-            DataFlowChain = dataFlow
-        };
+        var finding = CreateEmbeddedUpdaterFinding();
 
         var result = classifier.Classify(new[] { finding }, threatFamilies: null);
 
         result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
         result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithReviewedBoneLibUpdaterHashAndExpectedBehavior_ReturnsClean()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var finding = CreateEmbeddedUpdaterFinding();
+
+        var result = classifier.Classify(
+            new[] { finding },
+            threatFamilies: null,
+            analysisCompleteness: null,
+            ReviewedBoneLibUpdaterSha256);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Clean);
+        result.RelatedFindings.Should().BeEmpty();
+        result.BlockingRecommended.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Classify_WithReviewedBoneLibUpdaterHashAndUnexpectedHighEvidence_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var finding = new ScanFinding(
+            "Embedded resource: stage.ps1",
+            "Embedded script stages and executes a payload",
+            Severity.High)
+        {
+            RuleId = "EmbeddedResourceScriptRule"
+        };
+
+        var result = classifier.Classify(
+            new[] { finding },
+            threatFamilies: null,
+            analysisCompleteness: null,
+            ReviewedBoneLibUpdaterSha256);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithReviewedBoneLibUpdaterHashAndIncompleteAnalysis_ReturnsManualReview()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var completenessFinding = new ScanFinding(
+            "Assembly",
+            "Data-flow analysis did not complete",
+            Severity.Low)
+        {
+            RuleId = "DataFlowScanWarning"
+        };
+        var completeness = new AnalysisCompletenessResult
+        {
+            IsComplete = false,
+            ReviewRecommended = true,
+            RelatedFindings = { completenessFinding }
+        };
+
+        var result = classifier.Classify(
+            new[] { completenessFinding },
+            threatFamilies: null,
+            completeness,
+            ReviewedBoneLibUpdaterSha256);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.ManualReviewRequired);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithReviewedBoneLibUpdaterHashAndKnownThreatFamily_ReturnsKnownThreat()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var family = new ThreatFamilyMatch
+        {
+            FamilyId = "known-malware",
+            DisplayName = "Known Malware",
+            MatchKind = ThreatMatchKind.ExactSampleHash,
+            ExactHashMatch = true,
+            Confidence = 1.0
+        };
+
+        var result = classifier.Classify(
+            Array.Empty<ScanFinding>(),
+            new[] { family },
+            analysisCompleteness: null,
+            ReviewedBoneLibUpdaterSha256);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        result.PrimaryThreatFamilyId.Should().Be("known-malware");
         result.BlockingRecommended.Should().BeTrue();
     }
 
@@ -358,5 +420,42 @@ public class ThreatDispositionClassifierTests
         result.RelatedFindings.Should().Contain(finding => finding.RuleId == "DataInfiltrationRule");
         result.RelatedFindings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
         result.BlockingRecommended.Should().BeTrue();
+    }
+
+    private static ScanFinding CreateEmbeddedUpdaterFinding()
+    {
+        var dataFlow = new DataFlowChain(
+            "df-local-updater",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Extracts embedded updater executable and launches it from a local data directory",
+            "Benign.Updater.Run");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:12",
+            "GetManifestResourceStream",
+            DataFlowNodeType.Source,
+            "embedded updater resource",
+            12));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:24",
+            "File.Create",
+            DataFlowNodeType.Sink,
+            "C:/AppData/Vendor/updater.exe",
+            24));
+        dataFlow.AppendNode(new DataFlowNode(
+            "Benign.Updater.Run:36",
+            "Process.Start",
+            DataFlowNodeType.Sink,
+            "run local updater executable",
+            36));
+
+        return new ScanFinding(
+            "Benign.Updater.Run",
+            "Detected Process.Start for an embedded updater executable with correlated data flow",
+            Severity.Critical)
+        {
+            RuleId = "ProcessStartRule",
+            DataFlowChain = dataFlow
+        };
     }
 }

@@ -56,7 +56,7 @@ public static class ScanResultMapper
         var sha256Hash = ComputeSha256(assemblyBytes);
         var analysisCompleteness = BuildAnalysisCompleteness(findingsList);
         var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, callChains, dataFlows, sha256Hash);
-        var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies, analysisCompleteness);
+        var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies, analysisCompleteness, sha256Hash);
         var relatedFindings = disposition.RelatedFindings.ToHashSet();
         var findingDtos = findingsList
             .Select(finding => ToFindingDto(
