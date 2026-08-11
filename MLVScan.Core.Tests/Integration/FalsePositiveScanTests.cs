@@ -273,7 +273,7 @@ public class FalsePositiveScanTests
     }
 
     [SkippableFact]
-    public void Scan_BoneLibUpdater_EmbeddedExecutableDropper_ShouldBeSuspicious()
+    public void Scan_BoneLibUpdater_ExactReviewedSample_ShouldBeClean()
     {
         var path = GetSamplePath("BoneLibUpdater.dll");
 
@@ -285,9 +285,9 @@ public class FalsePositiveScanTests
         var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
 
         dto.Disposition.Should().NotBeNull();
-        dto.Disposition!.Classification.Should().Be("Suspicious",
-            "an embedded executable drop-and-execute chain must not evade disposition based on its path or launch API");
-        dto.Disposition.BlockingRecommended.Should().BeTrue();
+        dto.Disposition!.Classification.Should().Be("Clean",
+            "the exact reviewed BoneLib updater bytes are a known benign exception to the otherwise suspicious behavior");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
         dto.ThreatFamilies.Should().BeNull();
     }
 
@@ -557,8 +557,8 @@ public class FalsePositiveScanTests
         {
             "AngleSharp.dll",
             "Bannerlord.ButterLib.dll",
-            // Known benign sample, but its embedded resource -> disk -> execute chain is intentionally
-            // review-required because the same static behavior is indistinguishable from a dropper.
+            // Known benign exact sample. Its High findings remain visible even though the reviewed bytes
+            // receive a Clean disposition.
             "BoneLibUpdater.dll",
             "CustomTV.dll",
             "IllegalRave.dll",
@@ -595,13 +595,6 @@ public class FalsePositiveScanTests
         var assemblyPaths = GetAllFalsePositiveAssemblyPaths();
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         var violations = new List<string>();
-        var expectedNonCleanDispositions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            // The embedded updater is benign, but its resource -> disk -> execute behavior is
-            // intentionally indistinguishable from a dropper and therefore review-required.
-            ["BoneLibUpdater.dll"] = "Suspicious"
-        };
-
         foreach (var path in assemblyPaths)
         {
             var findings = scanner.Scan(path).ToList();
@@ -613,20 +606,16 @@ public class FalsePositiveScanTests
             _output.WriteLine(
                 $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
 
-            var expectedClassification = expectedNonCleanDispositions.TryGetValue(relativePath, out var expected)
-                ? expected
-                : "Clean";
-
-            if (!string.Equals(classification, expectedClassification, StringComparison.Ordinal) ||
+            if (!string.Equals(classification, "Clean", StringComparison.Ordinal) ||
                 familyIds.Count > 0)
             {
                 violations.Add(
-                    $"{relativePath} => ExpectedDisposition={expectedClassification}, ActualDisposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}");
+                    $"{relativePath} => ExpectedDisposition=Clean, ActualDisposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}");
             }
         }
 
         violations.Should().BeEmpty(
-            "FALSE_POSITIVES assemblies should match the explicit disposition baseline and never produce threat-family matches.\n" +
+            "every FALSE_POSITIVES assembly should be Clean and never produce threat-family matches.\n" +
             string.Join(Environment.NewLine, violations));
     }
 
