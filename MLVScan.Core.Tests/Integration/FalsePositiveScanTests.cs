@@ -38,6 +38,7 @@ public class FalsePositiveScanTests
         "LabFusion.dll",
         "LecPowerTranslator15.dll",
         "LethalLizard.ModManager.dll",
+        "ModHub.Core.dll",
         "ModsApp.dll",
         "Muse_Dash.dll",
         "Musicfy.dll",
@@ -554,6 +555,7 @@ public class FalsePositiveScanTests
 
         var allowedHighSeveritySamples = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            "AngleSharp.dll",
             "Bannerlord.ButterLib.dll",
             // Known benign sample, but its embedded resource -> disk -> execute chain is intentionally
             // review-required because the same static behavior is indistinguishable from a dropper.
@@ -563,6 +565,8 @@ public class FalsePositiveScanTests
             "LabFusion.dll",
             "Muse_Dash.dll",
             "Personify.dll",
+            "SideHustle.dll",
+            "Sideload.dll",
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",

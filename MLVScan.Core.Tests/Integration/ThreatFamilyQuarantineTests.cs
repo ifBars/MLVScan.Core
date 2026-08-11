@@ -2,6 +2,7 @@ using FluentAssertions;
 using System.Text;
 using MLVScan.Models.Dto;
 using MLVScan.Services;
+using MLVScan.Services.ThreatIntel;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
@@ -105,9 +106,24 @@ public class ThreatFamilyQuarantineTests
         var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
 
         dto.ThreatFamilies.Should().NotBeNullOrEmpty();
-        dto.ThreatFamilies!.Should().Contain(match =>
+        var mappedVariant = dto.ThreatFamilies!.FirstOrDefault(match =>
             match.FamilyId == "family-webdownload-stage-exec-v3" &&
             match.VariantId == expectedVariantId);
+
+        if (mappedVariant == null)
+        {
+            dto.ThreatFamilies.Should().Contain(match =>
+                    match.FamilyId == "family-webdownload-stage-exec-v3" &&
+                    match.ExactHashMatch,
+                "an exact known-sample match may take precedence in the production result");
+
+            var behaviorMatches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+            behaviorMatches.Should().Contain(match =>
+                    match.FamilyId == "family-webdownload-stage-exec-v3" &&
+                    match.VariantId == expectedVariantId &&
+                    !match.ExactHashMatch,
+                "the sample should retain its behavior-based variant when exact-hash evidence is unavailable");
+        }
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
     }
