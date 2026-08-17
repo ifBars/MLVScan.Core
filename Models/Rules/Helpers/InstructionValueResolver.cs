@@ -620,7 +620,6 @@ namespace MLVScan.Models.Rules.Helpers
                         storedArgumentIndex == argumentIndex)
                     {
                         hasArgumentStore = true;
-                        break;
                     }
                 }
 
@@ -628,7 +627,9 @@ namespace MLVScan.Models.Rules.Helpers
                     return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
                         instruction => TryGetStoredArgumentIndex(instruction, out int storedIndex) &&
                                        storedIndex == argumentIndex,
-                        depth, out identity);
+                        depth, out identity, invalidatesDefinition: instruction =>
+                            TryGetLoadedArgumentAddressIndex(instruction, out int escapedIndex) &&
+                            escapedIndex == argumentIndex);
             }
 
             if (producer.Operand is FieldReference loadedField &&

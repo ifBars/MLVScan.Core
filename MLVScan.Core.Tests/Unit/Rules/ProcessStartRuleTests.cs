@@ -2755,6 +2755,39 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ShouldSuppressFinding_ArgumentAddressEscapesAfterReassignment_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var target = new ParameterDefinition("target", ParameterAttributes.None, stringType);
+        method.Parameters.Add(target);
+        var rewrite = new MethodReference("Rewrite", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(new ByReferenceType(stringType)));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Starg, target);
+        il.Emit(OpCodes.Ldarga, target);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldarg, target);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public void ShouldSuppressFinding_ProcessStartInfoEscapedToField_ReturnsFalse()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
