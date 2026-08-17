@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using MLVScan.Services.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -12,6 +13,10 @@ namespace MLVScan.Models.Rules.Helpers
     internal static class InstructionValueResolver
     {
         private const int MaxDepth = 16;
+        private const int MaxTrackedCallArguments = 32;
+
+        private static readonly ConditionalWeakTable<
+            Mono.Collections.Generic.Collection<Instruction>, CallArgumentProducerMap> CallArgumentProducerMaps = new();
 
         private static readonly Regex ExecutableNameRegex =
             new Regex(@"([A-Za-z0-9._-]+\.(?:exe|bat|cmd|com|ps1|msi))",
@@ -124,6 +129,12 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             var context = new ResolverContext(containingMethod?.Module);
+            if (TryResolveCallArgumentFromBasicBlock(context, containingMethod, instructions, callIndex,
+                    calledMethod.Parameters.Count, argumentIndex, out valueDisplay))
+            {
+                return true;
+            }
+
             if (!TryResolveCallArguments(context, containingMethod, instructions, callIndex,
                     calledMethod.Parameters.Count, null, 0, out var arguments))
             {
@@ -132,6 +143,159 @@ namespace MLVScan.Models.Rules.Helpers
 
             valueDisplay = arguments[argumentIndex].Display;
             return true;
+        }
+
+        private static bool TryResolveCallArgumentFromBasicBlock(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int parameterCount,
+            int argumentIndex,
+            out string valueDisplay)
+        {
+            valueDisplay = "<unknown/non-literal>";
+            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            if (!producerMap.TryGetProducer(callIndex, parameterCount, argumentIndex, out int producerIndex))
+                return false;
+
+            if (!TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, null, 1,
+                    out var resolved))
+            {
+                return false;
+            }
+
+            valueDisplay = resolved.Display;
+            return true;
+        }
+
+        private static CallArgumentProducerMap BuildCallArgumentProducerMap(
+            Mono.Collections.Generic.Collection<Instruction> instructions)
+        {
+            var instructionIndices = new Dictionary<Instruction, int>(instructions.Count);
+            for (int i = 0; i < instructions.Count; i++)
+                instructionIndices[instructions[i]] = i;
+
+            var blockStarts = new bool[instructions.Count];
+            if (blockStarts.Length > 0)
+                blockStarts[0] = true;
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if ((flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
+                     FlowControl.Return or FlowControl.Throw) && i + 1 < instructions.Count)
+                    blockStarts[i + 1] = true;
+
+                if (instructions[i].Operand is Instruction target)
+                {
+                    if (instructionIndices.TryGetValue(target, out int targetIndex))
+                        blockStarts[targetIndex] = true;
+                }
+                else if (instructions[i].Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (instructionIndices.TryGetValue(switchTarget, out int targetIndex))
+                            blockStarts[targetIndex] = true;
+                    }
+                }
+            }
+
+            var producersByCallIndex = new Dictionary<int, int[]>();
+            var stack = new List<int>();
+            bool validBlock = true;
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                if (blockStarts[i])
+                {
+                    stack.Clear();
+                    validBlock = true;
+                }
+
+                if (!validBlock)
+                    continue;
+
+                var instruction = instructions[i];
+                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                    instruction.Operand is MethodReference calledMethod &&
+                    calledMethod.Parameters.Count <= MaxTrackedCallArguments &&
+                    stack.Count >= calledMethod.Parameters.Count)
+                {
+                    int parameterCount = calledMethod.Parameters.Count;
+                    int firstArgumentIndex = stack.Count - parameterCount;
+                    var argumentProducers = new int[parameterCount];
+                    for (int argumentIndex = 0; argumentIndex < parameterCount; argumentIndex++)
+                        argumentProducers[argumentIndex] = stack[firstArgumentIndex + argumentIndex];
+
+                    producersByCallIndex[i] = argumentProducers;
+                }
+
+                if (instruction.OpCode == OpCodes.Dup)
+                {
+                    if (stack.Count == 0)
+                    {
+                        validBlock = false;
+                        continue;
+                    }
+
+                    stack.Add(stack[^1]);
+                    continue;
+                }
+
+                if (instruction.OpCode == OpCodes.Calli)
+                {
+                    validBlock = false;
+                    continue;
+                }
+
+                int popCount = IsArrayElementStore(instruction) ? 3 : instruction.GetPopCount();
+                if (popCount > stack.Count)
+                {
+                    validBlock = false;
+                    continue;
+                }
+
+                if (popCount > 0)
+                    stack.RemoveRange(stack.Count - popCount, popCount);
+
+                int pushCount = instruction.GetPushCount();
+                for (int push = 0; push < pushCount; push++)
+                    stack.Add(i);
+            }
+
+            return new CallArgumentProducerMap(producersByCallIndex);
+        }
+
+        private static bool IsArrayElementStore(Instruction instruction)
+        {
+            return instruction.OpCode.Code is
+                Code.Stelem_Any or Code.Stelem_I or Code.Stelem_I1 or Code.Stelem_I2 or Code.Stelem_I4 or
+                Code.Stelem_I8 or Code.Stelem_R4 or Code.Stelem_R8 or Code.Stelem_Ref;
+        }
+
+        private sealed class CallArgumentProducerMap
+        {
+            private readonly Dictionary<int, int[]> _producersByCallIndex;
+
+            public CallArgumentProducerMap(Dictionary<int, int[]> producersByCallIndex)
+            {
+                _producersByCallIndex = producersByCallIndex;
+            }
+
+            public bool TryGetProducer(int callIndex, int parameterCount, int argumentIndex, out int producerIndex)
+            {
+                producerIndex = -1;
+                if (!_producersByCallIndex.TryGetValue(callIndex, out var producers) ||
+                    producers.Length != parameterCount || argumentIndex < 0 || argumentIndex >= producers.Length)
+                {
+                    return false;
+                }
+
+                producerIndex = producers[argumentIndex];
+                return true;
+            }
         }
 
         /// <summary>
