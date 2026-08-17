@@ -96,8 +96,20 @@ namespace MLVScan.Models.Rules
             "dotnet"
         };
 
+        private static readonly HashSet<string> DownloaderExecutables = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "curl.exe",
+            "curl",
+            "wget.exe",
+            "wget"
+        };
+
         private static readonly Regex SuspiciousArgumentPattern = new Regex(
-            @"(?i)((-|/)ep\s+bypass|(-|/)executionpolicy\s+bypass|(-|/)enc(odedcommand)?\s+[A-Za-z0-9+/=]|(-|/)nop(rofile)?\b|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|(-|/)w\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
+            @"(?i)((-|/)ep\s+bypass|(-|/)executionpolicy\s+bypass|(-|/)enc(odedcommand)?\s+[A-Za-z0-9+/=]|(-|/)nop(rofile)?\b|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|(-|/)w\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|\b(?:curl|wget)\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ResolverPlaceholderPattern = new Regex(
+            @"<(?:arg\s+\d+|dynamic[^>]*|unknown[^>]*)>",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex TempPathPattern = new Regex(
@@ -198,7 +210,7 @@ namespace MLVScan.Models.Rules
             }
 
             var target = ExtractProcessTarget(null, method, instructions, instructionIndex);
-            var arguments = ExtractProcessArguments(null, instructions, instructionIndex);
+            var arguments = ExtractProcessArguments(null, method, instructions, instructionIndex);
 
             // Detect ProcessStartInfo evasion indicators
             var hasUseShell =
@@ -304,37 +316,31 @@ namespace MLVScan.Models.Rules
                                KnownSafeTools.Any(safe =>
                                    targetLower.EndsWith("\\" + safe) || targetLower.EndsWith("/" + safe));
 
-            bool hasSuspiciousArgs = !string.IsNullOrEmpty(argumentsLower) &&
-                                     argumentsLower != "<unknown/no-arguments>" &&
-                                     SuspiciousArgumentPattern.IsMatch(argumentsLower);
+            bool isDownloader = DownloaderExecutables.Contains(targetLower) ||
+                                DownloaderExecutables.Any(downloader =>
+                                    targetLower.EndsWith("\\" + downloader) ||
+                                    targetLower.EndsWith("/" + downloader));
 
-            bool hasResolverPlaceholderArgs = argumentsLower.Contains("<arg ") ||
-                                              argumentsLower.Contains("<dynamic") ||
-                                              argumentsLower.Contains("<unknown");
+            var literalArguments = ResolverPlaceholderPattern.Replace(argumentsLower, " ");
+            bool hasLiteralArguments = !string.IsNullOrWhiteSpace(literalArguments) &&
+                                       argumentsLower != "<unknown/no-arguments>";
+            bool hasSuspiciousArgs = hasLiteralArguments &&
+                                     SuspiciousArgumentPattern.IsMatch(literalArguments);
 
-            if (hasResolverPlaceholderArgs)
-            {
-                hasSuspiciousArgs = false;
-            }
+            bool hasDownloadUrl = hasLiteralArguments &&
+                                  DownloadPattern.IsMatch(literalArguments);
 
-            bool hasDownloadUrl = !string.IsNullOrEmpty(argumentsLower) &&
-                                  DownloadPattern.IsMatch(argumentsLower);
+            bool hasTempPath = hasLiteralArguments &&
+                               TempPathPattern.IsMatch(literalArguments);
 
-            bool hasTempPath = !string.IsNullOrEmpty(argumentsLower) &&
-                               argumentsLower != "<unknown/no-arguments>" &&
-                               TempPathPattern.IsMatch(argumentsLower);
+            bool hasScriptDropExtension = hasLiteralArguments &&
+                                          ScriptDropExtensionPattern.IsMatch(literalArguments);
 
-            bool hasScriptDropExtension = !string.IsNullOrEmpty(argumentsLower) &&
-                                          argumentsLower != "<unknown/no-arguments>" &&
-                                          ScriptDropExtensionPattern.IsMatch(argumentsLower);
+            bool hasStagedLoaderPivot = hasLiteralArguments &&
+                                        StagedLoaderPivotPattern.IsMatch(literalArguments);
 
-            bool hasStagedLoaderPivot = !string.IsNullOrEmpty(argumentsLower) &&
-                                        argumentsLower != "<unknown/no-arguments>" &&
-                                        StagedLoaderPivotPattern.IsMatch(argumentsLower);
-
-            bool hasStagedDownloadCommand = !string.IsNullOrEmpty(argumentsLower) &&
-                                            argumentsLower != "<unknown/no-arguments>" &&
-                                            StagedLoaderDownloadCommandPattern.IsMatch(argumentsLower);
+            bool hasStagedDownloadCommand = hasLiteralArguments &&
+                                            StagedLoaderDownloadCommandPattern.IsMatch(literalArguments);
 
             bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
 
@@ -384,6 +390,11 @@ namespace MLVScan.Models.Rules
                 }
 
                 return (Severity.High, "Potential staged loader chain (download -> temp drop -> execute)");
+            }
+
+            if (isDownloader && hasDownloadUrl)
+            {
+                return (Severity.Critical, "Downloader executable with URL arguments");
             }
 
             if (isKnownSafe)
@@ -567,7 +578,7 @@ namespace MLVScan.Models.Rules
             int instructionIndex)
         {
             string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex);
-            string arguments = ExtractProcessArguments(containingMethod, instructions, instructionIndex);
+            string arguments = ExtractProcessArguments(containingMethod, method, instructions, instructionIndex);
 
             // Detect ProcessStartInfo evasion indicators
             var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(containingMethod, instructions,
@@ -1122,11 +1133,12 @@ namespace MLVScan.Models.Rules
 
         private static string ExtractProcessArguments(
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, instructions, processStartIndex,
-                    out string arguments))
+            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, calledMethod, instructions,
+                    processStartIndex, out string arguments))
             {
                 return arguments;
             }

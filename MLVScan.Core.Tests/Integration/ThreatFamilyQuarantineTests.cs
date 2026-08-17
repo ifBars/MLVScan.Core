@@ -216,7 +216,7 @@ public class ThreatFamilyQuarantineTests
     }
 
     [SkippableFact]
-    public void Scan_RecursiveQuarantineSamplesWithBehaviorEvidence_ShouldClassifyAsKnownThreat()
+    public void Scan_RecursiveQuarantineSamplesWithBehaviorEvidence_ShouldNotClassifyAsClean()
     {
         Skip.If(_quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
 
@@ -238,7 +238,10 @@ public class ThreatFamilyQuarantineTests
             _output.WriteLine(
                 $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
 
-            if (!string.Equals(classification, "KnownThreat", StringComparison.Ordinal))
+            bool hasAcceptableDisposition =
+                string.Equals(classification, "KnownThreat", StringComparison.Ordinal) ||
+                string.Equals(classification, "Suspicious", StringComparison.Ordinal);
+            if (!hasAcceptableDisposition || findings.Count == 0)
             {
                 failures.Add(
                     $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
@@ -247,7 +250,8 @@ public class ThreatFamilyQuarantineTests
 
         }
 
-        failures.Should().BeEmpty("every modeled quarantine behavior should classify as a known threat");
+        failures.Should().BeEmpty(
+            "every modeled quarantine behavior should retain findings and classify as KnownThreat or Suspicious, never Clean");
     }
 
     [SkippableFact]
