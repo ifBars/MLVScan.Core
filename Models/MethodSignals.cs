@@ -37,6 +37,11 @@ namespace MLVScan.Models
         public bool HasNetworkCall { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether a download rule matched a suspicious endpoint or payload source.
+        /// </summary>
+        public bool HasSuspiciousNetworkDownload { get; set; }
+
+        /// <summary>
         /// Gets or sets a value indicating whether the method writes data to disk.
         /// </summary>
         public bool HasFileWrite { get; set; }
