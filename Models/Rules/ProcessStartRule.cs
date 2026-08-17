@@ -1125,6 +1125,25 @@ namespace MLVScan.Models.Rules
                 }
 
                 if (startInfoIdentity.Length == 0)
+                {
+                    for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+                    {
+                        if (instructions[i].Operand is not MethodReference getter ||
+                            getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                            getter.Name != "get_StartInfo" ||
+                            !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                                out var receiverIdentity) ||
+                            !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        startInfoIdentity = $"call:{i}";
+                        break;
+                    }
+                }
+
+                if (startInfoIdentity.Length == 0)
                     return false;
             }
 

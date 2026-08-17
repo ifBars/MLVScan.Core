@@ -832,6 +832,44 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ShouldSuppressFinding_GetterBackedProcessStartInfoRestart_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processLocal = new VariableDefinition(processType);
+        method.Body.Variables.Add(processLocal);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var getStartInfo = new MethodReference("get_StartInfo", startInfoType, processType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType) { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, processLocal);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
     public void ShouldSuppressFinding_SavedRestartBeforeUnrelatedFileNameLookup_ReturnsTrue()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
