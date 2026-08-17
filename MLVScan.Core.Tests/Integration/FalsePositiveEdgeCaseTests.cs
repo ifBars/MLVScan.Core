@@ -563,7 +563,7 @@ public class FalsePositiveEdgeCaseTests
     }
 
     [Fact]
-    public void Scan_TelemetryUploadDataFlow_DoesNotEmitStandaloneMalwareFinding()
+    public void Scan_TelemetryUploadDataFlow_EmitsNonBlockingAuditFinding()
     {
         var builder = TestAssemblyBuilder.Create("BenignTelemetryUpload");
         var module = builder.Module;
@@ -583,8 +583,14 @@ public class FalsePositiveEdgeCaseTests
 
         var findings = Scan(assembly, "BenignTelemetryUpload.dll");
 
-        findings.Should().NotContain(f => f.RuleId == "DataFlowAnalysis",
-            "plain data exfiltration-shaped telemetry should require stronger context before becoming a standalone malware finding");
+        findings.Should().ContainSingle(f =>
+            f.RuleId == "DataFlowAnalysis" && f.Severity == Severity.Medium,
+            "plain upload-shaped telemetry should remain visible without becoming a blocking malware finding");
+
+        var dto = ScanResultMapper.ToDto(findings, "BenignTelemetryUpload.dll", Array.Empty<byte>(), false);
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
     }
 
     [Fact]

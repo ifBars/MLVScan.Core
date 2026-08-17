@@ -184,13 +184,23 @@ public class FalsePositiveScanTests
         var findings = scanner.Scan(path).ToList();
         LogFindings(findings, filename);
 
-        findings.Should().BeEmpty($"{filename} is a known false positive and should not trigger findings");
+        if (filename is "SaveFileSharing.dll" or "UnlimitedLaundering.dll")
+        {
+            findings.Should().ContainSingle(finding =>
+                finding.RuleId == "DataFlowAnalysis" && finding.Severity == Severity.Medium,
+                $"{filename} should retain only its non-blocking upload audit signal");
+        }
+        else
+        {
+            findings.Should().BeEmpty($"{filename} is a known false positive and should not trigger findings");
+        }
 
         var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
         dto.Disposition.Should().NotBeNull();
         dto.Disposition!.Classification.Should().Be("Clean");
         dto.ThreatFamilies.Should().BeNull();
-        dto.Findings.Should().BeEmpty();
+        dto.Findings.Should().OnlyContain(finding =>
+            finding.Severity == "Low" || finding.Severity == "Medium");
     }
 
     /// <summary>

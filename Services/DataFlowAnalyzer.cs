@@ -176,7 +176,7 @@ namespace MLVScan.Services
 
             foreach (var chain in _state.MethodDataFlows.Values.SelectMany(static list => list))
             {
-                if (chain.IsSuspicious && _patternEvaluator.ShouldEmitFinding(chain.Pattern))
+                if (chain.IsSuspicious && _patternEvaluator.ShouldEmitFinding(chain))
                 {
                     findings.Add(_patternEvaluator.CreateFinding(chain));
                 }
@@ -184,7 +184,7 @@ namespace MLVScan.Services
 
             foreach (var chain in _state.CrossMethodChains)
             {
-                if (chain.IsSuspicious && _patternEvaluator.ShouldEmitFinding(chain.Pattern))
+                if (chain.IsSuspicious && _patternEvaluator.ShouldEmitFinding(chain))
                 {
                     findings.Add(_patternEvaluator.CreateFinding(chain));
                 }

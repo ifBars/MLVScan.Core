@@ -585,22 +585,24 @@ public class DataFlowAnalyzerTests
         analyzer.AnalyzeCrossMethodFlows();
         var findings = analyzer.BuildDataFlowFindings().ToList();
 
-        // Assert
-        // Should have at least some findings (single-method or cross-method)
-        // The exact count depends on pattern recognition
-        findings.Should().NotBeNull();
+        findings.Should().Contain(finding =>
+            finding.RuleId == "DataFlowAnalysis" &&
+            finding.Severity == Severity.Critical &&
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DataExfiltration &&
+            finding.DataFlowChain.IsCrossMethod);
     }
 
     [Fact]
-    public void BuildDataFlowFindings_DataExfiltrationPattern_DoesNotEmitStandaloneFinding()
+    public void BuildDataFlowFindings_DataExfiltrationPattern_EmitsCriticalFinding()
     {
         var builder = TestAssemblyBuilder.Create("StandaloneExfiltrationTest");
         var module = builder.Module;
-        var typeBuilder = builder.AddType("TestNamespace.TelemetryClass");
+        var typeBuilder = builder.AddType("TestNamespace.Exfiltrator");
 
-        typeBuilder.AddMethod("UploadTelemetry", MethodAttributes.Public | MethodAttributes.Static)
+        typeBuilder.AddMethod("UploadCredentials", MethodAttributes.Public | MethodAttributes.Static)
             .AddLocal(module.TypeSystem.String, out var localIdx)
-            .EmitString("telemetry.json")
+            .EmitString("passwords.txt")
             .EmitCall("System.IO.File", "ReadAllText", module.TypeSystem.String)
             .EmitStloc(localIdx)
             .EmitLdloc(localIdx)
@@ -609,8 +611,8 @@ public class DataFlowAnalyzerTests
             .EndMethod();
 
         var assembly = builder.Build();
-        var method = assembly.MainModule.Types.First(t => t.Name == "TelemetryClass")
-            .Methods.First(m => m.Name == "UploadTelemetry");
+        var method = assembly.MainModule.Types.First(t => t.Name == "Exfiltrator")
+            .Methods.First(m => m.Name == "UploadCredentials");
 
         var rules = RuleFactory.CreateDefaultRules();
         var snippetBuilder = new CodeSnippetBuilder();
@@ -619,7 +621,11 @@ public class DataFlowAnalyzerTests
         analyzer.AnalyzeMethod(method);
 
         analyzer.SuspiciousChainCount.Should().BeGreaterThan(0);
-        analyzer.BuildDataFlowFindings().Should().BeEmpty();
+        analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowAnalysis" &&
+            finding.Severity == Severity.Critical &&
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DataExfiltration);
     }
 
     [Fact]

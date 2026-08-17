@@ -5,6 +5,13 @@ namespace MLVScan.Services.DataFlow
 {
     internal sealed class DataFlowPatternEvaluator
     {
+        private static readonly string[] SensitiveSourceTerms =
+        {
+            "password", "credential", "cookie", "login data", "local state",
+            "access_token", "refresh_token", "auth token", "secret", "wallet",
+            "seed phrase", ".ssh", ".aws", ".kube", "discord token"
+        };
+
         public DataFlowPattern RecognizePattern(IReadOnlyList<DataFlowInterestingOperation> operations)
         {
             if (HasResourceSource(operations) && HasLinkedEmbeddedPayloadExecution(operations))
@@ -85,6 +92,11 @@ namespace MLVScan.Services.DataFlow
 
         public ScanFinding CreateFinding(DataFlowChain chain)
         {
+            if (chain.Pattern == DataFlowPattern.DataExfiltration && !HasSensitiveSourceEvidence(chain))
+            {
+                chain.Severity = Severity.Medium;
+            }
+
             return new ScanFinding(
                 chain.MethodLocation,
                 chain.ToDetailedDescription(),
@@ -96,12 +108,28 @@ namespace MLVScan.Services.DataFlow
             };
         }
 
-        public bool ShouldEmitFinding(DataFlowPattern pattern)
+        public bool ShouldEmitFinding(DataFlowChain chain)
         {
-            return pattern == DataFlowPattern.EmbeddedResourceDropAndExecute ||
-                   pattern == DataFlowPattern.DownloadAndExecute ||
-                   pattern == DataFlowPattern.DynamicCodeLoading ||
-                   pattern == DataFlowPattern.ObfuscatedPersistence;
+            return chain.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute ||
+                   chain.Pattern == DataFlowPattern.DownloadAndExecute ||
+                   chain.Pattern == DataFlowPattern.DataExfiltration ||
+                   chain.Pattern == DataFlowPattern.DynamicCodeLoading ||
+                   chain.Pattern == DataFlowPattern.ObfuscatedPersistence;
+        }
+
+        private static bool HasSensitiveSourceEvidence(DataFlowChain chain)
+        {
+            return chain.Nodes
+                .Where(static node => node.NodeType == DataFlowNodeType.Source)
+                .SelectMany(static node => new[]
+                {
+                    node.Location,
+                    node.Operation,
+                    node.DataDescription,
+                    node.CodeSnippet ?? string.Empty
+                })
+                .Any(value => SensitiveSourceTerms.Any(term =>
+                    value.Contains(term, StringComparison.OrdinalIgnoreCase)));
         }
 
         private static bool HasNetworkSource(IEnumerable<DataFlowInterestingOperation> operations)
