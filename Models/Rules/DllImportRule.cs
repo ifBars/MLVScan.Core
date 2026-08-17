@@ -139,6 +139,13 @@ namespace MLVScan.Models.Rules
             "resumethread"
         ];
 
+        // Process-memory dump primitives are security-significant even when exported by
+        // DLLs that also support legitimate crash diagnostics.
+        private static readonly string[] CredentialDumpFunctions =
+        [
+            "minidumpwritedump"
+        ];
+
         // Native execution entry points that can directly launch payloads.
         private static readonly string[] NativeExecutionFunctions =
         [
@@ -159,8 +166,7 @@ namespace MLVScan.Models.Rules
             "process32first",
             "process32next",
             "rtlgetversion",
-            "ntqueryinformationprocess",
-            "minidumpwritedump"
+            "ntqueryinformationprocess"
         ];
 
         // Specific UI-only imports that are common in legitimate software and do not
@@ -200,6 +206,13 @@ namespace MLVScan.Models.Rules
 
             var lowerDllName = dllName.ToLower();
             var entryPointLower = entryPoint.ToLower();
+
+            if (MatchesKnownApi(entryPointLower, CredentialDumpFunctions))
+            {
+                _severity = Severity.High;
+                _description = $"Detected elevated-risk function {entryPoint} in DllImport from {dllName}";
+                return true;
+            }
 
             if (MatchesKnownApi(entryPointLower, DiagnosticFunctions))
             {
