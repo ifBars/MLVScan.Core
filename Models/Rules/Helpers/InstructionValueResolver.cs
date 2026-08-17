@@ -810,6 +810,26 @@ namespace MLVScan.Models.Rules.Helpers
             return reachedUse;
         }
 
+        public static bool TryResolveEquivalentCallArgumentReachingDefinitions(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int useIndex,
+            Func<Instruction, bool> isDefinition,
+            int argumentIndex,
+            out string identity)
+        {
+            return TryResolveEquivalentReachingDefinitions(
+                instructions, exceptionHandlers, useIndex, isDefinition, 0, out identity,
+                definitionIdentityResolver: (int definitionIndex, out string definitionIdentity) =>
+                {
+                    definitionIdentity = string.Empty;
+                    return instructions[definitionIndex].Operand is MethodReference method &&
+                           argumentIndex >= 0 && argumentIndex < method.Parameters.Count &&
+                           TryResolveCallArgumentIdentity(method, instructions, definitionIndex, argumentIndex,
+                               exceptionHandlers, out definitionIdentity);
+                });
+        }
+
         private static bool TryResolveEquivalentReachingDefinitions(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             IReadOnlyList<ExceptionHandler> exceptionHandlers,
@@ -818,7 +838,8 @@ namespace MLVScan.Models.Rules.Helpers
             int depth,
             out string identity,
             string requiredReceiverIdentity = "",
-            Func<Instruction, bool>? invalidatesDefinition = null)
+            Func<Instruction, bool>? invalidatesDefinition = null,
+            TryResolveDefinitionIdentity? definitionIdentityResolver = null)
         {
             identity = string.Empty;
             if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
@@ -928,9 +949,15 @@ namespace MLVScan.Models.Rules.Helpers
                     }
                 }
 
-                if (!producerMap.TryGetStoredValueProducer(definitionIndex, out int storedValueProducer) ||
-                    !TryBuildProducerIdentity(instructions, storedValueProducer, exceptionHandlers,
-                        depth + 1, out var definitionIdentity))
+                string definitionIdentity;
+                if (definitionIdentityResolver != null)
+                {
+                    if (!definitionIdentityResolver(definitionIndex, out definitionIdentity))
+                        return false;
+                }
+                else if (!producerMap.TryGetStoredValueProducer(definitionIndex, out int storedValueProducer) ||
+                         !TryBuildProducerIdentity(instructions, storedValueProducer, exceptionHandlers,
+                             depth + 1, out definitionIdentity))
                 {
                     return false;
                 }
@@ -944,6 +971,8 @@ namespace MLVScan.Models.Rules.Helpers
 
             return identity.Length > 0;
         }
+
+        private delegate bool TryResolveDefinitionIdentity(int definitionIndex, out string identity);
 
         private static bool AreEquivalentProducerIdentities(
             Mono.Collections.Generic.Collection<Instruction> instructions,

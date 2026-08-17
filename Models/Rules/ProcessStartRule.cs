@@ -1388,6 +1388,7 @@ namespace MLVScan.Models.Rules
 
             }
 
+            var matchingFileNameSetters = new HashSet<Instruction>();
             for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
             {
                 if (instructions[i].Operand is not MethodReference setter ||
@@ -1396,8 +1397,13 @@ namespace MLVScan.Models.Rules
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
                         exceptionHandlers, out var receiverIdentity) ||
                     !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
-                        instructions, exceptionHandlers, i, processStartIndex) ||
-                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                matchingFileNameSetters.Add(instructions[i]);
+                if (!InstructionValueResolver.IsGuaranteedToExecuteBefore(
                         instructions, exceptionHandlers, i, processStartIndex) ||
                     HasLaterFileNameWrite(startInfoIdentity, launchedProcessIdentity, instructions,
                         exceptionHandlers, i, processStartIndex))
@@ -1407,6 +1413,20 @@ namespace MLVScan.Models.Rules
 
                 return InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
                     exceptionHandlers, out targetIdentity);
+            }
+
+            if (matchingFileNameSetters.Count > 1 &&
+                InstructionValueResolver.TryResolveEquivalentCallArgumentReachingDefinitions(
+                    instructions, exceptionHandlers, processStartIndex,
+                    matchingFileNameSetters.Contains, 0, out var equivalentTargetIdentity))
+            {
+                int earliestSetterIndex = matchingFileNameSetters.Min(instructions.IndexOf);
+                if (!HasLaterFileNameWrite(startInfoIdentity, launchedProcessIdentity, instructions,
+                        exceptionHandlers, earliestSetterIndex, processStartIndex))
+                {
+                    targetIdentity = equivalentTargetIdentity;
+                    return true;
+                }
             }
 
             if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
@@ -1461,7 +1481,9 @@ namespace MLVScan.Models.Rules
             int assignmentIndex,
             int processStartIndex)
         {
-            bool processStateEscapedBeforeAssignment = false;
+            bool processStateEscapedBeforeAssignment =
+                assignedStartInfoIdentity.StartsWith("argument:", StringComparison.Ordinal) ||
+                launchedProcessIdentity.StartsWith("argument:", StringComparison.Ordinal);
             for (int i = 0; i < instructions.Count; i++)
             {
                 if (i == assignmentIndex || i == processStartIndex)
