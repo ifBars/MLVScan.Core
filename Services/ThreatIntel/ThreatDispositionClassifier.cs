@@ -259,6 +259,11 @@ public sealed class ThreatDispositionClassifier
             return false;
         }
 
+        if (finding.Severity == Severity.Critical)
+        {
+            return true;
+        }
+
         if (finding.HasDataFlow && IsSuspiciousDataFlowSeed(finding))
         {
             return true;
