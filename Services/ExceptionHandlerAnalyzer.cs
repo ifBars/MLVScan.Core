@@ -101,20 +101,21 @@ namespace MLVScan.Services
                 return;
             }
 
-            int endIndex = allInstructions.Count - 1;
-            if (handler.HandlerEnd != null && !instructionIndexes.TryGetValue(handler.HandlerEnd, out endIndex))
+            int endExclusive = allInstructions.Count;
+            if (handler.HandlerEnd != null &&
+                !instructionIndexes.TryGetValue(handler.HandlerEnd, out endExclusive))
             {
                 incomplete = true;
                 return;
             }
 
-            if (endIndex < startIndex)
+            if (endExclusive < startIndex)
             {
                 incomplete = true;
                 return;
             }
 
-            int instructionCount = endIndex - startIndex + 1;
+            int instructionCount = endExclusive - startIndex;
             int instructionsToAnalyze = Math.Min(instructionCount, instructionBudget);
             if (instructionsToAnalyze < instructionCount)
                 incomplete = true;

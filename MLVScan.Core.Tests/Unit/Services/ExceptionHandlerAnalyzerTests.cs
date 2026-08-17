@@ -161,6 +161,25 @@ public class ExceptionHandlerAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeExceptionHandlers_WhenBudgetExactlyMatchesHandler_DoesNotReportIncompleteAnalysis()
+    {
+        var config = new ScanConfig
+        {
+            MaxExceptionHandlerInstructionsPerMethod = 3
+        };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new ExceptionRuleStub()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchCalling("System.Diagnostics.Process", "Start");
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals(), method.DeclaringType!.FullName).ToList();
+
+        findings.Should().ContainSingle(finding => finding.RuleId == "ExceptionRuleStub");
+        findings.Should().NotContain(finding => finding.RuleId == "ExceptionHandlerScanWarning");
+    }
+
+    [Fact]
     public void AnalyzeExceptionHandlers_WhenFindingBudgetIsExceeded_StopsAtTheLimit()
     {
         var config = new ScanConfig
