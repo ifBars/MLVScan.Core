@@ -1126,12 +1126,9 @@ namespace MLVScan.Models.Rules
                 if (resource == null)
                     return findings;
 
-                var resourceData = resource.GetResourceData();
-                if (resourceData == null || resourceData.Length == 0)
-                    return findings;
-
-                // Apply the configured limit to both stored and expanded resource bytes.
-                if (resourceData.LongLength > maxResourceBytes)
+                using var storedResourceStream = resource.GetResourceStream();
+                if (!TryReadBounded(storedResourceStream, maxResourceBytes, out var resourceData) ||
+                    resourceData.Length == 0)
                     return findings;
 
                 // Check if it looks like a PE/assembly (MZ header)
@@ -1204,6 +1201,29 @@ namespace MLVScan.Models.Rules
             }
 
             return findings;
+        }
+
+        private static bool TryReadBounded(Stream source, long maxBytes, out byte[] data)
+        {
+            data = Array.Empty<byte>();
+            if (maxBytes <= 0 || (source.CanSeek && source.Length > maxBytes))
+                return false;
+
+            using var destination = new MemoryStream();
+            var buffer = new byte[81920];
+            long totalBytes = 0;
+            int bytesRead;
+            while ((bytesRead = source.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                totalBytes += bytesRead;
+                if (totalBytes > maxBytes)
+                    return false;
+
+                destination.Write(buffer, 0, bytesRead);
+            }
+
+            data = destination.ToArray();
+            return true;
         }
 
         private static ScanFinding CreateEmbeddedChildFinding(string resourceName, ScanFinding innerFinding)

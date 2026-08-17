@@ -102,8 +102,12 @@ public class AssemblyDynamicLoadRuleBranchTests
     {
         const string resourceName = "compressed-payload.dll";
         var outerAssembly = CreateAssembly("BoundedRecursiveScan");
+        var compressedPayload = BuildOversizedGzipPayload(
+            BuildInnerAssemblyBytesWithProcessStart(),
+            2 * 1024 * 1024);
+        compressedPayload.Length.Should().BeLessThan(1024 * 1024);
         outerAssembly.MainModule.Resources.Add(new EmbeddedResource(resourceName,
-            Mono.Cecil.ManifestResourceAttributes.Private, BuildOversizedGzipPayload(2 * 1024 * 1024)));
+            Mono.Cecil.ManifestResourceAttributes.Private, compressedPayload));
         QueueEmbeddedResourceLoad(_rule, outerAssembly.MainModule, resourceName);
         _ = new AssemblyScanner([_rule], new ScanConfig { MaxRecursiveResourceSizeMB = 1 });
 
@@ -285,15 +289,15 @@ public class AssemblyDynamicLoadRuleBranchTests
         rule.AnalyzeContextualPattern(loadBytes, instructions, 2, new MethodSignals()).ToList();
     }
 
-    private static byte[] BuildOversizedGzipPayload(int expandedSize)
+    private static byte[] BuildOversizedGzipPayload(byte[] payload, int expandedSize)
     {
+        expandedSize.Should().BeGreaterThan(payload.Length);
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
         {
-            gzip.WriteByte((byte)'M');
-            gzip.WriteByte((byte)'Z');
+            gzip.Write(payload, 0, payload.Length);
             var zeros = new byte[81920];
-            int remaining = expandedSize - 2;
+            int remaining = expandedSize - payload.Length;
             while (remaining > 0)
             {
                 int count = Math.Min(remaining, zeros.Length);
