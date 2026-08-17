@@ -176,6 +176,66 @@ public class PersistenceRuleTests
     }
 
     [Fact]
+    public void AnalyzeContextualPattern_DetectsPersistenceWriteWithInlineByteArrayPayload()
+    {
+        var context = CreateContext("System.IO.File", "WriteAllBytes", builder =>
+        {
+            ILProcessor il = builder.MethodDefinition.Body.GetILProcessor();
+            il.Emit(OpCodes.Ldstr, @"C:\Users\Test\AppData\Local\payload.exe");
+            il.Emit(OpCodes.Ldc_I4_2);
+            il.Emit(OpCodes.Newarr, builder.Module.TypeSystem.Byte);
+            il.Emit(OpCodes.Dup);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ldc_I4, 0x4d);
+            il.Emit(OpCodes.Stelem_I1);
+            il.Emit(OpCodes.Dup);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Ldc_I4, 0x5a);
+            il.Emit(OpCodes.Stelem_I1);
+        });
+
+        int callIndex = context.Method.Body.Instructions.Count - 2;
+        List<ScanFinding> findings = Analyze(context, callIndex);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("Potential persistence");
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_DetectsPersistenceWriteWithStaticArrayInitializer()
+    {
+        var context = CreateContext("System.IO.File", "WriteAllBytes", builder =>
+        {
+            ILProcessor il = builder.MethodDefinition.Body.GetILProcessor();
+            var dataField = new FieldReference(
+                "PayloadData",
+                new ArrayType(builder.Module.TypeSystem.Byte),
+                builder.MethodDefinition.DeclaringType);
+            var initializeArray = new MethodReference(
+                "InitializeArray",
+                builder.Module.TypeSystem.Void,
+                CreateTypeReference(builder.Module, "System.Runtime.CompilerServices.RuntimeHelpers"));
+            initializeArray.Parameters.Add(new ParameterDefinition(CreateTypeReference(builder.Module, "System.Array")));
+            initializeArray.Parameters.Add(new ParameterDefinition(
+                CreateTypeReference(builder.Module, "System.RuntimeFieldHandle")));
+
+            il.Emit(OpCodes.Ldstr, @"C:\Users\Test\AppData\Local\payload.exe");
+            il.Emit(OpCodes.Ldc_I4, 256);
+            il.Emit(OpCodes.Newarr, builder.Module.TypeSystem.Byte);
+            il.Emit(OpCodes.Dup);
+            il.Emit(OpCodes.Ldtoken, dataField);
+            il.Emit(OpCodes.Call, initializeArray);
+        });
+
+        int callIndex = context.Method.Body.Instructions.Count - 2;
+        List<ScanFinding> findings = Analyze(context, callIndex);
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+    }
+
+    [Fact]
     public void AnalyzeContextualPattern_DoesNotDetect_WhenNotFileOperation()
     {
         var context = CreateContext("System.Console", "WriteLine", builder =>
