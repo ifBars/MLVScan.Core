@@ -799,8 +799,11 @@ namespace MLVScan.Models.Rules.Helpers
 
                 if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
                 {
+                    int exceptionalDefinition = invalidatesDefinition?.Invoke(instruction) == true
+                        ? -2
+                        : current.DefinitionIndex;
                     foreach (var handlerTarget in handlerTargets)
-                        pending.Enqueue((handlerTarget, current.DefinitionIndex));
+                        pending.Enqueue((handlerTarget, exceptionalDefinition));
                 }
 
                 if (instruction.Operand is Instruction target)

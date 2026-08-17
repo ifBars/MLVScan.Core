@@ -2223,6 +2223,52 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ShouldSuppressFinding_FieldBackedRestartAcrossThrowingMutatingCall_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stateType = new TypeReference("Test", "State", null, null);
+        var field = new FieldReference("RestartPath", stringType, stateType);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stsfld, field);
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("ChangeRestartPathAndThrow", method.ReturnType, stateType));
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public void ShouldSuppressFinding_InstanceFieldBackedRestart_ReturnsTrue()
     {
         var declaringType = new TypeReference("Test", "State", null, null);
