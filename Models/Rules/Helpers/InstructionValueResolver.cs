@@ -145,6 +145,162 @@ namespace MLVScan.Models.Rules.Helpers
             return true;
         }
 
+        /// <summary>
+        /// Tries to identify the receiver consumed by an instance call.
+        /// </summary>
+        public static bool TryResolveCallReceiverIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            out string identity)
+        {
+            identity = string.Empty;
+            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            return producerMap.TryGetReceiverProducer(callIndex, out int producerIndex) &&
+                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+        }
+
+        /// <summary>
+        /// Tries to identify one argument consumed by a call.
+        /// </summary>
+        public static bool TryResolveCallArgumentIdentity(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            out string identity)
+        {
+            identity = string.Empty;
+            if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
+                return false;
+
+            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
+                       out int producerIndex) &&
+                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+        }
+
+        private static bool TryBuildProducerIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int producerIndex,
+            out string identity)
+        {
+            return TryBuildProducerIdentity(instructions, producerIndex, 0, out identity);
+        }
+
+        private static bool TryBuildProducerIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int producerIndex,
+            int depth,
+            out string identity)
+        {
+            identity = string.Empty;
+            if (producerIndex < 0 || producerIndex >= instructions.Count || depth > MaxDepth)
+                return false;
+
+            var producer = instructions[producerIndex];
+            if (TryGetLoadedLocalIndex(producer, out int localIndex))
+            {
+                for (int i = producerIndex - 1; i >= 0; i--)
+                {
+                    if (!TryGetStoredLocalIndex(instructions[i], out int storedLocalIndex) ||
+                        storedLocalIndex != localIndex)
+                    {
+                        continue;
+                    }
+
+                    if (!HasUnambiguousLinearReach(instructions, i, producerIndex))
+                        return false;
+
+                    var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+                    return producerMap.TryGetStoredValueProducer(i, out int storedValueProducer) &&
+                           TryBuildProducerIdentity(instructions, storedValueProducer, depth + 1, out identity);
+                }
+
+                return false;
+            }
+
+            identity = producer.OpCode.Code switch
+            {
+                Code.Ldarg_0 => "argument:0",
+                Code.Ldarg_1 => "argument:1",
+                Code.Ldarg_2 => "argument:2",
+                Code.Ldarg_3 => "argument:3",
+                Code.Ldarg or Code.Ldarg_S when producer.Operand is ParameterDefinition parameter =>
+                    $"argument:{parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)}",
+                Code.Newobj => $"new:{producerIndex}",
+                _ => string.Empty
+            };
+
+            return identity.Length > 0;
+        }
+
+        private static bool TryGetLoadedLocalIndex(Instruction instruction, out int localIndex)
+        {
+            localIndex = instruction.OpCode.Code switch
+            {
+                Code.Ldloc_0 => 0,
+                Code.Ldloc_1 => 1,
+                Code.Ldloc_2 => 2,
+                Code.Ldloc_3 => 3,
+                Code.Ldloc or Code.Ldloc_S when instruction.Operand is VariableDefinition variable => variable.Index,
+                _ => -1
+            };
+
+            return localIndex >= 0;
+        }
+
+        private static bool HasUnambiguousLinearReach(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int definitionIndex,
+            int useIndex)
+        {
+            for (int i = definitionIndex + 1; i < useIndex; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
+                    FlowControl.Return or FlowControl.Throw)
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                if (instructions[i].Operand is Instruction target)
+                {
+                    int targetIndex = instructions.IndexOf(target);
+                    if (targetIndex > definitionIndex && targetIndex <= useIndex)
+                        return false;
+                }
+                else if (instructions[i].Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        int targetIndex = instructions.IndexOf(switchTarget);
+                        if (targetIndex > definitionIndex && targetIndex <= useIndex)
+                            return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
+        {
+            localIndex = instruction.OpCode.Code switch
+            {
+                Code.Stloc_0 => 0,
+                Code.Stloc_1 => 1,
+                Code.Stloc_2 => 2,
+                Code.Stloc_3 => 3,
+                Code.Stloc or Code.Stloc_S when instruction.Operand is VariableDefinition variable => variable.Index,
+                _ => -1
+            };
+
+            return localIndex >= 0;
+        }
+
         private static bool TryResolveCallArgumentFromBasicBlock(
             ResolverContext context,
             MethodDefinition? containingMethod,
@@ -202,7 +358,8 @@ namespace MLVScan.Models.Rules.Helpers
                 }
             }
 
-            var producersByCallIndex = new Dictionary<int, int[]>();
+            var producersByCallIndex = new Dictionary<int, CallProducers>();
+            var producersByStoreIndex = new Dictionary<int, int>();
             var stack = new List<int>();
             bool validBlock = true;
 
@@ -218,18 +375,29 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
 
                 var instruction = instructions[i];
+                if (TryGetStoredLocalIndex(instruction, out _) && stack.Count > 0)
+                {
+                    producersByStoreIndex[i] = stack[^1];
+                }
+
                 if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
                     instruction.Operand is MethodReference calledMethod &&
-                    calledMethod.Parameters.Count <= MaxTrackedCallArguments &&
-                    stack.Count >= calledMethod.Parameters.Count)
+                    calledMethod.Parameters.Count <= MaxTrackedCallArguments)
                 {
                     int parameterCount = calledMethod.Parameters.Count;
-                    int firstArgumentIndex = stack.Count - parameterCount;
-                    var argumentProducers = new int[parameterCount];
-                    for (int argumentIndex = 0; argumentIndex < parameterCount; argumentIndex++)
-                        argumentProducers[argumentIndex] = stack[firstArgumentIndex + argumentIndex];
+                    int receiverCount = calledMethod.HasThis ? 1 : 0;
+                    int consumedCount = parameterCount + receiverCount;
+                    if (stack.Count >= consumedCount)
+                    {
+                        int firstConsumedIndex = stack.Count - consumedCount;
+                        int receiverProducer = receiverCount == 1 ? stack[firstConsumedIndex] : -1;
+                        int firstArgumentIndex = stack.Count - parameterCount;
+                        var argumentProducers = new int[parameterCount];
+                        for (int argumentIndex = 0; argumentIndex < parameterCount; argumentIndex++)
+                            argumentProducers[argumentIndex] = stack[firstArgumentIndex + argumentIndex];
 
-                    producersByCallIndex[i] = argumentProducers;
+                        producersByCallIndex[i] = new CallProducers(argumentProducers, receiverProducer);
+                    }
                 }
 
                 if (instruction.OpCode == OpCodes.Dup)
@@ -265,7 +433,7 @@ namespace MLVScan.Models.Rules.Helpers
                     stack.Add(i);
             }
 
-            return new CallArgumentProducerMap(producersByCallIndex);
+            return new CallArgumentProducerMap(producersByCallIndex, producersByStoreIndex);
         }
 
         private static bool IsArrayElementStore(Instruction instruction)
@@ -277,25 +445,54 @@ namespace MLVScan.Models.Rules.Helpers
 
         private sealed class CallArgumentProducerMap
         {
-            private readonly Dictionary<int, int[]> _producersByCallIndex;
+            private readonly Dictionary<int, CallProducers> _producersByCallIndex;
+            private readonly Dictionary<int, int> _producersByStoreIndex;
 
-            public CallArgumentProducerMap(Dictionary<int, int[]> producersByCallIndex)
+            public CallArgumentProducerMap(
+                Dictionary<int, CallProducers> producersByCallIndex,
+                Dictionary<int, int> producersByStoreIndex)
             {
                 _producersByCallIndex = producersByCallIndex;
+                _producersByStoreIndex = producersByStoreIndex;
             }
 
             public bool TryGetProducer(int callIndex, int parameterCount, int argumentIndex, out int producerIndex)
             {
                 producerIndex = -1;
                 if (!_producersByCallIndex.TryGetValue(callIndex, out var producers) ||
-                    producers.Length != parameterCount || argumentIndex < 0 || argumentIndex >= producers.Length)
+                    producers.Arguments.Length != parameterCount || argumentIndex < 0 ||
+                    argumentIndex >= producers.Arguments.Length)
                 {
                     return false;
                 }
 
-                producerIndex = producers[argumentIndex];
+                producerIndex = producers.Arguments[argumentIndex];
                 return true;
             }
+
+            public bool TryGetReceiverProducer(int callIndex, out int producerIndex)
+            {
+                producerIndex = -1;
+                return _producersByCallIndex.TryGetValue(callIndex, out var producers) &&
+                       (producerIndex = producers.Receiver) >= 0;
+            }
+
+            public bool TryGetStoredValueProducer(int storeIndex, out int producerIndex)
+            {
+                return _producersByStoreIndex.TryGetValue(storeIndex, out producerIndex);
+            }
+        }
+
+        private readonly struct CallProducers
+        {
+            public CallProducers(int[] arguments, int receiver)
+            {
+                Arguments = arguments;
+                Receiver = receiver;
+            }
+
+            public int[] Arguments { get; }
+            public int Receiver { get; }
         }
 
         /// <summary>
@@ -754,6 +951,11 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.TryGetArgumentIndex(out int argumentIndex))
             {
+                if (instruction.Operand is ParameterDefinition parameter && parameter.Method?.HasThis == true)
+                {
+                    argumentIndex++;
+                }
+
                 if (argumentMap != null && argumentMap.TryGetValue(argumentIndex, out var mapped))
                 {
                     value = mapped;

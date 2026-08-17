@@ -650,7 +650,7 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            if (IsSafeShellFolderLaunch(instructions, instructionIndex))
+            if (IsSafeShellFolderLaunch(method, instructions, instructionIndex))
             {
                 return true;
             }
@@ -694,19 +694,22 @@ namespace MLVScan.Models.Rules
         }
 
         private static bool IsSafeShellFolderLaunch(
+            MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(null, instructions, processStartIndex,
-                out var useShell);
-
-            if (!hasUseShell || useShell != true)
+            if (processStartMethod == null ||
+                processStartMethod.Parameters.Count != 1 ||
+                processStartMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                !InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
+                    processStartIndex, 0, out var launchedStartInfoIdentity))
             {
                 return false;
             }
 
-            bool touchesDirectoryApis = false;
-            bool setsFileName = false;
+            var checkedDirectoryTargets = new Dictionary<string, int>(StringComparer.Ordinal);
+            string? fileNameTarget = null;
+            bool useShell = false;
             bool setsArguments = false;
             int searchStart = Math.Max(0, processStartIndex - 40);
             for (int i = searchStart; i < processStartIndex; i++)
@@ -721,25 +724,271 @@ namespace MLVScan.Models.Rules
                 if (methodRef.DeclaringType?.FullName == "System.IO.Directory" &&
                     (methodRef.Name == "Exists" || methodRef.Name == "CreateDirectory"))
                 {
-                    touchesDirectoryApis = true;
+                    if (InstructionValueResolver.TryResolveCallArgumentDisplay(null, methodRef, instructions, i, 0,
+                            out var directoryTarget))
+                    {
+                        bool validatesDirectory = methodRef.Name == "CreateDirectory"
+                            ? HasStraightLineDominance(instructions, i, processStartIndex)
+                            : IsTrueDirectoryExistsGuard(instructions, i, processStartIndex) ||
+                              IsEnsureDirectoryGuard(instructions, i, processStartIndex, directoryTarget);
+                        if (validatesDirectory)
+                        {
+                            checkedDirectoryTargets[directoryTarget] = i;
+                        }
+                    }
+
                     continue;
                 }
 
                 if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     methodRef.Name == "set_FileName")
                 {
-                    setsFileName = true;
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity) &&
+                        HasStraightLineDominance(instructions, i, processStartIndex) &&
+                        InstructionValueResolver.TryResolveStackValueDisplay(null, instructions, i - 1,
+                            out var resolvedFileName))
+                    {
+                        fileNameTarget = resolvedFileName;
+                    }
+
+                    continue;
+                }
+
+                if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                    methodRef.Name == "set_UseShellExecute")
+                {
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity) &&
+                        HasStraightLineDominance(instructions, i, processStartIndex) &&
+                        InstructionValueResolver.TryResolveStackValueDisplay(null, instructions, i - 1,
+                            out var resolvedUseShell))
+                    {
+                        useShell = resolvedUseShell is "True" or "true" or "1";
+                    }
+
                     continue;
                 }
 
                 if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     methodRef.Name == "set_Arguments")
                 {
-                    setsArguments = true;
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity))
+                    {
+                        setsArguments = true;
+                    }
                 }
             }
 
-            return touchesDirectoryApis && setsFileName && !setsArguments;
+            return useShell &&
+                   !setsArguments &&
+                   fileNameTarget != null &&
+                   !IsUnsafeShellTarget(fileNameTarget) &&
+                   checkedDirectoryTargets.TryGetValue(fileNameTarget, out int validationIndex) &&
+                   !HasStoredArgumentBetween(fileNameTarget, instructions, validationIndex, processStartIndex);
+        }
+
+        private static bool HasMatchingReceiverIdentity(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int callIndex,
+            string expectedIdentity)
+        {
+            return InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, callIndex,
+                       out var receiverIdentity) &&
+                   receiverIdentity == expectedIdentity;
+        }
+
+        private static bool IsTrueDirectoryExistsGuard(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int existsCallIndex,
+            int processStartIndex)
+        {
+            int branchIndex = existsCallIndex + 1;
+            if (branchIndex >= instructions.Count ||
+                instructions[branchIndex].Operand is not Instruction branchTarget)
+            {
+                return false;
+            }
+
+            int targetIndex = instructions.IndexOf(branchTarget);
+            var branchOp = instructions[branchIndex].OpCode;
+            if (branchOp == OpCodes.Brfalse || branchOp == OpCodes.Brfalse_S)
+            {
+                return targetIndex > processStartIndex &&
+                       HasStraightLineDominance(instructions, branchIndex, processStartIndex);
+            }
+
+            if (instructions[branchIndex].OpCode != OpCodes.Brtrue &&
+                instructions[branchIndex].OpCode != OpCodes.Brtrue_S)
+            {
+                return false;
+            }
+
+            if (targetIndex <= branchIndex || targetIndex > processStartIndex ||
+                !HasTerminatingFallthrough(instructions, branchIndex + 1, targetIndex) ||
+                !HasStraightLineDominance(instructions, targetIndex, processStartIndex))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool HasTerminatingFallthrough(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int startIndex,
+            int endIndex)
+        {
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if (flowControl is FlowControl.Return or FlowControl.Throw)
+                    return true;
+
+                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch)
+                    return false;
+            }
+
+            return false;
+        }
+
+        private static bool HasStoredArgumentBetween(
+            string target,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int startIndex,
+            int endIndex)
+        {
+            const string prefix = "<arg ";
+            int markerEnd = target.IndexOf('>', prefix.Length);
+            if (!target.StartsWith(prefix, StringComparison.Ordinal) ||
+                markerEnd < 0 ||
+                !int.TryParse(target.Substring(prefix.Length, markerEnd - prefix.Length), out int argumentIndex))
+            {
+                return false;
+            }
+
+            for (int i = startIndex + 1; i < endIndex; i++)
+            {
+                var instruction = instructions[i];
+                if ((instruction.OpCode != OpCodes.Starg && instruction.OpCode != OpCodes.Starg_S) ||
+                    instruction.Operand is not ParameterDefinition parameter)
+                {
+                    continue;
+                }
+
+                int storedArgumentIndex = parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0);
+                if (storedArgumentIndex == argumentIndex)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasStraightLineDominance(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int validationIndex,
+            int processStartIndex)
+        {
+            for (int i = validationIndex + 1; i < processStartIndex; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
+                    FlowControl.Return or FlowControl.Throw)
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                if (instructions[i].Operand is Instruction target)
+                {
+                    int targetIndex = instructions.IndexOf(target);
+                    if (targetIndex > validationIndex && targetIndex <= processStartIndex)
+                        return false;
+                }
+                else if (instructions[i].Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        int targetIndex = instructions.IndexOf(switchTarget);
+                        if (targetIndex > validationIndex && targetIndex <= processStartIndex)
+                            return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsEnsureDirectoryGuard(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int existsCallIndex,
+            int processStartIndex,
+            string existsTarget)
+        {
+            int branchIndex = existsCallIndex + 1;
+            if (branchIndex >= instructions.Count ||
+                (instructions[branchIndex].OpCode != OpCodes.Brtrue &&
+                 instructions[branchIndex].OpCode != OpCodes.Brtrue_S) ||
+                instructions[branchIndex].Operand is not Instruction joinTarget)
+            {
+                return false;
+            }
+
+            int joinIndex = instructions.IndexOf(joinTarget);
+            if (joinIndex <= branchIndex || joinIndex >= processStartIndex ||
+                !HasStraightLineDominance(instructions, joinIndex, processStartIndex))
+            {
+                return false;
+            }
+
+            bool createsMatchingDirectory = false;
+            for (int i = branchIndex + 1; i < joinIndex; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
+                    FlowControl.Return or FlowControl.Throw)
+                {
+                    return false;
+                }
+
+                if ((instructions[i].OpCode == OpCodes.Call || instructions[i].OpCode == OpCodes.Callvirt) &&
+                    instructions[i].Operand is MethodReference methodRef &&
+                    methodRef.DeclaringType?.FullName == "System.IO.Directory" &&
+                    methodRef.Name == "CreateDirectory" &&
+                    InstructionValueResolver.TryResolveCallArgumentDisplay(null, methodRef, instructions, i, 0,
+                        out var createTarget) &&
+                    createTarget == existsTarget &&
+                    HasStraightLineDominance(instructions, branchIndex, i))
+                {
+                    createsMatchingDirectory = true;
+                }
+            }
+
+            return createsMatchingDirectory;
+        }
+
+        private static bool IsUnsafeShellTarget(string target)
+        {
+            var normalized = target.Trim().Trim('"');
+            if (normalized.Length == 0 ||
+                normalized.IndexOf("<unknown", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                normalized.IndexOf("<dynamic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                normalized.IndexOf("<field ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                normalized.IndexOf("<static-field ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                normalized.IndexOf("<local ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                normalized.StartsWith(@"\\", StringComparison.Ordinal) ||
+                normalized.Contains("://"))
+            {
+                return true;
+            }
+
+            int colonIndex = normalized.IndexOf(':');
+            if (colonIndex >= 0 && !(colonIndex == 1 && char.IsLetter(normalized[0])))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static bool HasPathManipulation(
