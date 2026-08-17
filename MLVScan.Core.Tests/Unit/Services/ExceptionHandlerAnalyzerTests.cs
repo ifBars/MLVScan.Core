@@ -72,6 +72,24 @@ public class ExceptionHandlerAnalyzerTests
         findings[0].Description.Should().Contain("exception catch block");
     }
 
+    [Fact]
+    public void AnalyzeExceptionHandlers_WithSuspiciousDownload_PropagatesReflectionCompanionSignal()
+    {
+        var config = new ScanConfig { AnalyzeExceptionHandlers = true, EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new DataInfiltrationRule()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchSuspiciousDownload();
+        var methodSignals = new MethodSignals();
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            methodSignals, method.DeclaringType!.FullName).ToList();
+
+        findings.Should().BeEmpty("the companion-gated download finding is not independently emitted");
+        methodSignals.HasSuspiciousNetworkDownload.Should().BeTrue();
+        tracker.GetTypeSignals(method.DeclaringType.FullName)!.HasSuspiciousNetworkDownload.Should().BeTrue();
+    }
+
     private static MethodDefinition CreateMethodWithCatchCalling(string calledType, string calledMethod)
     {
         var assembly = AssemblyDefinition.CreateAssembly(
@@ -135,6 +153,20 @@ public class ExceptionHandlerAnalyzerTests
         loadFrom.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.String));
         var il = method.Body.GetILProcessor();
         il.InsertBefore(call, il.Create(OpCodes.Ldstr, "Plugins\\OptionalDependency.dll"));
+        il.InsertAfter(call, il.Create(OpCodes.Pop));
+        return method;
+    }
+
+    private static MethodDefinition CreateMethodWithCatchSuspiciousDownload()
+    {
+        var method = CreateMethodWithCatchCalling("System.Net.WebClient", "DownloadString");
+        var call = method.Body.Instructions.Single(i =>
+            i.OpCode == OpCodes.Call && i.Operand is MethodReference reference && reference.Name == "DownloadString");
+        var downloadString = (MethodReference)call.Operand;
+        downloadString.ReturnType = method.Module.TypeSystem.String;
+        downloadString.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        il.InsertBefore(call, il.Create(OpCodes.Ldstr, "https://pastebin.com/raw/example"));
         il.InsertAfter(call, il.Create(OpCodes.Pop));
         return method;
     }
