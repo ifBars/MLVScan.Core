@@ -56,6 +56,32 @@ namespace MLVScan.Models
         public bool EnableReturnValueTracking { get; set; } = true;
 
         /// <summary>
+        /// Maximum number of interesting data-flow operations retained for one method.
+        /// Reaching this limit marks the analysis as incomplete and requires manual review.
+        /// </summary>
+        public int MaxDataFlowOperationsPerMethod { get; set; } = 2048;
+
+        /// <summary>
+        /// Maximum number of data-flow chains retained for one method.
+        /// </summary>
+        public int MaxDataFlowChainsPerMethod { get; set; } = 256;
+
+        /// <summary>
+        /// Maximum number of call-graph edges evaluated during one cross-method analysis pass.
+        /// </summary>
+        public int MaxCrossMethodCallEdges { get; set; } = 100000;
+
+        /// <summary>
+        /// Maximum number of recursively expanded edges during deep call-chain analysis.
+        /// </summary>
+        public int MaxDeepCallChainEdges { get; set; } = 10000;
+
+        /// <summary>
+        /// Maximum number of cross-method chains retained during one scan.
+        /// </summary>
+        public int MaxCrossMethodChains { get; set; } = 512;
+
+        /// <summary>
         /// Enables recursive scanning of embedded resources that appear to contain managed assemblies.
         /// </summary>
         public bool EnableRecursiveResourceScanning { get; set; } = true;

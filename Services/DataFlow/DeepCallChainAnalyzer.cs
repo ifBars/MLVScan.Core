@@ -19,7 +19,9 @@ namespace MLVScan.Services.DataFlow
             _maxCallChainDepth = maxCallChainDepth;
         }
 
-        public IReadOnlyList<DataFlowChain> Analyze(DataFlowAnalysisState state)
+        public IReadOnlyList<DataFlowChain> Analyze(
+            DataFlowAnalysisState state,
+            CrossMethodAnalysisBudget budget)
         {
             var chains = new List<DataFlowChain>();
 
@@ -31,6 +33,12 @@ namespace MLVScan.Services.DataFlow
                     {
                         continue;
                     }
+
+                    if (!HasRootFlowIntoCall(pair.Value, callSite))
+                        continue;
+
+                    if (!budget.TryConsumeDeepEdge())
+                        return chains;
 
                     var rootNode = new DataFlowCallChainNode
                     {
@@ -46,11 +54,17 @@ namespace MLVScan.Services.DataFlow
                     };
 
                     rootNode.ChildNodes.Add(targetNode);
-                    ExploreCallChain(state, targetNode, targetInfo, 2);
+                    ExploreCallChain(state, targetNode, targetInfo, 2, budget);
+
+                    if (!budget.IsComplete)
+                        return chains;
 
                     var deepChain = TryBuildDeepCallChain(state, rootNode, targetNode);
                     if (deepChain != null)
                     {
+                        if (!budget.TryReserveChain())
+                            return chains;
+
                         chains.Add(deepChain);
                     }
                 }
@@ -59,11 +73,28 @@ namespace MLVScan.Services.DataFlow
             return chains;
         }
 
+        private static bool HasRootFlowIntoCall(
+            DataFlowMethodFlowInfo rootInfo,
+            DataFlowMethodCallSite callSite)
+        {
+            if (callSite.ParameterMapping.Count == 0)
+                return false;
+
+            var passedLocals = new HashSet<int>(callSite.ParameterMapping.Values);
+            return rootInfo.Operations.Any(operation =>
+                (operation.NodeType == DataFlowNodeType.Source ||
+                 operation.NodeType == DataFlowNodeType.Transform) &&
+                operation.LocalVariableIndex.HasValue &&
+                operation.InstructionIndex < callSite.InstructionIndex &&
+                passedLocals.Contains(operation.LocalVariableIndex.Value));
+        }
+
         private void ExploreCallChain(
             DataFlowAnalysisState state,
             DataFlowCallChainNode currentNode,
             DataFlowMethodFlowInfo currentInfo,
-            int currentDepth)
+            int currentDepth,
+            CrossMethodAnalysisBudget budget)
         {
             if (currentDepth >= _maxCallChainDepth)
             {
@@ -78,6 +109,9 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
+                if (!budget.TryConsumeDeepEdge())
+                    return;
+
                 var childNode = new DataFlowCallChainNode
                 {
                     MethodInfo = nextInfo,
@@ -89,7 +123,10 @@ namespace MLVScan.Services.DataFlow
                 };
 
                 currentNode.ChildNodes.Add(childNode);
-                ExploreCallChain(state, childNode, nextInfo, currentDepth + 1);
+                ExploreCallChain(state, childNode, nextInfo, currentDepth + 1, budget);
+
+                if (!budget.IsComplete)
+                    return;
             }
         }
 

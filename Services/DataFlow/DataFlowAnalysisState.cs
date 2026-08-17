@@ -18,6 +18,8 @@ namespace MLVScan.Services.DataFlow
 
         public HashSet<string> IncompleteMethodKeys { get; } = new(StringComparer.Ordinal);
 
+        public bool CrossMethodAnalysisComplete { get; set; } = true;
+
         public void Clear()
         {
             MethodDataFlows.Clear();
@@ -25,6 +27,7 @@ namespace MLVScan.Services.DataFlow
             CrossMethodChains.Clear();
             MethodInstructions.Clear();
             IncompleteMethodKeys.Clear();
+            CrossMethodAnalysisComplete = true;
         }
 
         public void StoreMethodAnalysis(DataFlowMethodAnalysisResult analysis)
