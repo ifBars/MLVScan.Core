@@ -645,7 +645,9 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            if (IsSafeBareExplorerLaunch(method, instructions, instructionIndex))
+            var exceptionHandlers = methodSignals?.ExceptionHandlers ?? Array.Empty<ExceptionHandler>();
+
+            if (IsSafeBareExplorerLaunch(method, instructions, instructionIndex, exceptionHandlers))
             {
                 return true;
             }
@@ -656,7 +658,7 @@ namespace MLVScan.Models.Rules
             }
 
             if (IsCurrentProcessRestart(method, instructions, instructionIndex,
-                    methodSignals?.ExceptionHandlers ?? Array.Empty<ExceptionHandler>()))
+                    exceptionHandlers))
             {
                 return true;
             }
@@ -667,7 +669,8 @@ namespace MLVScan.Models.Rules
         private static bool IsSafeBareExplorerLaunch(
             MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
                 processStartMethod.Parameters.Count == 0 ||
@@ -675,6 +678,8 @@ namespace MLVScan.Models.Rules
                     processStartIndex, 0, out var target) ||
                 !InstructionValueResolver.TryResolveCallArgumentProducerIndex(processStartMethod, instructions,
                     processStartIndex, 0, out var targetProducerIndex) ||
+                !InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
+                    processStartIndex, 0, exceptionHandlers, out _) ||
                 !target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -1033,13 +1038,13 @@ namespace MLVScan.Models.Rules
                     getFileName.DeclaringType?.FullName != "System.Diagnostics.ProcessModule" ||
                     getFileName.Name != "get_FileName" ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getFileNameIndex,
-                        out var mainModuleIdentity) ||
+                        exceptionHandlers, out var mainModuleIdentity) ||
                     !TryGetCallProducerIndex(mainModuleIdentity, out int getMainModuleIndex) ||
                     instructions[getMainModuleIndex].Operand is not MethodReference getMainModule ||
                     getMainModule.DeclaringType?.FullName != "System.Diagnostics.Process" ||
                     getMainModule.Name != "get_MainModule" ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getMainModuleIndex,
-                        out var currentProcessIdentity) ||
+                        exceptionHandlers, out var currentProcessIdentity) ||
                     !TryGetCallProducerIndex(currentProcessIdentity, out int getCurrentProcessIndex) ||
                     instructions[getCurrentProcessIndex].Operand is not MethodReference getCurrentProcess ||
                     getCurrentProcess.DeclaringType?.FullName != "System.Diagnostics.Process" ||
@@ -1162,7 +1167,9 @@ namespace MLVScan.Models.Rules
                 instructions[constructorIndex].Operand is MethodReference constructor &&
                 constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                 constructor.Parameters.Count > 0 &&
-                constructor.Parameters[0].ParameterType.FullName == "System.String")
+                constructor.Parameters[0].ParameterType.FullName == "System.String" &&
+                !HasLaterFileNameWrite(startInfoIdentity, launchedProcessIdentity, instructions,
+                    exceptionHandlers, constructorIndex, processStartIndex))
             {
                 return InstructionValueResolver.TryResolveCallArgumentIdentity(constructor, instructions,
                     constructorIndex, 0, exceptionHandlers, out targetIdentity);
