@@ -1465,12 +1465,36 @@ namespace MLVScan.Models.Rules
         {
             for (int i = 0; i < instructions.Count; i++)
             {
-                if (i == assignmentIndex ||
-                    instructions[i].Operand is not MethodReference setter ||
-                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
-                    setter.Name != "set_FileName" ||
+                if (i == assignmentIndex || i == processStartIndex ||
+                    instructions[i].Operand is not MethodReference calledMethod ||
                     !InstructionValueResolver.CanExecuteBetween(
                         instructions, exceptionHandlers, assignmentIndex, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                    calledMethod.Name == "set_StartInfo")
+                {
+                    continue;
+                }
+
+                for (int argumentIndex = 0; argumentIndex < calledMethod.Parameters.Count; argumentIndex++)
+                {
+                    if (!IsProcessStartInfoParameter(calledMethod.Parameters[argumentIndex].ParameterType))
+                        continue;
+
+                    if (!InstructionValueResolver.TryResolveCallArgumentIdentity(calledMethod, instructions, i,
+                            argumentIndex, exceptionHandlers, out var argumentIdentity) ||
+                        IsMatchingStartInfoReceiver(argumentIdentity, assignedStartInfoIdentity,
+                            launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                    {
+                        return true;
+                    }
+                }
+
+                if (calledMethod.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    calledMethod.Name != "set_FileName")
                 {
                     continue;
                 }
@@ -1487,6 +1511,13 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static bool IsProcessStartInfoParameter(TypeReference parameterType)
+        {
+            return parameterType.FullName == "System.Diagnostics.ProcessStartInfo" ||
+                   parameterType is ByReferenceType byReferenceType &&
+                   byReferenceType.ElementType.FullName == "System.Diagnostics.ProcessStartInfo";
         }
 
         private static bool IsMatchingStartInfoReceiver(

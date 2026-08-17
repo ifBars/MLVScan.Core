@@ -561,7 +561,9 @@ namespace MLVScan.Models.Rules.Helpers
                 return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
                     instruction => TryGetStoredLocalIndex(instruction, out int storedIndex) &&
                                    storedIndex == localIndex,
-                    depth, out identity);
+                    depth, out identity, invalidatesDefinition: instruction =>
+                        TryGetLoadedLocalAddressIndex(instruction, out int escapedLocalIndex) &&
+                        escapedLocalIndex == localIndex);
             }
 
             if (TryGetLoadedArgumentIndex(producer, out int argumentIndex))
@@ -569,6 +571,12 @@ namespace MLVScan.Models.Rules.Helpers
                 bool hasArgumentStore = false;
                 for (int i = 0; i < instructions.Count; i++)
                 {
+                    if (TryGetLoadedArgumentAddressIndex(instructions[i], out int escapedArgumentIndex) &&
+                        escapedArgumentIndex == argumentIndex)
+                    {
+                        return false;
+                    }
+
                     if (TryGetStoredArgumentIndex(instructions[i], out int storedArgumentIndex) &&
                         storedArgumentIndex == argumentIndex)
                     {
@@ -645,6 +653,24 @@ namespace MLVScan.Models.Rules.Helpers
             };
 
             return localIndex >= 0;
+        }
+
+        private static bool TryGetLoadedLocalAddressIndex(Instruction instruction, out int localIndex)
+        {
+            localIndex = (instruction.OpCode.Code is Code.Ldloca or Code.Ldloca_S) &&
+                         instruction.Operand is VariableDefinition variable
+                ? variable.Index
+                : -1;
+            return localIndex >= 0;
+        }
+
+        private static bool TryGetLoadedArgumentAddressIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = (instruction.OpCode.Code is Code.Ldarga or Code.Ldarga_S) &&
+                            instruction.Operand is ParameterDefinition parameter
+                ? parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)
+                : -1;
+            return argumentIndex >= 0;
         }
 
         private static bool HasUnambiguousReachingDefinition(
