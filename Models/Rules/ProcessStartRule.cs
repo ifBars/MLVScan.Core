@@ -124,7 +124,7 @@ namespace MLVScan.Models.Rules
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ExecutableShellTargetPattern = new Regex(
-            @"(?i)\.(exe|com|msi|msp|mst|scr|cpl|lnk|url|scf|application|appref-ms|gadget|diagcab|chm|jar|reg|inf|settingcontent-ms)(\b|\s|\""|'|$)",
+            @"(?i)\.(exe|com|pif|msi|msp|mst|scr|cpl|lnk|url|scf|application|appref-ms|gadget|diagcab|chm|jar|reg|inf|settingcontent-ms)(\b|\s|\""|'|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex StagedLoaderPivotPattern = new Regex(
@@ -1513,12 +1513,6 @@ namespace MLVScan.Models.Rules
                     continue;
                 }
 
-                if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                    calledMethod.Name == "set_StartInfo")
-                {
-                    continue;
-                }
-
                 if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     calledMethod.Name != "set_FileName")
                 {
@@ -1528,6 +1522,20 @@ namespace MLVScan.Models.Rules
                         return true;
                     }
 
+                    continue;
+                }
+
+                if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                    calledMethod.Name == "set_StartInfo" &&
+                    launchedProcessIdentity.Length > 0 &&
+                    InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var bindingReceiverIdentity) &&
+                    bindingReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal) &&
+                    InstructionValueResolver.TryResolveCallArgumentIdentity(
+                        calledMethod, instructions, i, 0, exceptionHandlers, out var boundStartInfoIdentity) &&
+                    IsMatchingStartInfoReceiver(boundStartInfoIdentity, assignedStartInfoIdentity,
+                        launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                {
                     continue;
                 }
 
@@ -1635,6 +1643,12 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
+            if (AreEquivalentStartInfoGetterIdentities(receiverIdentity, assignedStartInfoIdentity,
+                    instructions, exceptionHandlers))
+            {
+                return true;
+            }
+
             if (launchedProcessIdentity.Length == 0 ||
                 !TryGetCallProducerIndex(receiverIdentity, out int getterIndex) ||
                 getterIndex >= fileNameSetterIndex ||
@@ -1666,6 +1680,29 @@ namespace MLVScan.Models.Rules
             }
 
             return true;
+        }
+
+        private static bool AreEquivalentStartInfoGetterIdentities(
+            string leftIdentity,
+            string rightIdentity,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
+        {
+            return TryGetCallProducerIndex(leftIdentity, out int leftGetterIndex) &&
+                   TryGetCallProducerIndex(rightIdentity, out int rightGetterIndex) &&
+                   leftGetterIndex >= 0 && leftGetterIndex < instructions.Count &&
+                   rightGetterIndex >= 0 && rightGetterIndex < instructions.Count &&
+                   instructions[leftGetterIndex].Operand is MethodReference leftGetter &&
+                   instructions[rightGetterIndex].Operand is MethodReference rightGetter &&
+                   InstructionValueResolver.IsTrustedFrameworkMethod(leftGetter,
+                       "System.Diagnostics.Process", "get_StartInfo", allowDetachedReference: true) &&
+                   InstructionValueResolver.IsTrustedFrameworkMethod(rightGetter,
+                       "System.Diagnostics.Process", "get_StartInfo", allowDetachedReference: true) &&
+                   InstructionValueResolver.TryResolveCallReceiverIdentity(
+                       instructions, leftGetterIndex, exceptionHandlers, out var leftReceiverIdentity) &&
+                   InstructionValueResolver.TryResolveCallReceiverIdentity(
+                       instructions, rightGetterIndex, exceptionHandlers, out var rightReceiverIdentity) &&
+                   leftReceiverIdentity.Equals(rightReceiverIdentity, StringComparison.Ordinal);
         }
 
         private static bool TryGetCallProducerIndex(string identity, out int producerIndex)
