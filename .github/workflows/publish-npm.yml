@@ -1,6 +1,5 @@
 # Publishes @mlvscan/wasm-core.
-# Requires NPM_TOKEN secret in repo Settings → Secrets.
-#   Create token at npmjs.com → Access Tokens → "Automation" or "Publish", then add as NPM_TOKEN.
+# Requires NPM_TOKEN secret in repo Settings -> Secrets.
 name: Publish to npm
 
 on:
@@ -12,14 +11,19 @@ on:
       - completed
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  build-package:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+      with:
+        persist-credentials: false
 
     - name: Pin .NET SDK for CI
       run: |
@@ -32,21 +36,29 @@ jobs:
         }
         EOF
 
-    - name: Extract version
+    - name: Resolve and validate package version
       id: get_version
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+        REF_NAME: ${{ github.ref }}
       run: |
-        if [ "${{ github.event_name }}" == "release" ]; then
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        set -euo pipefail
+
+        if [[ "$EVENT_NAME" == "release" ]]; then
+          VERSION=${RELEASE_TAG#v}
+        elif [[ "$REF_NAME" == refs/tags/v* ]]; then
+          VERSION=${REF_NAME#refs/tags/v}
         else
-          VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Directory.Build.props | head -n 1)
         fi
-      shell: bash
+
+        if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+          echo "Invalid semantic version" >&2
+          exit 1
+        fi
+
+        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
@@ -62,41 +74,64 @@ jobs:
     - name: Publish WASM
       run: dotnet publish MLVScan.WASM/MLVScan.WASM.csproj -c Release
 
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: '1.3.5'
+
+    - name: Install dependencies
+      working-directory: MLVScan.WASM/npm
+      run: bun install --frozen-lockfile
+
+    - name: Copy Blazor framework to dist
+      working-directory: MLVScan.WASM/npm
+      run: bun run copy:framework
+
+    - name: Build TypeScript
+      working-directory: MLVScan.WASM/npm
+      run: bun run build
+
+    - name: Set package version
+      working-directory: MLVScan.WASM/npm
+      env:
+        PACKAGE_VERSION: ${{ steps.get_version.outputs.version }}
+      run: bun pm pkg set version="$PACKAGE_VERSION"
+
+    - name: Create npm package archive
+      working-directory: MLVScan.WASM/npm
+      run: bun pm pack --destination ./package-artifact
+
+    - name: Upload npm package artifact
+      uses: actions/upload-artifact@v6
+      with:
+        name: npm-package
+        path: MLVScan.WASM/npm/package-artifact/*.tgz
+        if-no-files-found: error
+
+  publish:
+    needs: build-package
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+    - name: Download npm package artifact
+      uses: actions/download-artifact@v6
+      with:
+        name: npm-package
+        path: ./package-artifact
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '22'
         registry-url: 'https://registry.npmjs.org'
-        cache: 'npm'
-        cache-dependency-path: MLVScan.WASM/npm/package-lock.json
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-    - name: Install npm dependencies
-      working-directory: MLVScan.WASM/npm
-      run: npm ci
-
-    - name: Copy Blazor framework to dist
-      working-directory: MLVScan.WASM/npm
-      run: npm run copy:framework
-
-    - name: Build TypeScript
-      working-directory: MLVScan.WASM/npm
-      run: npm run build
-
-    - name: Set package version
-      working-directory: MLVScan.WASM/npm
-      run: npm version ${{ steps.get_version.outputs.version }} --no-git-tag-version --allow-same-version
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: '1.3.5'
 
     - name: Publish to npm
-      working-directory: MLVScan.WASM/npm
-      run: npm publish --access public
+      run: bun publish ./package-artifact/*.tgz --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-    - name: Summary
-      run: |
-        echo "### ✅ npm package published" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Package:** \`@mlvscan/wasm-core\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Version:** ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY

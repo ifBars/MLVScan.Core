@@ -7,16 +7,20 @@ on:
     workflows: ["Auto Release on Version Change"]
     types:
       - completed
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  publish:
+  build-package:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+      with:
+        persist-credentials: false
 
     - name: Pin .NET SDK for CI
       run: |
@@ -28,7 +32,7 @@ jobs:
           }
         }
         EOF
-      
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
@@ -36,47 +40,73 @@ jobs:
 
     - name: Restore .NET workloads
       run: dotnet workload restore MLVScan.WASM/MLVScan.WASM.csproj
-        
+
     - name: Restore dependencies
       run: dotnet restore MLVScan.Core.csproj
 
     - name: Verify version drift guard
       run: dotnet test MLVScan.Core.Tests/MLVScan.Core.Tests.csproj --filter "FullyQualifiedName~MLVScanVersionsTests.CoreVersion_MatchesDirectoryBuildPropsVersion"
-      
+
     - name: Build
       run: dotnet build MLVScan.Core.csproj -c Release --no-restore
-      
+
     - name: Run tests
       run: dotnet test MLVScan.Core.Tests/MLVScan.Core.Tests.csproj -c Release --verbosity normal
-      
-    - name: Extract version from release
+
+    - name: Resolve and validate package version
       id: get_version
-      run: |
-        if [ "${{ github.event_name }}" == "release" ]; then
-          # Extract version from release tag (remove 'v' prefix)
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-        else
-          # Fallback: read from Directory.Build.props
-          VERSION=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-        fi
-      shell: bash
-      
-    - name: Pack
-      run: dotnet pack MLVScan.Core.csproj -c Release --no-build -p:PackageVersion=${{ steps.get_version.outputs.version }} -o ./nupkg
-      
-    - name: Publish to NuGet
-      run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
       env:
-        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        
-    - name: Upload package as artifact
+        EVENT_NAME: ${{ github.event_name }}
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+        REF_NAME: ${{ github.ref }}
+      run: |
+        set -euo pipefail
+
+        if [[ "$EVENT_NAME" == "release" ]]; then
+          VERSION=${RELEASE_TAG#v}
+        elif [[ "$REF_NAME" == refs/tags/v* ]]; then
+          VERSION=${REF_NAME#refs/tags/v}
+        else
+          VERSION=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Directory.Build.props | head -n 1)
+        fi
+
+        if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+          echo "Invalid semantic version" >&2
+          exit 1
+        fi
+
+        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Pack
+      env:
+        PACKAGE_VERSION: ${{ steps.get_version.outputs.version }}
+      run: dotnet pack MLVScan.Core.csproj -c Release --no-build -p:PackageVersion="$PACKAGE_VERSION" -o ./nupkg
+
+    - name: Upload package artifact
       uses: actions/upload-artifact@v6
       with:
         name: nuget-package
         path: ./nupkg/*.nupkg
+        if-no-files-found: error
+
+  publish:
+    needs: build-package
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+    - name: Download package artifact
+      uses: actions/download-artifact@v6
+      with:
+        name: nuget-package
+        path: ./nupkg
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Publish to NuGet
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: dotnet nuget push ./nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
