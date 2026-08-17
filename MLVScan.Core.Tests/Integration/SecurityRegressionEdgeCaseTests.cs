@@ -247,6 +247,39 @@ public class SecurityRegressionEdgeCaseTests
             f.Description.Contains("unknown", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Scan_UncorrelatedRelativeAssemblyPath_RetainsLowAuditFinding()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("OptionalDependencyLoader", new Version(1, 0, 0, 0)),
+            "OptionalDependencyLoader",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Legit", "PluginLoader", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("LoadOptionalDependency",
+            MethodAttributes.Public | MethodAttributes.Static, module.TypeSystem.Void);
+        type.Methods.Add(method);
+        var il = method.Body.GetILProcessor();
+        var loadFrom = CreateStaticMethod(module, "System.Reflection.Assembly", "LoadFrom",
+            CreateType(module, "System.Reflection.Assembly"), module.TypeSystem.String);
+        il.Emit(OpCodes.Ldstr, "Plugins\\OptionalDependency.dll");
+        il.Emit(OpCodes.Call, loadFrom);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        stream.Position = 0;
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(stream, "OptionalDependencyLoader.dll").ToList();
+
+        findings.Should().ContainSingle(f => f.RuleId == "AssemblyDynamicLoadRule");
+        findings.Single(f => f.RuleId == "AssemblyDynamicLoadRule").Severity.Should().Be(Severity.Low);
+    }
+
     private sealed class ThrowingPostAnalysisRule : IScanRule
     {
         public string Description => "Throws during post-analysis";

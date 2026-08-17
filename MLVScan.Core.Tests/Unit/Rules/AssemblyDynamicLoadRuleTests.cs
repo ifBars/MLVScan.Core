@@ -515,6 +515,26 @@ public class AssemblyDynamicLoadRuleTests
         findings.Should().NotBeEmpty();
     }
 
+    [Theory]
+    [InlineData("Plugins\\OptionalDependency.dll")]
+    [InlineData("\\\\server\\share\\OptionalDependency.dll")]
+    public void AnalyzeContextualPattern_PathLoadWithoutStagingSignals_ProducesLowAuditFinding(string path)
+    {
+        var methodRef = CreateAssemblyLoadMethod("System.String");
+        methodRef.Name = "LoadFrom";
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, path),
+            Instruction.Create(OpCodes.Call, methodRef)
+        };
+
+        var findings = _rule.AnalyzeContextualPattern(methodRef, instructions, 1, new MethodSignals()).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].BypassCompanionCheck.Should().BeFalse();
+    }
+
     [Fact]
     public void ShouldSuppressFinding_SafeAssemblyNameLoad_ReturnsTrue()
     {

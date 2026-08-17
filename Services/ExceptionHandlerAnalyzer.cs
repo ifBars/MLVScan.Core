@@ -91,6 +91,56 @@ namespace MLVScan.Services
                             if (rule.IsSuspicious(calledMethod))
                             {
                                 var instructionIndex = allInstructions.IndexOf(instruction);
+                                var effectiveSignals = methodSignals ?? new MethodSignals();
+                                var handlerTypeDesc = GetHandlerTypeDescription(handler);
+                                bool addedContextualFinding = false;
+
+                                if (instructionIndex >= 0)
+                                {
+                                    foreach (var contextualFinding in rule.AnalyzeContextualPattern(
+                                                 calledMethod, allInstructions, instructionIndex, effectiveSignals))
+                                    {
+                                        if (rule.RequiresCompanionFinding &&
+                                            contextualFinding.Severity != Severity.Low &&
+                                            !contextualFinding.BypassCompanionCheck)
+                                        {
+                                            bool hasOtherMethodRule = methodSignals != null &&
+                                                                      methodSignals.HasTriggeredRuleOtherThan(
+                                                                          rule.RuleId);
+                                            var typeSignals = string.IsNullOrEmpty(typeFullName)
+                                                ? null
+                                                : _signalTracker.GetTypeSignals(typeFullName);
+                                            bool hasOtherTypeRule = typeSignals != null &&
+                                                                    typeSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                            if (!hasOtherMethodRule && !hasOtherTypeRule)
+                                                continue;
+                                        }
+
+                                        contextualFinding.Description += $" (found in exception {handlerTypeDesc})";
+                                        contextualFinding.RuleId = rule.RuleId;
+                                        contextualFinding.DeveloperGuidance = rule.DeveloperGuidance;
+                                        findings.Add(contextualFinding);
+                                        addedContextualFinding = true;
+
+                                        if (methodSignals != null &&
+                                            !(rule.RequiresCompanionFinding &&
+                                              contextualFinding.Severity == Severity.Low))
+                                        {
+                                            _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
+                                                rule.RuleId);
+                                        }
+
+                                        if (methodSignals != null)
+                                        {
+                                            _signalTracker.MarkSuspiciousExceptionHandling(methodSignals,
+                                                method.DeclaringType);
+                                        }
+                                    }
+                                }
+
+                                if (addedContextualFinding)
+                                    continue;
+
                                 if (instructionIndex >= 0 &&
                                     methodSignals != null &&
                                     rule.ShouldSuppressFinding(calledMethod, allInstructions, instructionIndex,
@@ -101,7 +151,6 @@ namespace MLVScan.Services
 
                                 var snippet = _snippetBuilder.BuildSnippet(allInstructions, instructionIndex, 2);
 
-                                var handlerTypeDesc = GetHandlerTypeDescription(handler);
                                 var finding = new ScanFinding(
                                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                                     rule.Description + $" (found in exception {handlerTypeDesc})",
