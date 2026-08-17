@@ -1089,6 +1089,7 @@ namespace MLVScan.Models.Rules
             }
 
             string startInfoIdentity;
+            string launchedProcessIdentity = string.Empty;
             if (processStartMethod.Parameters.Count > 0)
             {
                 if (!InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
@@ -1101,7 +1102,7 @@ namespace MLVScan.Models.Rules
             {
                 if (!processStartMethod.HasThis ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, processStartIndex,
-                        out var launchedProcessIdentity))
+                        out launchedProcessIdentity))
                 {
                     return false;
                 }
@@ -1124,27 +1125,6 @@ namespace MLVScan.Models.Rules
                     break;
                 }
 
-                if (startInfoIdentity.Length == 0)
-                {
-                    for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
-                    {
-                        if (instructions[i].Operand is not MethodReference getter ||
-                            getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
-                            getter.Name != "get_StartInfo" ||
-                            !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
-                                out var receiverIdentity) ||
-                            !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
-                        {
-                            continue;
-                        }
-
-                        startInfoIdentity = $"call:{i}";
-                        break;
-                    }
-                }
-
-                if (startInfoIdentity.Length == 0)
-                    return false;
             }
 
             for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
@@ -1154,7 +1134,8 @@ namespace MLVScan.Models.Rules
                     setter.Name != "set_FileName" ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
                         out var receiverIdentity) ||
-                    !receiverIdentity.Equals(startInfoIdentity, StringComparison.Ordinal))
+                    !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
+                        instructions, i, processStartIndex))
                 {
                     continue;
                 }
@@ -1175,6 +1156,49 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static bool IsMatchingStartInfoReceiver(
+            string receiverIdentity,
+            string assignedStartInfoIdentity,
+            string launchedProcessIdentity,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int fileNameSetterIndex,
+            int processStartIndex)
+        {
+            if (assignedStartInfoIdentity.Length > 0 &&
+                receiverIdentity.Equals(assignedStartInfoIdentity, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (launchedProcessIdentity.Length == 0 ||
+                !TryGetCallProducerIndex(receiverIdentity, out int getterIndex) ||
+                getterIndex >= fileNameSetterIndex ||
+                instructions[getterIndex].Operand is not MethodReference getter ||
+                getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                getter.Name != "get_StartInfo" ||
+                !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getterIndex,
+                    out var getterReceiverIdentity) ||
+                !getterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            for (int i = getterIndex + 1; i < processStartIndex; i++)
+            {
+                if (instructions[i].Operand is MethodReference setter &&
+                    setter.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                    setter.Name == "set_StartInfo" &&
+                    InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        out var setterReceiverIdentity) &&
+                    setterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool TryGetCallProducerIndex(string identity, out int producerIndex)

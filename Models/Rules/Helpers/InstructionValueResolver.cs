@@ -224,7 +224,7 @@ namespace MLVScan.Models.Rules.Helpers
                         continue;
                     }
 
-                    if (!HasUnambiguousLinearReach(instructions, i, producerIndex))
+                    if (!HasUnambiguousReachingDefinition(instructions, i, producerIndex, localIndex))
                         return false;
 
                     var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
@@ -266,41 +266,64 @@ namespace MLVScan.Models.Rules.Helpers
             return localIndex >= 0;
         }
 
-        private static bool HasUnambiguousLinearReach(
+        private static bool HasUnambiguousReachingDefinition(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int definitionIndex,
-            int useIndex)
+            int useIndex,
+            int localIndex)
         {
-            for (int i = definitionIndex + 1; i < useIndex; i++)
-            {
-                var flowControl = instructions[i].OpCode.FlowControl;
-                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
-                    FlowControl.Return or FlowControl.Throw)
-                {
-                    return false;
-                }
-            }
+            const byte unresolved = 0;
+            const byte expectedDefinition = 1;
+            const byte overwritten = 2;
 
-            for (int i = 0; i < instructions.Count; i++)
+            var pending = new Queue<(int Index, byte State)>();
+            var visited = new HashSet<(int Index, byte State)>();
+            pending.Enqueue((0, unresolved));
+            bool reachedUse = false;
+
+            while (pending.Count > 0)
             {
-                if (instructions[i].Operand is Instruction target)
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
                 {
-                    int targetIndex = instructions.IndexOf(target);
-                    if (targetIndex > definitionIndex && targetIndex <= useIndex)
+                    reachedUse = true;
+                    if (current.State != expectedDefinition)
                         return false;
+
+                    continue;
                 }
-                else if (instructions[i].Operand is Instruction[] targets)
+
+                var instruction = instructions[current.Index];
+                byte nextState = current.State;
+                if (current.Index == definitionIndex)
+                {
+                    nextState = expectedDefinition;
+                }
+                else if (TryGetStoredLocalIndex(instruction, out int storedLocalIndex) &&
+                         storedLocalIndex == localIndex)
+                {
+                    nextState = overwritten;
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    pending.Enqueue((instructions.IndexOf(target), nextState));
+                }
+                else if (instruction.Operand is Instruction[] targets)
                 {
                     foreach (var switchTarget in targets)
-                    {
-                        int targetIndex = instructions.IndexOf(switchTarget);
-                        if (targetIndex > definitionIndex && targetIndex <= useIndex)
-                            return false;
-                    }
+                        pending.Enqueue((instructions.IndexOf(switchTarget), nextState));
                 }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, nextState));
             }
 
-            return true;
+            return reachedUse;
         }
 
         private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
