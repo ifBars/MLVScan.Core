@@ -363,7 +363,7 @@ namespace MLVScan.Services
             if (signals.HasProcessLikeCall || signals.UsesSensitiveFolder)
                 return true;
 
-            if (signals.HasEnvironmentVariableModification || signals.HasPathManipulation)
+            if (signals.HasEnvironmentVariableModification)
                 return true;
 
             if (signals.HasNetworkCall && signals.HasFileWrite)

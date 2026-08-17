@@ -383,6 +383,11 @@ namespace MLVScan.Services
                             reflectionDetectorStart);
                         foreach (var finding in reflectionFindings)
                         {
+                            if (HasFindingForRuleAtLocation(result.Findings, finding))
+                            {
+                                continue;
+                            }
+
                             result.Findings.Add(finding);
                             _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionBypassFindings");
                             if (methodSignals != null && _reflectionRule != null &&
@@ -427,6 +432,13 @@ namespace MLVScan.Services
                 existing.Severity == candidate.Severity);
         }
 
+        private static bool HasFindingForRuleAtLocation(IEnumerable<ScanFinding> findings, ScanFinding candidate)
+        {
+            return findings.Any(existing =>
+                string.Equals(existing.RuleId, candidate.RuleId, StringComparison.Ordinal) &&
+                string.Equals(existing.Location, candidate.Location, StringComparison.Ordinal));
+        }
+
         /// <summary>
         /// Builds a set of instruction offsets that are inside exception handler blocks.
         /// These are already analyzed by ExceptionHandlerAnalyzer with proper context.
@@ -464,7 +476,7 @@ namespace MLVScan.Services
             if (signals == null)
                 return false;
 
-            if (signals.UsesSensitiveFolder || signals.HasPathManipulation)
+            if (signals.UsesSensitiveFolder || signals.HasEnvironmentVariableModification)
                 return true;
 
             foreach (var triggeredRuleId in signals.GetTriggeredRuleIds())

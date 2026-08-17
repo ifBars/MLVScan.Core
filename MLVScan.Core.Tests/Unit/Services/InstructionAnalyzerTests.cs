@@ -131,6 +131,19 @@ public class InstructionAnalyzerTests
         result.Findings[0].RuleId.Should().Be("ProcessStartRule");
     }
 
+    [Fact]
+    public void AnalyzeInstructions_SensitiveFolderBeforeNonLiteralReflection_EmitsOneReflectionFinding()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true };
+        var analyzer = CreateAnalyzer(config, new IScanRule[] { new ReflectionRule() });
+        var method = CreateSensitiveFolderReflectionMethod();
+
+        var result = analyzer.AnalyzeInstructions(method, method.Body.Instructions, new MethodSignals(),
+            method.DeclaringType!.FullName);
+
+        result.Findings.Should().ContainSingle(f => f.RuleId == "ReflectionRule");
+    }
+
     private static InstructionAnalyzer CreateAnalyzer(ScanConfig config, IEnumerable<IScanRule> rules)
     {
         var signalTracker = new SignalTracker(config);
@@ -183,6 +196,39 @@ public class InstructionAnalyzerTests
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ldstr, "Start"));
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, invokeMethod));
         method.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(method);
+
+        return method;
+    }
+
+    private static MethodDefinition CreateSensitiveFolderReflectionMethod()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("InstructionAnalyzerSensitiveReflectionTest", new Version(1, 0, 0, 0)),
+            "InstructionAnalyzerSensitiveReflectionTest",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "SensitiveReflectionType", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var method = new MethodDefinition("Run", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        method.Body = new MethodBody(method);
+
+        var environmentType = new TypeReference("System", "Environment", module, module.TypeSystem.CoreLibrary);
+        var getFolderPath = new MethodReference("GetFolderPath", module.TypeSystem.String, environmentType);
+        getFolderPath.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        var methodInfoType = new TypeReference("System.Reflection", "MethodInfo", module, module.TypeSystem.CoreLibrary);
+        var invokeMethod = new MethodReference("Invoke", module.TypeSystem.Object, methodInfoType);
+
+        var processor = method.Body.GetILProcessor();
+        processor.Append(Instruction.Create(OpCodes.Ldc_I4_7));
+        processor.Append(Instruction.Create(OpCodes.Call, getFolderPath));
+        processor.Append(Instruction.Create(OpCodes.Pop));
+        processor.Append(Instruction.Create(OpCodes.Call, invokeMethod));
+        processor.Append(Instruction.Create(OpCodes.Pop));
+        processor.Append(Instruction.Create(OpCodes.Ret));
         type.Methods.Add(method);
 
         return method;

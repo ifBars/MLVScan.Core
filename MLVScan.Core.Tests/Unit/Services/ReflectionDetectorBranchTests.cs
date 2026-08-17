@@ -69,7 +69,7 @@ public sealed class ReflectionDetectorBranchTests
     }
 
     [Fact]
-    public void ScanForReflectionInvocation_PathManipulationSignal_ElevatesReflectionFinding()
+    public void ScanForReflectionInvocation_EnvironmentModificationSignal_ElevatesReflectionFinding()
     {
         var detector = CreateDetector(new ProcessStartRule());
         var methodDef = CreateMethodDefinition();
@@ -86,7 +86,7 @@ public sealed class ReflectionDetectorBranchTests
             calledMethod,
             1,
             instructions,
-            new MethodSignals { HasPathManipulation = true }).ToList();
+            new MethodSignals { HasEnvironmentVariableModification = true }).ToList();
 
         findings.Should().ContainSingle();
         findings[0].RuleId.Should().Be("ProcessStartRule");
