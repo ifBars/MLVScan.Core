@@ -1058,83 +1058,105 @@ namespace MLVScan.Models.Rules.Helpers
             for (int i = 0; i < instructions.Count; i++)
                 instructionIndices[instructions[i]] = i;
 
-            var blockStarts = new bool[instructions.Count];
-            var catchHandlerStarts = new bool[instructions.Count];
-            if (blockStarts.Length > 0)
-                blockStarts[0] = true;
+            var producersByCallIndex = new Dictionary<int, CallProducers>();
+            var producersByStoreIndex = new Dictionary<int, int>();
+            var fieldReceiversByInstructionIndex = new Dictionary<int, int>();
+            var incomingStacks = new Dictionary<int, int[]>();
+            var pending = new Queue<int>();
+
+            void EnqueueState(int index, IReadOnlyList<int> state)
+            {
+                if (index < 0 || index >= instructions.Count)
+                    return;
+
+                var candidate = state.ToArray();
+                if (!incomingStacks.TryGetValue(index, out var existing))
+                {
+                    incomingStacks[index] = candidate;
+                    pending.Enqueue(index);
+                    return;
+                }
+
+                int[] merged;
+                if (existing.Length != candidate.Length)
+                {
+                    merged = Array.Empty<int>();
+                }
+                else
+                {
+                    merged = new int[existing.Length];
+                    for (int slot = 0; slot < existing.Length; slot++)
+                    {
+                        merged[slot] = MergeStackProducerIndexes(instructions, producersByCallIndex,
+                            existing[slot], candidate[slot]);
+                    }
+                }
+
+                if (!existing.SequenceEqual(merged))
+                {
+                    incomingStacks[index] = merged;
+                    pending.Enqueue(index);
+                }
+            }
+
+            if (instructions.Count > 0)
+                EnqueueState(0, Array.Empty<int>());
 
             foreach (var handler in exceptionHandlers)
             {
                 if (!instructionIndices.TryGetValue(handler.HandlerStart, out int handlerStartIndex))
                     return CallArgumentProducerMap.Empty;
 
-                blockStarts[handlerStartIndex] = true;
-                if (handler.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter)
-                    catchHandlerStarts[handlerStartIndex] = true;
+                EnqueueState(handlerStartIndex,
+                    handler.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter
+                        ? new[] { -1 }
+                        : Array.Empty<int>());
 
                 if (handler.FilterStart != null)
                 {
                     if (!instructionIndices.TryGetValue(handler.FilterStart, out int filterStartIndex))
                         return CallArgumentProducerMap.Empty;
 
-                    blockStarts[filterStartIndex] = true;
-                    catchHandlerStarts[filterStartIndex] = true;
+                    EnqueueState(filterStartIndex, new[] { -1 });
                 }
             }
 
-            for (int i = 0; i < instructions.Count; i++)
+            const int maxWorkUnits = 65_536;
+            int workUnits = 0;
+            while (pending.Count > 0)
             {
-                var flowControl = instructions[i].OpCode.FlowControl;
-                if ((flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
-                     FlowControl.Return or FlowControl.Throw) && i + 1 < instructions.Count)
-                    blockStarts[i + 1] = true;
+                if (++workUnits > maxWorkUnits)
+                    return CallArgumentProducerMap.Empty;
 
-                if (instructions[i].Operand is Instruction target)
-                {
-                    if (instructionIndices.TryGetValue(target, out int targetIndex))
-                        blockStarts[targetIndex] = true;
-                }
-                else if (instructions[i].Operand is Instruction[] targets)
-                {
-                    foreach (var switchTarget in targets)
-                    {
-                        if (instructionIndices.TryGetValue(switchTarget, out int targetIndex))
-                            blockStarts[targetIndex] = true;
-                    }
-                }
-            }
-
-            var producersByCallIndex = new Dictionary<int, CallProducers>();
-            var producersByStoreIndex = new Dictionary<int, int>();
-            var fieldReceiversByInstructionIndex = new Dictionary<int, int>();
-            var stack = new List<int>();
-            bool validBlock = true;
-
-            for (int i = 0; i < instructions.Count; i++)
-            {
-                if (blockStarts[i])
-                {
-                    stack.Clear();
-                    if (catchHandlerStarts[i])
-                        stack.Add(-1); // Catch and filter entries receive the implicit exception object.
-                    validBlock = true;
-                }
-
-                if (!validBlock)
-                    continue;
-
+                int i = pending.Dequeue();
+                var stack = new List<int>(incomingStacks[i]);
                 var instruction = instructions[i];
                 if ((TryGetStoredLocalIndex(instruction, out _) ||
                      TryGetStoredArgumentIndex(instruction, out _) ||
                      instruction.OpCode.Code is Code.Stfld or Code.Stsfld) && stack.Count > 0)
                 {
-                    producersByStoreIndex[i] = stack[^1];
+                    int producer = stack[^1];
+                    producersByStoreIndex[i] = producersByStoreIndex.TryGetValue(i, out int existingProducer)
+                        ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingProducer, producer)
+                        : producer;
                 }
 
                 if (instruction.OpCode.Code == Code.Ldfld && stack.Count >= 1)
-                    fieldReceiversByInstructionIndex[i] = stack[^1];
+                {
+                    int receiver = stack[^1];
+                    fieldReceiversByInstructionIndex[i] =
+                        fieldReceiversByInstructionIndex.TryGetValue(i, out int existingReceiver)
+                            ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
+                            : receiver;
+                }
                 else if (instruction.OpCode.Code == Code.Stfld && stack.Count >= 2)
-                    fieldReceiversByInstructionIndex[i] = stack[^2];
+                {
+                    int receiver = stack[^2];
+                    fieldReceiversByInstructionIndex[i] =
+                        fieldReceiversByInstructionIndex.TryGetValue(i, out int existingReceiver)
+                            ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
+                            : receiver;
+                }
 
                 if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt ||
                      instruction.OpCode == OpCodes.Newobj) &&
@@ -1153,6 +1175,19 @@ namespace MLVScan.Models.Rules.Helpers
                         for (int argumentIndex = 0; argumentIndex < parameterCount; argumentIndex++)
                             argumentProducers[argumentIndex] = stack[firstArgumentIndex + argumentIndex];
 
+                        if (producersByCallIndex.TryGetValue(i, out var existingCallProducers))
+                        {
+                            for (int argumentIndex = 0; argumentIndex < argumentProducers.Length; argumentIndex++)
+                            {
+                                argumentProducers[argumentIndex] = MergeStackProducerIndexes(
+                                    instructions, producersByCallIndex,
+                                    existingCallProducers.Arguments[argumentIndex], argumentProducers[argumentIndex]);
+                            }
+
+                            receiverProducer = MergeStackProducerIndexes(instructions, producersByCallIndex,
+                                existingCallProducers.Receiver, receiverProducer);
+                        }
+
                         producersByCallIndex[i] = new CallProducers(argumentProducers, receiverProducer);
                     }
                 }
@@ -1160,38 +1195,121 @@ namespace MLVScan.Models.Rules.Helpers
                 if (instruction.OpCode == OpCodes.Dup)
                 {
                     if (stack.Count == 0)
-                    {
-                        validBlock = false;
                         continue;
-                    }
 
                     stack.Add(stack[^1]);
-                    continue;
                 }
-
-                if (instruction.OpCode == OpCodes.Calli)
+                else
                 {
-                    validBlock = false;
-                    continue;
+                    if (instruction.OpCode == OpCodes.Calli)
+                        continue;
+
+                    int popCount = IsArrayElementStore(instruction) ? 3 : instruction.GetPopCount();
+                    if (popCount > stack.Count)
+                        continue;
+
+                    if (popCount > 0)
+                        stack.RemoveRange(stack.Count - popCount, popCount);
+
+                    int pushCount = instruction.GetPushCount();
+                    for (int push = 0; push < pushCount; push++)
+                        stack.Add(i);
                 }
 
-                int popCount = IsArrayElementStore(instruction) ? 3 : instruction.GetPopCount();
-                if (popCount > stack.Count)
+                IReadOnlyList<int> successorStack =
+                    instruction.OpCode.Code is Code.Leave or Code.Leave_S
+                        ? Array.Empty<int>()
+                        : stack;
+
+                if (instruction.Operand is Instruction target)
                 {
-                    validBlock = false;
-                    continue;
+                    if (!instructionIndices.TryGetValue(target, out int targetIndex))
+                        return CallArgumentProducerMap.Empty;
+
+                    EnqueueState(targetIndex, successorStack);
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndices.TryGetValue(switchTarget, out int targetIndex))
+                            return CallArgumentProducerMap.Empty;
+
+                        EnqueueState(targetIndex, successorStack);
+                    }
                 }
 
-                if (popCount > 0)
-                    stack.RemoveRange(stack.Count - popCount, popCount);
-
-                int pushCount = instruction.GetPushCount();
-                for (int push = 0; push < pushCount; push++)
-                    stack.Add(i);
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw &&
+                    i + 1 < instructions.Count)
+                {
+                    EnqueueState(i + 1, successorStack);
+                }
             }
 
             return new CallArgumentProducerMap(producersByCallIndex, producersByStoreIndex,
                 fieldReceiversByInstructionIndex);
+        }
+
+        private static int MergeStackProducerIndexes(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyDictionary<int, CallProducers> producersByCallIndex,
+            int left,
+            int right)
+        {
+            if (left == right)
+                return left;
+
+            if (left < 0 || right < 0 || left >= instructions.Count || right >= instructions.Count)
+                return -1;
+
+            if (instructions[left].OpCode.Code == Code.Ldstr &&
+                instructions[right].OpCode.Code == Code.Ldstr &&
+                instructions[left].Operand is string leftLiteral &&
+                instructions[right].Operand is string rightLiteral &&
+                leftLiteral.Equals(rightLiteral, StringComparison.Ordinal))
+            {
+                return left;
+            }
+
+            return AreEquivalentCurrentProcessFileNameProducers(
+                instructions, producersByCallIndex, left, right)
+                ? left
+                : -1;
+        }
+
+        private static bool AreEquivalentCurrentProcessFileNameProducers(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyDictionary<int, CallProducers> producersByCallIndex,
+            int left,
+            int right)
+        {
+            return IsMethodCall(instructions, left, "System.Diagnostics.ProcessModule", "get_FileName") &&
+                   IsMethodCall(instructions, right, "System.Diagnostics.ProcessModule", "get_FileName") &&
+                   producersByCallIndex.TryGetValue(left, out var leftFileName) &&
+                   producersByCallIndex.TryGetValue(right, out var rightFileName) &&
+                   IsMethodCall(instructions, leftFileName.Receiver,
+                       "System.Diagnostics.Process", "get_MainModule") &&
+                   IsMethodCall(instructions, rightFileName.Receiver,
+                       "System.Diagnostics.Process", "get_MainModule") &&
+                   producersByCallIndex.TryGetValue(leftFileName.Receiver, out var leftMainModule) &&
+                   producersByCallIndex.TryGetValue(rightFileName.Receiver, out var rightMainModule) &&
+                   IsMethodCall(instructions, leftMainModule.Receiver,
+                       "System.Diagnostics.Process", "GetCurrentProcess") &&
+                   IsMethodCall(instructions, rightMainModule.Receiver,
+                       "System.Diagnostics.Process", "GetCurrentProcess");
+        }
+
+        private static bool IsMethodCall(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int index,
+            string declaringType,
+            string methodName)
+        {
+            return index >= 0 && index < instructions.Count &&
+                   instructions[index].Operand is MethodReference method &&
+                   method.DeclaringType?.FullName == declaringType &&
+                   method.Name == methodName;
         }
 
         private static bool IsArrayElementStore(Instruction instruction)

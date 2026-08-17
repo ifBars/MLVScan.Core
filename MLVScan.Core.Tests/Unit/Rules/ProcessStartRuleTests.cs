@@ -2257,6 +2257,25 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ExplorerAnalysisBudget_ManyLocalBackedStarts_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        for (int i = 0; i < 2_048; i++)
+        {
+            il.Emit(OpCodes.Ldloc, target);
+            il.Emit(OpCodes.Call, processStart);
+        }
+
+        ProcessStartRule.IsExplorerAnalysisWithinBudget(method.Body.Instructions).Should().BeFalse();
+    }
+
+    [Fact]
     public void ShouldSuppressFinding_StaticFieldBackedRestart_ReturnsTrue()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
@@ -2423,6 +2442,39 @@ public class ProcessStartRuleTests
         il.Emit(OpCodes.Stloc, target);
         il.Append(launchTarget);
         var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentCurrentProcessStackValuesAcrossBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var falseBranch = Instruction.Create(OpCodes.Call, getCurrentProcess);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Br, launch);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
         il.Append(launch);
 
         var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,

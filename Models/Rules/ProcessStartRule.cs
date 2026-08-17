@@ -29,6 +29,10 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Instruction>, RestartAnalysisComplexity>
             RestartAnalysisComplexities = new();
 
+        private static readonly ConditionalWeakTable<
+            Mono.Collections.Generic.Collection<Instruction>, RestartAnalysisComplexity>
+            ExplorerAnalysisComplexities = new();
+
         private Severity _severity = Severity.Critical;
 
         public string Description => "Detected Process.Start call which could execute arbitrary programs.";
@@ -684,6 +688,7 @@ namespace MLVScan.Models.Rules
             IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
+                !IsExplorerAnalysisWithinBudget(instructions) ||
                 processStartMethod.Parameters.Count is < 1 or > 2 ||
                 !InstructionValueResolver.TryResolveCallArgumentDisplay(null, processStartMethod, instructions,
                     processStartIndex, 0, exceptionHandlers, out var target) ||
@@ -753,6 +758,29 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        internal static bool IsExplorerAnalysisWithinBudget(
+            Mono.Collections.Generic.Collection<Instruction> instructions)
+        {
+            var complexity = ExplorerAnalysisComplexities.GetValue(instructions, static body =>
+            {
+                int processStartCount = 0;
+                foreach (var instruction in body)
+                {
+                    if (instruction.Operand is MethodReference method &&
+                        method.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                        method.Name == "Start")
+                    {
+                        processStartCount++;
+                    }
+                }
+
+                long estimatedWork = (long)Math.Max(1, processStartCount) * Math.Max(1, body.Count);
+                return new RestartAnalysisComplexity(estimatedWork <= MaxRestartReachabilityWork);
+            });
+
+            return complexity.IsWithinBudget;
         }
 
         private static bool IsSafeShellFolderLaunch(
