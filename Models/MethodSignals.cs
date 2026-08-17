@@ -6,6 +6,9 @@ namespace MLVScan.Models
     /// </summary>
     public class MethodSignals
     {
+        internal IReadOnlyList<Mono.Cecil.Cil.ExceptionHandler> ExceptionHandlers { get; set; } =
+            Array.Empty<Mono.Cecil.Cil.ExceptionHandler>();
+
         /// <summary>
         /// Gets or sets a value indicating whether encoded or obfuscated strings were observed.
         /// </summary>

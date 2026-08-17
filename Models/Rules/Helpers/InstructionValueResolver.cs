@@ -16,7 +16,13 @@ namespace MLVScan.Models.Rules.Helpers
         private const int MaxTrackedCallArguments = 32;
 
         private static readonly ConditionalWeakTable<
-            Mono.Collections.Generic.Collection<Instruction>, CallArgumentProducerMap> CallArgumentProducerMaps = new();
+            Mono.Collections.Generic.Collection<Instruction>, CallArgumentProducerMapCache> CallArgumentProducerMaps = new();
+
+        private static readonly ConditionalWeakTable<
+            Mono.Collections.Generic.Collection<Instruction>, Dictionary<Instruction, int>> InstructionIndexMaps = new();
+
+        private static readonly ConditionalWeakTable<
+            Mono.Collections.Generic.Collection<Instruction>, ExceptionalTargetCache> ExceptionalTargetCaches = new();
 
         private static readonly Regex ExecutableNameRegex =
             new Regex(@"([A-Za-z0-9._-]+\.(?:exe|bat|cmd|com|ps1|msi))",
@@ -24,6 +30,33 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static readonly Regex FormatItemRegex =
             new Regex(@"\{(\d+)(?:[^}]*)\}", RegexOptions.CultureInvariant);
+
+        private static readonly HashSet<string> TrustedFrameworkAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mscorlib",
+            "netstandard",
+            "System",
+            "System.Diagnostics.Process",
+            "System.Runtime"
+        };
+
+        internal static bool IsTrustedFrameworkMethod(
+            MethodReference method,
+            string declaringType,
+            string methodName,
+            bool allowDetachedReference = false)
+        {
+            if (method.DeclaringType?.FullName != declaringType || method.Name != methodName)
+                return false;
+
+            var scope = method.DeclaringType.Scope;
+            if (scope is AssemblyNameReference assemblyReference)
+                return TrustedFrameworkAssemblyNames.Contains(assemblyReference.Name);
+
+            // Unit tests construct detached Cecil references without a module or resolution scope.
+            // Production references must identify a known framework assembly explicitly.
+            return allowDetachedReference && scope == null && method.Module == null;
+        }
 
         /// <summary>
         /// Tries to resolve the executable or command target passed to a process-launching call.
@@ -122,6 +155,19 @@ namespace MLVScan.Models.Rules.Helpers
             int argumentIndex,
             out string valueDisplay)
         {
+            return TryResolveCallArgumentDisplay(containingMethod, calledMethod, instructions, callIndex,
+                argumentIndex, Array.Empty<ExceptionHandler>(), out valueDisplay);
+        }
+
+        public static bool TryResolveCallArgumentDisplay(
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string valueDisplay)
+        {
             valueDisplay = "<unknown/non-literal>";
             if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
             {
@@ -130,7 +176,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             var context = new ResolverContext(containingMethod?.Module);
             if (TryResolveCallArgumentFromBasicBlock(context, containingMethod, instructions, callIndex,
-                    calledMethod.Parameters.Count, argumentIndex, out valueDisplay))
+                    calledMethod.Parameters.Count, argumentIndex, exceptionHandlers, out valueDisplay))
             {
                 return true;
             }
@@ -153,10 +199,20 @@ namespace MLVScan.Models.Rules.Helpers
             int callIndex,
             out string identity)
         {
+            return TryResolveCallReceiverIdentity(
+                instructions, callIndex, Array.Empty<ExceptionHandler>(), out identity);
+        }
+
+        public static bool TryResolveCallReceiverIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
             identity = string.Empty;
-            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
             return producerMap.TryGetReceiverProducer(callIndex, out int producerIndex) &&
-                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
         /// <summary>
@@ -169,27 +225,368 @@ namespace MLVScan.Models.Rules.Helpers
             int argumentIndex,
             out string identity)
         {
+            return TryResolveCallArgumentIdentity(calledMethod, instructions, callIndex, argumentIndex,
+                Array.Empty<ExceptionHandler>(), out identity);
+        }
+
+        public static bool TryResolveCallArgumentIdentity(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
             identity = string.Empty;
             if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
                 return false;
 
-            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
             return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
                        out int producerIndex) &&
-                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
-        private static bool TryBuildProducerIdentity(
+        public static bool IsGuaranteedToExecuteBefore(
             Mono.Collections.Generic.Collection<Instruction> instructions,
-            int producerIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int instructionIndex,
+            int useIndex)
+        {
+            if (instructions == null || instructionIndex < 0 || useIndex < 0 ||
+                instructionIndex >= instructions.Count || useIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            if (HasRelevantUnsupportedHandler(instructions, exceptionHandlers, instructionIndex, useIndex))
+                return false;
+
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+
+            var pending = new Queue<(int Index, bool Executed)>();
+            var visited = new HashSet<(int Index, bool Executed)>();
+            pending.Enqueue((0, false));
+            foreach (var handler in exceptionHandlers)
+            {
+                int handlerEndIndex = instructions.Count;
+                if (handler.HandlerType == ExceptionHandlerType.Catch ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    continue;
+                }
+
+                if (instructionIndex >= handlerStartIndex && instructionIndex < handlerEndIndex &&
+                    useIndex >= handlerStartIndex && useIndex < handlerEndIndex)
+                {
+                    pending.Enqueue((handlerStartIndex, false));
+                }
+            }
+            bool reachedUse = false;
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    reachedUse = true;
+                    if (!current.Executed)
+                        return false;
+
+                    continue;
+                }
+
+                bool executed = current.Executed || current.Index == instructionIndex;
+                var instruction = instructions[current.Index];
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                    {
+                        // A protected instruction may transfer to the handler before completing.
+                        pending.Enqueue((handlerTarget, current.Executed));
+                    }
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return false;
+
+                    pending.Enqueue((targetIndex, executed));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
+                            return false;
+
+                        pending.Enqueue((targetIndex, executed));
+                    }
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, executed));
+            }
+
+            return reachedUse;
+        }
+
+        public static bool CanExecuteBetween(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int startIndex,
+            int candidateIndex,
+            int useIndex)
+        {
+            if (instructions == null || startIndex < 0 || candidateIndex < 0 || useIndex < 0 ||
+                startIndex >= instructions.Count || candidateIndex >= instructions.Count || useIndex >= instructions.Count ||
+                HasRelevantUnsupportedHandler(instructions, exceptionHandlers, startIndex, useIndex) ||
+                !TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+            {
+                return true;
+            }
+
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+            var pending = new Queue<(int Index, bool CandidateSeen)>();
+            var visited = new HashSet<(int Index, bool CandidateSeen)>();
+            pending.Enqueue((startIndex, startIndex == candidateIndex));
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    if (current.CandidateSeen)
+                        return true;
+                }
+
+                var instruction = instructions[current.Index];
+                bool candidateSeen = current.CandidateSeen || current.Index == candidateIndex;
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, current.CandidateSeen));
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return true;
+
+                    pending.Enqueue((targetIndex, candidateSeen));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
+                            return true;
+
+                        pending.Enqueue((targetIndex, candidateSeen));
+                    }
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, candidateSeen));
+            }
+
+            return false;
+        }
+
+        private static bool TryBuildExceptionalTargets(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out Dictionary<int, List<int>> exceptionTargets)
+        {
+            var cache = ExceptionalTargetCaches.GetValue(instructions, static _ => new ExceptionalTargetCache());
+            lock (cache.Gate)
+            {
+                if (cache.Matches(exceptionHandlers))
+                {
+                    exceptionTargets = cache.Targets;
+                    return cache.IsValid;
+                }
+
+                const int maxExceptionalEdges = 4096;
+                var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+                var targetsByInstruction = new Dictionary<int, List<int>>();
+                int exceptionalEdgeCount = 0;
+                bool isValid = true;
+                foreach (var handler in exceptionHandlers)
+                {
+                    if (!instructionIndexes.TryGetValue(handler.TryStart, out int tryStartIndex) ||
+                        (handler.TryEnd != null && !instructionIndexes.TryGetValue(handler.TryEnd, out _)) ||
+                        !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex))
+                    {
+                        isValid = false;
+                        break;
+                    }
+
+                    int tryEndIndex = handler.TryEnd == null
+                        ? instructions.Count
+                        : instructionIndexes[handler.TryEnd];
+                    if (tryEndIndex < tryStartIndex)
+                    {
+                        isValid = false;
+                        break;
+                    }
+
+                    // Non-catch handlers require query-specific treatment. They are rejected by
+                    // HasRelevantUnsupportedHandler only when they can run between the value's
+                    // definition and use; otherwise they cannot affect the resolved value.
+                    if (handler.HandlerType != ExceptionHandlerType.Catch)
+                        continue;
+
+                    for (int i = tryStartIndex; i < tryEndIndex; i++)
+                    {
+                        if (++exceptionalEdgeCount > maxExceptionalEdges)
+                        {
+                            isValid = false;
+                            break;
+                        }
+
+                        if (!targetsByInstruction.TryGetValue(i, out var targets))
+                        {
+                            targets = new List<int>();
+                            targetsByInstruction[i] = targets;
+                        }
+
+                        targets.Add(handlerStartIndex);
+                    }
+
+                    if (!isValid)
+                        break;
+                }
+
+                cache.Update(exceptionHandlers, targetsByInstruction, isValid);
+                exceptionTargets = cache.Targets;
+                return cache.IsValid;
+            }
+        }
+
+        private static bool HasRelevantUnsupportedHandler(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int startIndex,
+            int useIndex)
+        {
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+            foreach (var handler in exceptionHandlers)
+            {
+                if (handler.HandlerType == ExceptionHandlerType.Catch)
+                    continue;
+
+                int tryEndIndex = instructions.Count;
+                int handlerEndIndex = instructions.Count;
+                if (!instructionIndexes.TryGetValue(handler.TryStart, out int tryStartIndex) ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.TryEnd != null && !instructionIndexes.TryGetValue(handler.TryEnd, out tryEndIndex)) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    return true;
+                }
+
+                if (tryEndIndex < tryStartIndex || handlerEndIndex < handlerStartIndex)
+                    return true;
+
+                // A use inside the protected region happens before its finally/fault handler.
+                // A definition and use inside the same handler do not cross that handler. A handler
+                // wholly before the definition or after the use is likewise unrelated.
+                if ((useIndex >= tryStartIndex && useIndex < tryEndIndex) ||
+                    (startIndex >= handlerStartIndex && startIndex < handlerEndIndex &&
+                     useIndex >= handlerStartIndex && useIndex < handlerEndIndex) ||
+                    useIndex < tryStartIndex ||
+                    startIndex >= handlerEndIndex)
+                {
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        private static Dictionary<Instruction, int> BuildInstructionIndexMap(
+            Mono.Collections.Generic.Collection<Instruction> instructions)
+        {
+            var indexes = new Dictionary<Instruction, int>(instructions.Count);
+            for (int i = 0; i < instructions.Count; i++)
+                indexes[instructions[i]] = i;
+
+            return indexes;
+        }
+
+        public static bool TryResolveCallArgumentProducerIndex(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            out int producerIndex)
+        {
+            return TryResolveCallArgumentProducerIndex(calledMethod, instructions, callIndex, argumentIndex,
+                Array.Empty<ExceptionHandler>(), out producerIndex);
+        }
+
+        public static bool TryResolveCallArgumentProducerIndex(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out int producerIndex)
+        {
+            producerIndex = -1;
+            if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
+                return false;
+
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
+                out producerIndex);
+        }
+
+        public static bool TryResolveStoredValueIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int storeIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             out string identity)
         {
-            return TryBuildProducerIdentity(instructions, producerIndex, 0, out identity);
+            identity = string.Empty;
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            return producerMap.TryGetStoredValueProducer(storeIndex, out int producerIndex) &&
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
+            return TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, 0, out identity);
+        }
+
+        private static bool TryBuildProducerIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int producerIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             int depth,
             out string identity)
         {
@@ -200,23 +597,58 @@ namespace MLVScan.Models.Rules.Helpers
             var producer = instructions[producerIndex];
             if (TryGetLoadedLocalIndex(producer, out int localIndex))
             {
-                for (int i = producerIndex - 1; i >= 0; i--)
+                return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
+                    instruction => TryGetStoredLocalIndex(instruction, out int storedIndex) &&
+                                   storedIndex == localIndex,
+                    depth, out identity, invalidatesDefinition: instruction =>
+                        TryGetLoadedLocalAddressIndex(instruction, out int escapedLocalIndex) &&
+                        escapedLocalIndex == localIndex);
+            }
+
+            if (TryGetLoadedArgumentIndex(producer, out int argumentIndex))
+            {
+                bool hasArgumentStore = false;
+                for (int i = 0; i < instructions.Count; i++)
                 {
-                    if (!TryGetStoredLocalIndex(instructions[i], out int storedLocalIndex) ||
-                        storedLocalIndex != localIndex)
+                    if (TryGetLoadedArgumentAddressIndex(instructions[i], out int escapedArgumentIndex) &&
+                        escapedArgumentIndex == argumentIndex)
                     {
-                        continue;
+                        return false;
                     }
 
-                    if (!HasUnambiguousLinearReach(instructions, i, producerIndex))
-                        return false;
-
-                    var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
-                    return producerMap.TryGetStoredValueProducer(i, out int storedValueProducer) &&
-                           TryBuildProducerIdentity(instructions, storedValueProducer, depth + 1, out identity);
+                    if (TryGetStoredArgumentIndex(instructions[i], out int storedArgumentIndex) &&
+                        storedArgumentIndex == argumentIndex)
+                    {
+                        hasArgumentStore = true;
+                    }
                 }
 
-                return false;
+                if (hasArgumentStore)
+                    return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
+                        instruction => TryGetStoredArgumentIndex(instruction, out int storedIndex) &&
+                                       storedIndex == argumentIndex,
+                        depth, out identity, invalidatesDefinition: instruction =>
+                            TryGetLoadedArgumentAddressIndex(instruction, out int escapedIndex) &&
+                            escapedIndex == argumentIndex);
+            }
+
+            if (producer.Operand is FieldReference loadedField &&
+                producer.OpCode.Code is Code.Ldfld or Code.Ldsfld)
+            {
+                var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+                string receiverIdentity = string.Empty;
+                if (producer.OpCode.Code == Code.Ldfld &&
+                    (!producerMap.TryGetFieldReceiverProducer(producerIndex, out int receiverProducer) ||
+                     !TryBuildProducerIdentity(instructions, receiverProducer, exceptionHandlers,
+                         depth + 1, out receiverIdentity)))
+                {
+                    return false;
+                }
+
+                return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
+                    instruction => IsMatchingFieldStore(instruction, loadedField,
+                        producer.OpCode.Code == Code.Ldsfld), depth, out identity,
+                    receiverIdentity, instruction => IsPotentialFieldMutation(instruction, loadedField.FieldType));
             }
 
             identity = producer.OpCode.Code switch
@@ -227,11 +659,40 @@ namespace MLVScan.Models.Rules.Helpers
                 Code.Ldarg_3 => "argument:3",
                 Code.Ldarg or Code.Ldarg_S when producer.Operand is ParameterDefinition parameter =>
                     $"argument:{parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)}",
+                Code.Ldstr => $"literal:{producerIndex}",
                 Code.Newobj => $"new:{producerIndex}",
+                Code.Call or Code.Callvirt => $"call:{producerIndex}",
                 _ => string.Empty
             };
 
             return identity.Length > 0;
+        }
+
+        private static bool IsMatchingFieldStore(Instruction instruction, FieldReference loadedField, bool isStatic)
+        {
+            return instruction.Operand is FieldReference storedField &&
+                   storedField.FullName == loadedField.FullName &&
+                   instruction.OpCode.Code == (isStatic ? Code.Stsfld : Code.Stfld);
+        }
+
+        private static bool IsPotentialFieldMutation(Instruction instruction, TypeReference fieldType)
+        {
+            if (fieldType.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                instruction.Operand is MethodReference method &&
+                ((method.DeclaringType?.FullName, method.Name) is
+                    ("System.Diagnostics.Process", "GetCurrentProcess") or
+                    ("System.Diagnostics.Process", "get_MainModule") or
+                    ("System.Diagnostics.ProcessModule", "get_FileName") ||
+                 method.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo"))
+            {
+                return false;
+            }
+
+            return instruction.OpCode.Code is
+                Code.Call or Code.Callvirt or Code.Calli or Code.Newobj or
+                Code.Ldflda or Code.Ldsflda or
+                Code.Stind_I or Code.Stind_I1 or Code.Stind_I2 or Code.Stind_I4 or Code.Stind_I8 or
+                Code.Stind_R4 or Code.Stind_R8 or Code.Stind_Ref;
         }
 
         private static bool TryGetLoadedLocalIndex(Instruction instruction, out int localIndex)
@@ -249,41 +710,400 @@ namespace MLVScan.Models.Rules.Helpers
             return localIndex >= 0;
         }
 
-        private static bool HasUnambiguousLinearReach(
-            Mono.Collections.Generic.Collection<Instruction> instructions,
-            int definitionIndex,
-            int useIndex)
+        private static bool TryGetLoadedLocalAddressIndex(Instruction instruction, out int localIndex)
         {
-            for (int i = definitionIndex + 1; i < useIndex; i++)
-            {
-                var flowControl = instructions[i].OpCode.FlowControl;
-                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
-                    FlowControl.Return or FlowControl.Throw)
-                {
-                    return false;
-                }
-            }
+            localIndex = (instruction.OpCode.Code is Code.Ldloca or Code.Ldloca_S) &&
+                         instruction.Operand is VariableDefinition variable
+                ? variable.Index
+                : -1;
+            return localIndex >= 0;
+        }
 
-            for (int i = 0; i < instructions.Count; i++)
+        private static bool TryGetLoadedArgumentAddressIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = (instruction.OpCode.Code is Code.Ldarga or Code.Ldarga_S) &&
+                            instruction.Operand is ParameterDefinition parameter
+                ? parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)
+                : -1;
+            return argumentIndex >= 0;
+        }
+
+        private static bool HasUnambiguousReachingDefinition(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int definitionIndex,
+            int useIndex,
+            Func<Instruction, bool> isCompetingStore)
+        {
+            const byte unresolved = 0;
+            const byte expectedDefinition = 1;
+            const byte overwritten = 2;
+
+            var pending = new Queue<(int Index, byte State)>();
+            var visited = new HashSet<(int Index, byte State)>();
+            if (HasRelevantUnsupportedHandler(instructions, exceptionHandlers, definitionIndex, useIndex))
+                return false;
+
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+
+            pending.Enqueue((0, unresolved));
+            bool reachedUse = false;
+
+            while (pending.Count > 0)
             {
-                if (instructions[i].Operand is Instruction target)
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
                 {
-                    int targetIndex = instructions.IndexOf(target);
-                    if (targetIndex > definitionIndex && targetIndex <= useIndex)
+                    reachedUse = true;
+                    if (current.State != expectedDefinition)
                         return false;
+
+                    continue;
                 }
-                else if (instructions[i].Operand is Instruction[] targets)
+
+                var instruction = instructions[current.Index];
+                byte nextState = current.State;
+                if (current.Index == definitionIndex)
+                {
+                    nextState = expectedDefinition;
+                }
+                else if (isCompetingStore(instruction))
+                {
+                    nextState = overwritten;
+                }
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, current.State));
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return false;
+
+                    pending.Enqueue((targetIndex, nextState));
+                }
+                else if (instruction.Operand is Instruction[] targets)
                 {
                     foreach (var switchTarget in targets)
                     {
-                        int targetIndex = instructions.IndexOf(switchTarget);
-                        if (targetIndex > definitionIndex && targetIndex <= useIndex)
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
                             return false;
+
+                        pending.Enqueue((targetIndex, nextState));
                     }
                 }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, nextState));
             }
 
-            return true;
+            return reachedUse;
+        }
+
+        public static bool TryResolveEquivalentCallArgumentReachingDefinitions(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int useIndex,
+            Func<Instruction, bool> isDefinition,
+            int argumentIndex,
+            out string identity)
+        {
+            return TryResolveEquivalentReachingDefinitions(
+                instructions, exceptionHandlers, useIndex, isDefinition, 0, out identity,
+                definitionIdentityResolver: (int definitionIndex, out string definitionIdentity) =>
+                {
+                    definitionIdentity = string.Empty;
+                    return instructions[definitionIndex].Operand is MethodReference method &&
+                           argumentIndex >= 0 && argumentIndex < method.Parameters.Count &&
+                           TryResolveCallArgumentIdentity(method, instructions, definitionIndex, argumentIndex,
+                               exceptionHandlers, out definitionIdentity);
+                });
+        }
+
+        private static bool TryResolveEquivalentReachingDefinitions(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int useIndex,
+            Func<Instruction, bool> isDefinition,
+            int depth,
+            out string identity,
+            string requiredReceiverIdentity = "",
+            Func<Instruction, bool>? invalidatesDefinition = null,
+            TryResolveDefinitionIdentity? definitionIdentityResolver = null)
+        {
+            identity = string.Empty;
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
+            const int maxReachingDefinitions = 64;
+            const int maxWorkUnits = 65_536;
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+            var pending = new Queue<(int Index, int DefinitionIndex)>();
+            var visited = new HashSet<(int Index, int DefinitionIndex)>();
+            var reachingDefinitions = new HashSet<int>();
+            pending.Enqueue((0, -1));
+            foreach (var handler in exceptionHandlers)
+            {
+                int handlerEndIndex = instructions.Count;
+                if (handler.HandlerType == ExceptionHandlerType.Catch ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    continue;
+                }
+
+                if (useIndex >= handlerStartIndex && useIndex < handlerEndIndex)
+                    pending.Enqueue((handlerStartIndex, -1));
+            }
+            int workUnits = 0;
+
+            while (pending.Count > 0)
+            {
+                if (++workUnits > maxWorkUnits)
+                    return false;
+
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    if (current.DefinitionIndex < 0 ||
+                        reachingDefinitions.Count >= maxReachingDefinitions &&
+                        !reachingDefinitions.Contains(current.DefinitionIndex))
+                    {
+                        return false;
+                    }
+
+                    reachingDefinitions.Add(current.DefinitionIndex);
+                    continue;
+                }
+
+                var instruction = instructions[current.Index];
+                int nextDefinition = isDefinition(instruction)
+                    ? current.Index
+                    : invalidatesDefinition?.Invoke(instruction) == true
+                        ? -2
+                        : current.DefinitionIndex;
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    int exceptionalDefinition = invalidatesDefinition?.Invoke(instruction) == true
+                        ? -2
+                        : current.DefinitionIndex;
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, exceptionalDefinition));
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return false;
+
+                    pending.Enqueue((targetIndex, nextDefinition));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
+                            return false;
+
+                        pending.Enqueue((targetIndex, nextDefinition));
+                    }
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, nextDefinition));
+            }
+
+            if (reachingDefinitions.Count == 0)
+                return false;
+
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            foreach (int definitionIndex in reachingDefinitions)
+            {
+                if (HasRelevantUnsupportedHandler(instructions, exceptionHandlers, definitionIndex, useIndex))
+                    return false;
+
+                if (requiredReceiverIdentity.Length > 0)
+                {
+                    if (!producerMap.TryGetFieldReceiverProducer(definitionIndex, out int receiverProducer) ||
+                        !TryBuildProducerIdentity(instructions, receiverProducer, exceptionHandlers,
+                            depth + 1, out var receiverIdentity) ||
+                        !receiverIdentity.Equals(requiredReceiverIdentity, StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+                }
+
+                string definitionIdentity;
+                if (definitionIdentityResolver != null)
+                {
+                    if (!definitionIdentityResolver(definitionIndex, out definitionIdentity))
+                        return false;
+                }
+                else if (!producerMap.TryGetStoredValueProducer(definitionIndex, out int storedValueProducer) ||
+                         !TryBuildProducerIdentity(instructions, storedValueProducer, exceptionHandlers,
+                             depth + 1, out definitionIdentity))
+                {
+                    return false;
+                }
+
+                if (identity.Length == 0)
+                    identity = definitionIdentity;
+                else if (!AreEquivalentProducerIdentities(instructions, exceptionHandlers,
+                             identity, definitionIdentity))
+                    return false;
+            }
+
+            return identity.Length > 0;
+        }
+
+        private delegate bool TryResolveDefinitionIdentity(int definitionIndex, out string identity);
+
+        private static bool AreEquivalentProducerIdentities(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            string left,
+            string right)
+        {
+            if (left.Equals(right, StringComparison.Ordinal))
+                return true;
+
+            if (TryGetLiteralIdentityIndex(left, out int leftLiteralIndex) &&
+                TryGetLiteralIdentityIndex(right, out int rightLiteralIndex) &&
+                leftLiteralIndex >= 0 && leftLiteralIndex < instructions.Count &&
+                rightLiteralIndex >= 0 && rightLiteralIndex < instructions.Count &&
+                instructions[leftLiteralIndex].OpCode.Code == Code.Ldstr &&
+                instructions[rightLiteralIndex].OpCode.Code == Code.Ldstr &&
+                instructions[leftLiteralIndex].Operand is string leftLiteral &&
+                instructions[rightLiteralIndex].Operand is string rightLiteral)
+            {
+                return leftLiteral.Equals(rightLiteral, StringComparison.Ordinal);
+            }
+
+            return TryGetCallIdentityIndex(left, out int leftIndex) &&
+                   TryGetCallIdentityIndex(right, out int rightIndex) &&
+                   IsCurrentProcessFileNameCall(instructions, exceptionHandlers, leftIndex) &&
+                   IsCurrentProcessFileNameCall(instructions, exceptionHandlers, rightIndex);
+        }
+
+        private static bool TryGetCallIdentityIndex(string identity, out int index)
+        {
+            const string prefix = "call:";
+            index = -1;
+            return identity.StartsWith(prefix, StringComparison.Ordinal) &&
+                   int.TryParse(identity.AsSpan(prefix.Length), out index);
+        }
+
+        private static bool TryGetLiteralIdentityIndex(string identity, out int index)
+        {
+            const string prefix = "literal:";
+            index = -1;
+            return identity.StartsWith(prefix, StringComparison.Ordinal) &&
+                   int.TryParse(identity.AsSpan(prefix.Length), out index);
+        }
+
+        private static bool IsCurrentProcessFileNameCall(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int fileNameIndex)
+        {
+            if (fileNameIndex < 0 || fileNameIndex >= instructions.Count ||
+                instructions[fileNameIndex].Operand is not MethodReference fileName ||
+                !IsTrustedFrameworkMethod(fileName,
+                    "System.Diagnostics.ProcessModule", "get_FileName", allowDetachedReference: true))
+            {
+                return false;
+            }
+
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            return producerMap.TryGetReceiverProducer(fileNameIndex, out int mainModuleIndex) &&
+                   mainModuleIndex >= 0 && mainModuleIndex < instructions.Count &&
+                   instructions[mainModuleIndex].Operand is MethodReference mainModule &&
+                   IsTrustedFrameworkMethod(mainModule,
+                       "System.Diagnostics.Process", "get_MainModule", allowDetachedReference: true) &&
+                   producerMap.TryGetReceiverProducer(mainModuleIndex, out int currentProcessIndex) &&
+                   currentProcessIndex >= 0 && currentProcessIndex < instructions.Count &&
+                   instructions[currentProcessIndex].Operand is MethodReference currentProcess &&
+                   IsTrustedFrameworkMethod(currentProcess,
+                       "System.Diagnostics.Process", "GetCurrentProcess", allowDetachedReference: true);
+        }
+
+        private sealed class ExceptionalTargetCache
+        {
+            public object Gate { get; } = new();
+
+            public ExceptionHandler[] Handlers { get; private set; } = Array.Empty<ExceptionHandler>();
+
+            public Dictionary<int, List<int>> Targets { get; private set; } = new();
+
+            public bool IsValid { get; private set; } = true;
+
+            public bool Matches(IReadOnlyList<ExceptionHandler> handlers)
+            {
+                if (Handlers.Length != handlers.Count)
+                    return false;
+
+                for (int i = 0; i < Handlers.Length; i++)
+                {
+                    if (!ReferenceEquals(Handlers[i], handlers[i]))
+                        return false;
+                }
+
+                return true;
+            }
+
+            public void Update(
+                IReadOnlyList<ExceptionHandler> handlers,
+                Dictionary<int, List<int>> targets,
+                bool isValid)
+            {
+                Handlers = handlers.ToArray();
+                Targets = targets;
+                IsValid = isValid;
+            }
+        }
+
+        private static bool TryGetLoadedArgumentIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = instruction.OpCode.Code switch
+            {
+                Code.Ldarg_0 => 0,
+                Code.Ldarg_1 => 1,
+                Code.Ldarg_2 => 2,
+                Code.Ldarg_3 => 3,
+                Code.Ldarg or Code.Ldarg_S when instruction.Operand is ParameterDefinition parameter =>
+                    parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0),
+                _ => -1
+            };
+
+            return argumentIndex >= 0;
+        }
+
+        private static bool TryGetStoredArgumentIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = instruction.OpCode.Code switch
+            {
+                Code.Starg or Code.Starg_S when instruction.Operand is ParameterDefinition parameter =>
+                    parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0),
+                _ => -1
+            };
+
+            return argumentIndex >= 0;
         }
 
         private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
@@ -308,10 +1128,11 @@ namespace MLVScan.Models.Rules.Helpers
             int callIndex,
             int parameterCount,
             int argumentIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             out string valueDisplay)
         {
             valueDisplay = "<unknown/non-literal>";
-            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
             if (!producerMap.TryGetProducer(callIndex, parameterCount, argumentIndex, out int producerIndex))
                 return false;
 
@@ -325,67 +1146,136 @@ namespace MLVScan.Models.Rules.Helpers
             return true;
         }
 
+        private static CallArgumentProducerMap GetCallArgumentProducerMap(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
+        {
+            var cache = CallArgumentProducerMaps.GetValue(instructions, static _ => new CallArgumentProducerMapCache());
+            lock (cache.Gate)
+            {
+                if (!cache.Matches(exceptionHandlers))
+                    cache.Update(exceptionHandlers, BuildCallArgumentProducerMap(instructions, exceptionHandlers));
+
+                return cache.Map;
+            }
+        }
+
         private static CallArgumentProducerMap BuildCallArgumentProducerMap(
-            Mono.Collections.Generic.Collection<Instruction> instructions)
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             var instructionIndices = new Dictionary<Instruction, int>(instructions.Count);
             for (int i = 0; i < instructions.Count; i++)
                 instructionIndices[instructions[i]] = i;
 
-            var blockStarts = new bool[instructions.Count];
-            if (blockStarts.Length > 0)
-                blockStarts[0] = true;
+            var producersByCallIndex = new Dictionary<int, CallProducers>();
+            var producersByStoreIndex = new Dictionary<int, int>();
+            var fieldReceiversByInstructionIndex = new Dictionary<int, int>();
+            var incomingStacks = new Dictionary<int, int[]>();
+            var pending = new Queue<int>();
 
-            for (int i = 0; i < instructions.Count; i++)
+            void EnqueueState(int index, IReadOnlyList<int> state)
             {
-                var flowControl = instructions[i].OpCode.FlowControl;
-                if ((flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
-                     FlowControl.Return or FlowControl.Throw) && i + 1 < instructions.Count)
-                    blockStarts[i + 1] = true;
+                if (index < 0 || index >= instructions.Count)
+                    return;
 
-                if (instructions[i].Operand is Instruction target)
+                var candidate = state.ToArray();
+                if (!incomingStacks.TryGetValue(index, out var existing))
                 {
-                    if (instructionIndices.TryGetValue(target, out int targetIndex))
-                        blockStarts[targetIndex] = true;
+                    incomingStacks[index] = candidate;
+                    pending.Enqueue(index);
+                    return;
                 }
-                else if (instructions[i].Operand is Instruction[] targets)
+
+                int[] merged;
+                if (existing.Length != candidate.Length)
                 {
-                    foreach (var switchTarget in targets)
+                    merged = Array.Empty<int>();
+                }
+                else
+                {
+                    merged = new int[existing.Length];
+                    for (int slot = 0; slot < existing.Length; slot++)
                     {
-                        if (instructionIndices.TryGetValue(switchTarget, out int targetIndex))
-                            blockStarts[targetIndex] = true;
+                        merged[slot] = MergeStackProducerIndexes(instructions, producersByCallIndex,
+                            existing[slot], candidate[slot]);
                     }
+                }
+
+                if (!existing.SequenceEqual(merged))
+                {
+                    incomingStacks[index] = merged;
+                    pending.Enqueue(index);
                 }
             }
 
-            var producersByCallIndex = new Dictionary<int, CallProducers>();
-            var producersByStoreIndex = new Dictionary<int, int>();
-            var stack = new List<int>();
-            bool validBlock = true;
+            if (instructions.Count > 0)
+                EnqueueState(0, Array.Empty<int>());
 
-            for (int i = 0; i < instructions.Count; i++)
+            foreach (var handler in exceptionHandlers)
             {
-                if (blockStarts[i])
+                if (!instructionIndices.TryGetValue(handler.HandlerStart, out int handlerStartIndex))
+                    return CallArgumentProducerMap.Empty;
+
+                EnqueueState(handlerStartIndex,
+                    handler.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter
+                        ? new[] { -1 }
+                        : Array.Empty<int>());
+
+                if (handler.FilterStart != null)
                 {
-                    stack.Clear();
-                    validBlock = true;
+                    if (!instructionIndices.TryGetValue(handler.FilterStart, out int filterStartIndex))
+                        return CallArgumentProducerMap.Empty;
+
+                    EnqueueState(filterStartIndex, new[] { -1 });
                 }
+            }
 
-                if (!validBlock)
-                    continue;
+            const int maxWorkUnits = 65_536;
+            int workUnits = 0;
+            while (pending.Count > 0)
+            {
+                if (++workUnits > maxWorkUnits)
+                    return CallArgumentProducerMap.Empty;
 
+                int i = pending.Dequeue();
+                var stack = new List<int>(incomingStacks[i]);
                 var instruction = instructions[i];
-                if (TryGetStoredLocalIndex(instruction, out _) && stack.Count > 0)
+                if ((TryGetStoredLocalIndex(instruction, out _) ||
+                     TryGetStoredArgumentIndex(instruction, out _) ||
+                     instruction.OpCode.Code is Code.Stfld or Code.Stsfld ||
+                     IsArrayElementStore(instruction)) && stack.Count > 0)
                 {
-                    producersByStoreIndex[i] = stack[^1];
+                    int producer = stack[^1];
+                    producersByStoreIndex[i] = producersByStoreIndex.TryGetValue(i, out int existingProducer)
+                        ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingProducer, producer)
+                        : producer;
                 }
 
-                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                if (instruction.OpCode.Code == Code.Ldfld && stack.Count >= 1)
+                {
+                    int receiver = stack[^1];
+                    fieldReceiversByInstructionIndex[i] =
+                        fieldReceiversByInstructionIndex.TryGetValue(i, out int existingReceiver)
+                            ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
+                            : receiver;
+                }
+                else if (instruction.OpCode.Code == Code.Stfld && stack.Count >= 2)
+                {
+                    int receiver = stack[^2];
+                    fieldReceiversByInstructionIndex[i] =
+                        fieldReceiversByInstructionIndex.TryGetValue(i, out int existingReceiver)
+                            ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
+                            : receiver;
+                }
+
+                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt ||
+                     instruction.OpCode == OpCodes.Newobj) &&
                     instruction.Operand is MethodReference calledMethod &&
                     calledMethod.Parameters.Count <= MaxTrackedCallArguments)
                 {
                     int parameterCount = calledMethod.Parameters.Count;
-                    int receiverCount = calledMethod.HasThis ? 1 : 0;
+                    int receiverCount = instruction.OpCode == OpCodes.Newobj ? 0 : calledMethod.HasThis ? 1 : 0;
                     int consumedCount = parameterCount + receiverCount;
                     if (stack.Count >= consumedCount)
                     {
@@ -396,6 +1286,19 @@ namespace MLVScan.Models.Rules.Helpers
                         for (int argumentIndex = 0; argumentIndex < parameterCount; argumentIndex++)
                             argumentProducers[argumentIndex] = stack[firstArgumentIndex + argumentIndex];
 
+                        if (producersByCallIndex.TryGetValue(i, out var existingCallProducers))
+                        {
+                            for (int argumentIndex = 0; argumentIndex < argumentProducers.Length; argumentIndex++)
+                            {
+                                argumentProducers[argumentIndex] = MergeStackProducerIndexes(
+                                    instructions, producersByCallIndex,
+                                    existingCallProducers.Arguments[argumentIndex], argumentProducers[argumentIndex]);
+                            }
+
+                            receiverProducer = MergeStackProducerIndexes(instructions, producersByCallIndex,
+                                existingCallProducers.Receiver, receiverProducer);
+                        }
+
                         producersByCallIndex[i] = new CallProducers(argumentProducers, receiverProducer);
                     }
                 }
@@ -403,37 +1306,120 @@ namespace MLVScan.Models.Rules.Helpers
                 if (instruction.OpCode == OpCodes.Dup)
                 {
                     if (stack.Count == 0)
-                    {
-                        validBlock = false;
                         continue;
-                    }
 
                     stack.Add(stack[^1]);
-                    continue;
                 }
-
-                if (instruction.OpCode == OpCodes.Calli)
+                else
                 {
-                    validBlock = false;
-                    continue;
+                    if (instruction.OpCode == OpCodes.Calli)
+                        continue;
+
+                    int popCount = IsArrayElementStore(instruction) ? 3 : instruction.GetPopCount();
+                    if (popCount > stack.Count)
+                        continue;
+
+                    if (popCount > 0)
+                        stack.RemoveRange(stack.Count - popCount, popCount);
+
+                    int pushCount = instruction.GetPushCount();
+                    for (int push = 0; push < pushCount; push++)
+                        stack.Add(i);
                 }
 
-                int popCount = IsArrayElementStore(instruction) ? 3 : instruction.GetPopCount();
-                if (popCount > stack.Count)
+                IReadOnlyList<int> successorStack =
+                    instruction.OpCode.Code is Code.Leave or Code.Leave_S
+                        ? Array.Empty<int>()
+                        : stack;
+
+                if (instruction.Operand is Instruction target)
                 {
-                    validBlock = false;
-                    continue;
+                    if (!instructionIndices.TryGetValue(target, out int targetIndex))
+                        return CallArgumentProducerMap.Empty;
+
+                    EnqueueState(targetIndex, successorStack);
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndices.TryGetValue(switchTarget, out int targetIndex))
+                            return CallArgumentProducerMap.Empty;
+
+                        EnqueueState(targetIndex, successorStack);
+                    }
                 }
 
-                if (popCount > 0)
-                    stack.RemoveRange(stack.Count - popCount, popCount);
-
-                int pushCount = instruction.GetPushCount();
-                for (int push = 0; push < pushCount; push++)
-                    stack.Add(i);
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw &&
+                    i + 1 < instructions.Count)
+                {
+                    EnqueueState(i + 1, successorStack);
+                }
             }
 
-            return new CallArgumentProducerMap(producersByCallIndex, producersByStoreIndex);
+            return new CallArgumentProducerMap(producersByCallIndex, producersByStoreIndex,
+                fieldReceiversByInstructionIndex);
+        }
+
+        private static int MergeStackProducerIndexes(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyDictionary<int, CallProducers> producersByCallIndex,
+            int left,
+            int right)
+        {
+            if (left == right)
+                return left;
+
+            if (left < 0 || right < 0 || left >= instructions.Count || right >= instructions.Count)
+                return -1;
+
+            if (instructions[left].OpCode.Code == Code.Ldstr &&
+                instructions[right].OpCode.Code == Code.Ldstr &&
+                instructions[left].Operand is string leftLiteral &&
+                instructions[right].Operand is string rightLiteral &&
+                leftLiteral.Equals(rightLiteral, StringComparison.Ordinal))
+            {
+                return left;
+            }
+
+            return AreEquivalentCurrentProcessFileNameProducers(
+                instructions, producersByCallIndex, left, right)
+                ? left
+                : -1;
+        }
+
+        private static bool AreEquivalentCurrentProcessFileNameProducers(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyDictionary<int, CallProducers> producersByCallIndex,
+            int left,
+            int right)
+        {
+            return IsMethodCall(instructions, left, "System.Diagnostics.ProcessModule", "get_FileName") &&
+                   IsMethodCall(instructions, right, "System.Diagnostics.ProcessModule", "get_FileName") &&
+                   producersByCallIndex.TryGetValue(left, out var leftFileName) &&
+                   producersByCallIndex.TryGetValue(right, out var rightFileName) &&
+                   IsMethodCall(instructions, leftFileName.Receiver,
+                       "System.Diagnostics.Process", "get_MainModule") &&
+                   IsMethodCall(instructions, rightFileName.Receiver,
+                       "System.Diagnostics.Process", "get_MainModule") &&
+                   producersByCallIndex.TryGetValue(leftFileName.Receiver, out var leftMainModule) &&
+                   producersByCallIndex.TryGetValue(rightFileName.Receiver, out var rightMainModule) &&
+                   IsMethodCall(instructions, leftMainModule.Receiver,
+                       "System.Diagnostics.Process", "GetCurrentProcess") &&
+                   IsMethodCall(instructions, rightMainModule.Receiver,
+                       "System.Diagnostics.Process", "GetCurrentProcess");
+        }
+
+        private static bool IsMethodCall(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int index,
+            string declaringType,
+            string methodName)
+        {
+            return index >= 0 && index < instructions.Count &&
+                   instructions[index].Operand is MethodReference method &&
+                   IsTrustedFrameworkMethod(method, declaringType, methodName, allowDetachedReference: true);
         }
 
         private static bool IsArrayElementStore(Instruction instruction)
@@ -445,15 +1431,22 @@ namespace MLVScan.Models.Rules.Helpers
 
         private sealed class CallArgumentProducerMap
         {
+            public static CallArgumentProducerMap Empty { get; } =
+                new(new Dictionary<int, CallProducers>(), new Dictionary<int, int>(),
+                    new Dictionary<int, int>());
+
             private readonly Dictionary<int, CallProducers> _producersByCallIndex;
             private readonly Dictionary<int, int> _producersByStoreIndex;
+            private readonly Dictionary<int, int> _fieldReceiversByInstructionIndex;
 
             public CallArgumentProducerMap(
                 Dictionary<int, CallProducers> producersByCallIndex,
-                Dictionary<int, int> producersByStoreIndex)
+                Dictionary<int, int> producersByStoreIndex,
+                Dictionary<int, int> fieldReceiversByInstructionIndex)
             {
                 _producersByCallIndex = producersByCallIndex;
                 _producersByStoreIndex = producersByStoreIndex;
+                _fieldReceiversByInstructionIndex = fieldReceiversByInstructionIndex;
             }
 
             public bool TryGetProducer(int callIndex, int parameterCount, int argumentIndex, out int producerIndex)
@@ -480,6 +1473,43 @@ namespace MLVScan.Models.Rules.Helpers
             public bool TryGetStoredValueProducer(int storeIndex, out int producerIndex)
             {
                 return _producersByStoreIndex.TryGetValue(storeIndex, out producerIndex);
+            }
+
+            public bool TryGetFieldReceiverProducer(int instructionIndex, out int producerIndex)
+            {
+                return _fieldReceiversByInstructionIndex.TryGetValue(instructionIndex, out producerIndex);
+            }
+        }
+
+        private sealed class CallArgumentProducerMapCache
+        {
+            public object Gate { get; } = new();
+            public ExceptionHandler[] Handlers { get; private set; } = Array.Empty<ExceptionHandler>();
+            public CallArgumentProducerMap Map { get; private set; } = CallArgumentProducerMap.Empty;
+            private bool IsInitialized { get; set; }
+
+            public bool Matches(IReadOnlyList<ExceptionHandler> handlers)
+            {
+                if (!IsInitialized)
+                    return false;
+
+                if (Handlers.Length != handlers.Count)
+                    return false;
+
+                for (int i = 0; i < Handlers.Length; i++)
+                {
+                    if (!ReferenceEquals(Handlers[i], handlers[i]))
+                        return false;
+                }
+
+                return true;
+            }
+
+            public void Update(IReadOnlyList<ExceptionHandler> handlers, CallArgumentProducerMap map)
+            {
+                Handlers = handlers.ToArray();
+                Map = map;
+                IsInitialized = true;
             }
         }
 

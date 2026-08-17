@@ -132,6 +132,73 @@ public class MethodScannerTests
         result.Findings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
     }
 
+    [Fact]
+    public void ScanMethod_MultiSignalDisabled_PropagatesExceptionHandlersToSuppression()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = false };
+        var rule = new CapturingSuppressionRule();
+        var scanner = CreateScanner(config, new IScanRule[] { rule });
+        var method = CreateMethod();
+        var il = method.Body.GetILProcessor();
+        var ret = method.Body.Instructions.Single();
+        var tryStart = Instruction.Create(OpCodes.Nop);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        var afterHandler = Instruction.Create(OpCodes.Call,
+            new MethodReference("Target", method.Module.TypeSystem.Void,
+                new TypeReference("Test", "Target", method.Module, method.Module.TypeSystem.CoreLibrary)));
+        il.InsertBefore(ret, tryStart);
+        il.InsertBefore(ret, Instruction.Create(OpCodes.Leave, afterHandler));
+        il.InsertBefore(ret, handlerStart);
+        il.InsertBefore(ret, Instruction.Create(OpCodes.Leave, afterHandler));
+        il.InsertBefore(ret, afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = method.Module.ImportReference(typeof(Exception))
+        });
+
+        using var assemblyBytes = new MemoryStream();
+        method.Module.Assembly.Write(assemblyBytes);
+        assemblyBytes.Position = 0;
+        using var reloadedAssembly = AssemblyDefinition.ReadAssembly(assemblyBytes);
+        var reloadedMethod = reloadedAssembly.MainModule.Types
+            .Single(type => type.FullName == "Test.Type").Methods
+            .Single(candidate => candidate.Name == "Run");
+
+        var result = scanner.ScanMethod(reloadedMethod, "Test.Type");
+
+        result.Findings.Should().BeEmpty();
+        rule.ObservedExceptionHandlerCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void ScanMethod_MultiSignalDisabled_DoesNotEnableCompanionCorrelation()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = false };
+        var scanner = CreateScanner(config, new IScanRule[]
+        {
+            new NamedCallRule("Primary", "Primary", requiresCompanionFinding: false),
+            new ContextualNamedCallRule("Companion", "Target")
+        });
+        var method = CreateMethod();
+        var il = method.Body.GetILProcessor();
+        var ret = method.Body.Instructions.Single();
+        il.InsertBefore(ret, Instruction.Create(OpCodes.Call,
+            new MethodReference("Primary", method.Module.TypeSystem.Void,
+                new TypeReference("Test", "Target", method.Module, method.Module.TypeSystem.CoreLibrary))));
+        il.InsertBefore(ret, Instruction.Create(OpCodes.Call,
+            new MethodReference("Target", method.Module.TypeSystem.Void,
+                new TypeReference("Test", "Target", method.Module, method.Module.TypeSystem.CoreLibrary))));
+
+        var result = scanner.ScanMethod(method, "Test.Type");
+
+        result.Findings.Should().ContainSingle(finding => finding.RuleId == "Primary");
+        result.Findings.Should().NotContain(finding => finding.RuleId == "Companion");
+    }
+
     private static MethodScanner CreateScanner(ScanConfig config, IEnumerable<IScanRule> rules)
     {
         var signalTracker = new SignalTracker(config);
@@ -229,6 +296,72 @@ public class MethodScannerTests
         {
             AnalyzeInstructionsCallCount++;
             return new[] { new ScanFinding($"{method.DeclaringType?.FullName}.{method.Name}", "counted", Severity.Low) };
+        }
+    }
+
+    private sealed class CapturingSuppressionRule : IScanRule
+    {
+        public int ObservedExceptionHandlerCount { get; private set; }
+
+        public string Description => "Capturing suppression rule";
+        public Severity Severity => Severity.High;
+        public string RuleId => "CapturingSuppressionRule";
+        public bool RequiresCompanionFinding => false;
+        public bool IsSuspicious(MethodReference method) => method.Name == "Target";
+
+        public bool ShouldSuppressFinding(
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex,
+            MethodSignals methodSignals,
+            MethodSignals? typeSignals = null)
+        {
+            ObservedExceptionHandlerCount = methodSignals.ExceptionHandlers.Count;
+            return true;
+        }
+    }
+
+    private sealed class NamedCallRule : IScanRule
+    {
+        private readonly string _methodName;
+
+        public NamedCallRule(string ruleId, string methodName, bool requiresCompanionFinding)
+        {
+            RuleId = ruleId;
+            _methodName = methodName;
+            RequiresCompanionFinding = requiresCompanionFinding;
+        }
+
+        public string Description => $"Named call: {_methodName}";
+        public Severity Severity => Severity.High;
+        public string RuleId { get; }
+        public bool RequiresCompanionFinding { get; }
+        public bool IsSuspicious(MethodReference method) => method.Name == _methodName;
+    }
+
+    private sealed class ContextualNamedCallRule : IScanRule
+    {
+        private readonly string _methodName;
+
+        public ContextualNamedCallRule(string ruleId, string methodName)
+        {
+            RuleId = ruleId;
+            _methodName = methodName;
+        }
+
+        public string Description => $"Contextual named call: {_methodName}";
+        public Severity Severity => Severity.High;
+        public string RuleId { get; }
+        public bool RequiresCompanionFinding => true;
+        public bool IsSuspicious(MethodReference method) => false;
+
+        public IEnumerable<ScanFinding> AnalyzeContextualPattern(MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int instructionIndex,
+            MethodSignals methodSignals)
+        {
+            return calledMethod.Name == _methodName
+                ? new[] { new ScanFinding("Test.Type.Run", Description, Severity) { RuleId = RuleId } }
+                : Enumerable.Empty<ScanFinding>();
         }
     }
 }

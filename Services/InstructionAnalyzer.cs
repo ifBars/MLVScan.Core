@@ -118,13 +118,17 @@ namespace MLVScan.Services
         /// <param name="instructions">The method instructions.</param>
         /// <param name="methodSignals">Optional signal state collected for the current method.</param>
         /// <param name="typeFullName">The declaring type's full name for type-level signal correlation.</param>
+        /// <param name="exceptionHandlers">Optional exception-handler context used by suppression analysis.</param>
         /// <returns>The findings and deferred reflection work collected for the method.</returns>
         public InstructionAnalysisResult AnalyzeInstructions(MethodDefinition method,
             Mono.Collections.Generic.Collection<Instruction> instructions,
-            MethodSignals? methodSignals, string typeFullName)
+            MethodSignals? methodSignals, string typeFullName,
+            IReadOnlyList<ExceptionHandler>? exceptionHandlers = null)
         {
             var result = new InstructionAnalysisResult();
             var effectiveMethodSignals = methodSignals ?? _signalTracker.CreateMethodSignals() ?? new MethodSignals();
+            if (exceptionHandlers != null)
+                effectiveMethodSignals.ExceptionHandlers = exceptionHandlers;
             var analysisStart = _telemetry.StartTimestamp();
             _telemetry.IncrementCounter("InstructionAnalyzer.MethodsAnalyzed");
             _telemetry.IncrementCounter("InstructionAnalyzer.InstructionsVisited", instructions.Count);

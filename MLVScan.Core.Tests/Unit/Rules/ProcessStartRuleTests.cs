@@ -618,17 +618,61 @@ public class ProcessStartRuleTests
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
 
+        var processStart = CreateProcessStart(new TypeReference("System", "String", null, null));
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
-        processor.Emit(OpCodes.Ldstr, "C:\\Some\\Path");
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
 
         // Act
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, new MethodSignals());
 
         // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_UnrelatedExplorerArgument_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        var processStart = CreateProcessStart(
+            new TypeReference("System", "String", null, null),
+            new TypeReference("System", "String", null, null));
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        processor.Emit(OpCodes.Ldstr, "explorer.exe");
+        processor.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_UnrelatedPathOperationBeforeExplorer_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var pathCombine = new MethodReference("Combine", stringType,
+            new TypeReference("System.IO", "Path", null, null));
+        pathCombine.Parameters.Add(new ParameterDefinition(stringType));
+        pathCombine.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(stringType);
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "unrelated");
+        processor.Emit(OpCodes.Ldstr, "path");
+        processor.Emit(OpCodes.Call, pathCombine);
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldstr, "explorer.exe");
+        processor.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
         result.Should().BeTrue();
     }
 
@@ -701,18 +745,668 @@ public class ProcessStartRuleTests
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
 
+        var processStart = CreateProcessStart(new TypeReference("System", "String", null, null));
         processor.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("get_MainModule", new TypeReference("", "ProcessModule", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("get_FileName", new TypeReference("", "String", null, null), new TypeReference("System.Diagnostics", "ProcessModule", null, null)));
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("get_MainModule", new TypeReference("", "ProcessModule", null, null), new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = true });
+        processor.Emit(OpCodes.Callvirt, new MethodReference("get_FileName", new TypeReference("", "String", null, null), new TypeReference("System.Diagnostics", "ProcessModule", null, null)) { HasThis = true });
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
 
         // Act
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, new MethodSignals());
 
         // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_DiscardedRestartChainBeforeArbitraryLaunch_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        var processStart = CreateProcessStart(new TypeReference("System", "String", null, null));
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, new MethodReference("get_MainModule", new TypeReference("", "ProcessModule", null, null), new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = true });
+        processor.Emit(OpCodes.Callvirt, new MethodReference("get_FileName", new TypeReference("", "String", null, null), new TypeReference("System.Diagnostics", "ProcessModule", null, null)) { HasThis = true });
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        processor.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_BoundProcessStartInfoRestart_ReturnsTrue()
+    {
+        var scenario = BuildProcessStartInfoRestartScenario(useRestartTarget: true);
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_UnrelatedRestartChainBeforeProcessStartInfoLaunch_ReturnsFalse()
+    {
+        var scenario = BuildProcessStartInfoRestartScenario(useRestartTarget: false);
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoConstructorRestart_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConditionalRestartOverrideOfOtherTarget_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        method.Parameters.Add(new ParameterDefinition(
+            new TypeReference("System", "Boolean", null, null)));
+        var startInfoLocal = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(stringType));
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = CreateProcessStart(startInfoType);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "other.exe");
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse_S, launch);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_GetterBackedProcessStartInfoRestart_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processLocal = new VariableDefinition(processType);
+        method.Body.Variables.Add(processLocal);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var getStartInfo = new MethodReference("get_StartInfo", startInfoType, processType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType)
+        { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, processLocal);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_GetterBackedRestartWithSecondProperty_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processLocal = new VariableDefinition(processType);
+        method.Body.Variables.Add(processLocal);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var getStartInfo = new MethodReference("get_StartInfo", startInfoType, processType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var setUseShellExecute = new MethodReference("set_UseShellExecute", method.ReturnType, startInfoType)
+        { HasThis = true };
+        setUseShellExecute.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType)
+        { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, processLocal);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Callvirt, setUseShellExecute);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_SavedRestartAcrossUnrelatedBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var branchTarget = Instruction.Create(OpCodes.Ldloc, targetLocal);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Brfalse_S, branchTarget);
+        il.Emit(OpCodes.Nop);
+        il.Append(branchTarget);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_SavedRestartWithConditionalOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var branchTarget = Instruction.Create(OpCodes.Ldloc, targetLocal);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Brfalse_S, branchTarget);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Append(branchTarget);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_RestartSetterBypassedByException_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var startInfoLocal = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(stringType));
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var mayThrow = new MethodReference("MayThrow", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        var processStart = new MethodReference("Start", processType, processType);
+        processStart.Parameters.Add(new ParameterDefinition(startInfoType));
+
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        var tryStart = Instruction.Create(OpCodes.Call, mayThrow);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var afterHandler = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Leave, afterHandler);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(afterHandler);
+        il.Emit(OpCodes.Call, processStart);
+
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+        var signals = new MethodSignals
+        {
+            ExceptionHandlers = method.Body.ExceptionHandlers.ToArray()
+        };
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, signals);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_StringRestartStoreBypassedByException_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Stloc, targetLocal);
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("MayThrow", method.ReturnType, new TypeReference("Test", "Helpers", null, null)));
+        il.Append(tryStart);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, targetLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, targetLocal);
+        il.Emit(OpCodes.Leave, launch);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Leave, launch);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = launch,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+        var signals = new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() };
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, signals);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_SafeFileNameWithConditionalLaterOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var startInfoLocal = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = new MethodReference("Start", processType, processType);
+        processStart.Parameters.Add(new ParameterDefinition(startInfoType));
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldarg_0);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Brfalse, launch);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConditionalSafeStartInfoAssignment_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processLocal = new VariableDefinition(processType);
+        var maliciousStartInfo = new VariableDefinition(startInfoType);
+        var safeStartInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(processLocal);
+        method.Body.Variables.Add(maliciousStartInfo);
+        method.Body.Variables.Add(safeStartInfo);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        startInfoConstructor.Parameters.Add(new ParameterDefinition(stringType));
+        var setStartInfo = new MethodReference("set_StartInfo", method.ReturnType, processType) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfoType));
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType)
+        { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, processLocal);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, maliciousStartInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, safeStartInfo);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Ldloc, maliciousStartInfo);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Emit(OpCodes.Ldarg_0);
+        var launch = Instruction.Create(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Brfalse, launch);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Ldloc, safeStartInfo);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Append(launch);
+        il.Emit(OpCodes.Callvirt, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ReassignedStartInfoParameter_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var startInfoParameter = new ParameterDefinition(startInfoType);
+        method.Parameters.Add(startInfoParameter);
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = new MethodReference("Start", processType, processType);
+        processStart.Parameters.Add(new ParameterDefinition(startInfoType));
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg, startInfoParameter);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Starg, startInfoParameter);
+        il.Emit(OpCodes.Ldarg, startInfoParameter);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConditionalExplorerLocalOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Ldarg_0);
+        var launch = Instruction.Create(OpCodes.Ldloc, targetLocal);
+        il.Emit(OpCodes.Brfalse, launch);
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConstructorRestartWithConditionalLaterOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var startInfoLocal = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(stringType));
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = new MethodReference("Start", processType, processType);
+        processStart.Parameters.Add(new ParameterDefinition(startInfoType));
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        il.Emit(OpCodes.Ldarg_0);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Brfalse, launch);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_CurrentProcessReceiverBypassedByException_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processLocal = new VariableDefinition(processType);
+        method.Body.Variables.Add(processLocal);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, processLocal);
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("MayThrow", method.ReturnType, new TypeReference("Test", "Helpers", null, null)));
+        il.Append(tryStart);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Stloc, processLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Leave, launch);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Leave, launch);
+        il.Append(launch);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Call, processStart);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = launch,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+        var signals = new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() };
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, signals);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_SavedRestartBeforeUnrelatedFileNameLookup_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldloc, targetLocal);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
         result.Should().BeTrue();
     }
 
@@ -969,15 +1663,16 @@ public class ProcessStartRuleTests
         // Arrange: Build IL with mixed case "Explorer.EXE"
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
+        var processStart = CreateProcessStart(new TypeReference("System", "String", null, null));
 
         processor.Emit(OpCodes.Ldstr, "Explorer.EXE");
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
 
         // Act
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, new MethodSignals());
 
         // Assert
         result.Should().BeTrue();
@@ -1028,10 +1723,13 @@ public class ProcessStartRuleTests
         // Arrange: Normal explorer.exe call without PATH manipulation
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
+        var processStart = CreateProcessStart(
+            new TypeReference("System", "String", null, null),
+            new TypeReference("System", "String", null, null));
 
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
         processor.Emit(OpCodes.Ldstr, "C:\\SomePath");
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
@@ -1040,7 +1738,7 @@ public class ProcessStartRuleTests
         var signals = new MethodSignals { HasEnvironmentVariableModification = false };
 
         // Act
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, signals);
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, signals);
 
         // Assert - Should suppress because no PATH manipulation
         result.Should().BeTrue("Process.Start should be suppressed when no environment modification detected");
@@ -1092,10 +1790,13 @@ public class ProcessStartRuleTests
         // Arrange: Normal explorer.exe call without file writes
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
+        var processStart = CreateProcessStart(
+            new TypeReference("System", "String", null, null),
+            new TypeReference("System", "String", null, null));
 
         processor.Emit(OpCodes.Ldstr, "explorer.exe");
         processor.Emit(OpCodes.Ldstr, "C:\\SomePath");
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
@@ -1104,10 +1805,1504 @@ public class ProcessStartRuleTests
         var signals = new MethodSignals { HasFileWrite = false };
 
         // Act
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, signals);
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, signals);
 
         // Assert - Should suppress because no file writes detected
         result.Should().BeTrue("Process.Start should be suppressed when no file writes detected");
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ExplorerWithExecutableArgument_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType, stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Ldstr, @"C:\temp\payload.exe");
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ExplorerWithShortcutArgument_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType, stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Ldstr, @"C:\temp\folder.lnk");
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(@"C:\temp\payload.wsf")]
+    [InlineData(@"C:\temp\payload.jse")]
+    [InlineData(@"C:\temp\payload.vbe")]
+    public void ShouldSuppressFinding_ExplorerWithWindowsScriptArgument_ReturnsFalse(string argument)
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType, stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Ldstr, argument);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(@"C:\temp\payload.application")]
+    [InlineData(@"C:\temp\payload.appref-ms")]
+    [InlineData(@"C:\temp\payload.pif")]
+    public void ShouldSuppressFinding_ExplorerWithClickOnceArgument_ReturnsFalse(string argument)
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType, stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Ldstr, argument);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentExplorerLiteralsAcrossBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var falseBranch = Instruction.Create(OpCodes.Ldstr, "explorer.exe");
+        var launchTarget = Instruction.Create(OpCodes.Ldloc, target);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Stloc, target);
+        il.Emit(OpCodes.Br, launchTarget);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Stloc, target);
+        il.Append(launchTarget);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_SameModuleTypesSpoofCurrentProcessChain_ReturnsFalse()
+    {
+        using var module = ModuleDefinition.CreateModule("SpoofedProcessTypes", ModuleKind.Dll);
+        var voidType = module.TypeSystem.Void;
+        var stringType = module.TypeSystem.String;
+        var fakeProcess = new TypeDefinition("System.Diagnostics", "Process",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        var fakeProcessModule = new TypeDefinition("System.Diagnostics", "ProcessModule",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        var host = new TypeDefinition("Tests", "Host", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(fakeProcess);
+        module.Types.Add(fakeProcessModule);
+        module.Types.Add(host);
+
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static, voidType);
+        host.Methods.Add(method);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", fakeProcess, fakeProcess);
+        var getMainModule = new MethodReference("get_MainModule", fakeProcessModule, fakeProcess) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, fakeProcessModule) { HasThis = true };
+        var frameworkScope = new AssemblyNameReference("System.Diagnostics.Process", new Version(8, 0, 0, 0));
+        var frameworkProcess = new TypeReference("System.Diagnostics", "Process", module, frameworkScope);
+        var processStart = new MethodReference("Start", frameworkProcess, frameworkProcess);
+        processStart.Parameters.Add(new ParameterDefinition(stringType));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Call, getCurrentProcess);
+        processor.Emit(OpCodes.Callvirt, getMainModule);
+        processor.Emit(OpCodes.Callvirt, getFileName);
+        processor.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_RestartTargetOverwrittenInFinally_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("GetCurrentProcess", processType, processType));
+        il.Append(tryStart);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, targetLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, targetLocal);
+        var handlerStart = Instruction.Create(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Leave, launch);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Endfinally);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = launch
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1,
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_RestartInsideUnrelatedFinallyProtectedRegion_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var targetLocal = new VariableDefinition(stringType);
+        method.Body.Variables.Add(targetLocal);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("GetCurrentProcess", processType, processType));
+        il.Append(tryStart);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, targetLocal);
+        il.Emit(OpCodes.Ldloc, targetLocal);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        var handlerStart = Instruction.Create(OpCodes.Nop);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Endfinally);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_BareExplorerInsideCatch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Nop);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_CurrentProcessRestartInsideCatch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var restartPath = new VariableDefinition(stringType);
+        method.Body.Variables.Add(restartPath);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Nop);
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, restartPath);
+        il.Emit(OpCodes.Ldloc, restartPath);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_CurrentProcessRestartInsideFinally_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var restartPath = new VariableDefinition(stringType);
+        method.Body.Variables.Add(restartPath);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Nop);
+        var handlerStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("GetCurrentProcess", processType, processType));
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, restartPath);
+        il.Emit(OpCodes.Ldloc, restartPath);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Endfinally);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoRestartInsideFinally_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        var tryStart = Instruction.Create(OpCodes.Nop);
+        var handlerStart = Instruction.Create(OpCodes.Newobj, constructor);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Endfinally);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ArgumentReassignedOnLoopBackedge_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var restartInfo = new ParameterDefinition("restartInfo", ParameterAttributes.None, startInfoType);
+        var replacementInfo = new ParameterDefinition("replacementInfo", ParameterAttributes.None, startInfoType);
+        method.Parameters.Add(restartInfo);
+        method.Parameters.Add(replacementInfo);
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg, restartInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var loopStart = Instruction.Create(OpCodes.Ldarg, restartInfo);
+        il.Append(loopStart);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Ldarg, replacementInfo);
+        il.Emit(OpCodes.Starg, restartInfo);
+        il.Emit(OpCodes.Br, loopStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_FileNameOverwrittenAfterLaunchOnLoopBackedge_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var loopStart = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Append(loopStart);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Br, loopStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void RestartAnalysisBudget_ManyStartsAndCompetingWrites_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        for (int i = 0; i < 64; i++)
+            il.Emit(OpCodes.Callvirt, setFileName);
+        for (int i = 0; i < 64; i++)
+            il.Emit(OpCodes.Call, processStart);
+
+        ProcessStartRule.IsRestartAnalysisWithinBudget(method.Body.Instructions).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RestartAnalysisBudget_ManyUnrelatedCalls_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType);
+        var unrelated = new MethodReference("Tick", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        var il = method.Body.GetILProcessor();
+        for (int i = 0; i < 512; i++)
+            il.Emit(OpCodes.Call, unrelated);
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Call, processStart);
+
+        ProcessStartRule.IsRestartAnalysisWithinBudget(method.Body.Instructions).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ExplorerAnalysisBudget_ManyLocalBackedStarts_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        for (int i = 0; i < 2_048; i++)
+        {
+            il.Emit(OpCodes.Ldloc, target);
+            il.Emit(OpCodes.Call, processStart);
+        }
+
+        ProcessStartRule.IsExplorerAnalysisWithinBudget(method.Body.Instructions).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_StaticFieldBackedRestart_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var field = new FieldReference("RestartPath", stringType,
+            new TypeReference("Test", "State", null, null));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_FieldBackedRestartAcrossMutatingCall_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stateType = new TypeReference("Test", "State", null, null);
+        var field = new FieldReference("RestartPath", stringType, stateType);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Call, new MethodReference("ChangeRestartPath", method.ReturnType, stateType));
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_FieldBackedRestartAcrossThrowingMutatingCall_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var stateType = new TypeReference("Test", "State", null, null);
+        var field = new FieldReference("RestartPath", stringType, stateType);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stsfld, field);
+        var tryStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("ChangeRestartPathAndThrow", method.ReturnType, stateType));
+        var handlerStart = Instruction.Create(OpCodes.Pop);
+        var afterHandler = Instruction.Create(OpCodes.Ret);
+        il.Append(tryStart);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(handlerStart);
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Leave, afterHandler);
+        il.Append(afterHandler);
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = afterHandler,
+            CatchType = new TypeReference("System", "Exception", null, null)
+        });
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch),
+            new MethodSignals { ExceptionHandlers = method.Body.ExceptionHandlers.ToArray() });
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoPassedToHelper_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var rewrite = new MethodReference("RewriteTarget", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(startInfoType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoPassedAsObjectToHelper_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var objectType = new TypeReference("System", "Object", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var rewrite = new MethodReference("RewriteTarget", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(objectType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_AmbiguousHelperAlias_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        var other = new VariableDefinition(startInfoType);
+        var alias = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        method.Body.Variables.Add(other);
+        method.Body.Variables.Add(alias);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var rewrite = new MethodReference("RewriteTarget", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(startInfoType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, other);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, other);
+        il.Emit(OpCodes.Stloc, alias);
+        var skipAlias = Instruction.Create(OpCodes.Ldloc, alias);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, skipAlias);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Stloc, alias);
+        il.Append(skipAlias);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_OwningProcessPassedToHelper_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var process = new VariableDefinition(processType);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(process);
+        method.Body.Variables.Add(startInfo);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var setStartInfo = new MethodReference("set_StartInfo", method.ReturnType, processType) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfoType));
+        var rewrite = new MethodReference("RewriteProcess", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(processType));
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType) { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, process);
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, process);
+        var launch = Instruction.Create(OpCodes.Callvirt, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_HelperCalledOnOwningProcess_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var customProcessType = new TypeReference("Test", "CustomProcess", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var process = new VariableDefinition(customProcessType);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(process);
+        method.Body.Variables.Add(startInfo);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, customProcessType) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var setStartInfo = new MethodReference("set_StartInfo", method.ReturnType, processType) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfoType));
+        var rewrite = new MethodReference("RewriteTarget", method.ReturnType, customProcessType) { HasThis = true };
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType) { HasThis = true };
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, process);
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Callvirt, rewrite);
+        il.Emit(OpCodes.Ldloc, process);
+        var launch = Instruction.Create(OpCodes.Callvirt, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_StaticFieldAddressEscape_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var field = new FieldReference("RestartPath", stringType,
+            new TypeReference("Test", "State", null, null));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Ldsflda, field);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Stind_Ref);
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_CurrentProcessLocalPassedByReference_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var rewrite = new MethodReference("Rewrite", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(new ByReferenceType(stringType)));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, target);
+        il.Emit(OpCodes.Ldloca, target);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, target);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ArgumentAddressEscapesAfterReassignment_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var target = new ParameterDefinition("target", ParameterAttributes.None, stringType);
+        method.Parameters.Add(target);
+        var rewrite = new MethodReference("Rewrite", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        rewrite.Parameters.Add(new ParameterDefinition(new ByReferenceType(stringType)));
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Starg, target);
+        il.Emit(OpCodes.Ldarga, target);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldarg, target);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoEscapedToField_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var field = new FieldReference("GlobalStartInfo", startInfoType,
+            new TypeReference("Test", "State", null, null));
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Call, new MethodReference("RewriteGlobal", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null)));
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoEscapedBeforeSafeAssignment_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var field = new FieldReference("GlobalStartInfo", startInfoType,
+            new TypeReference("Test", "State", null, null));
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Call, new MethodReference("RewriteGlobal", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null)));
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ProcessStartInfoAssignedToAnotherProcess_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        var holder = new VariableDefinition(processType);
+        method.Body.Variables.Add(startInfo);
+        method.Body.Variables.Add(holder);
+        var startInfoConstructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var setStartInfo = new MethodReference("set_StartInfo", method.ReturnType, processType) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfoType));
+        var rewrite = new MethodReference("RewriteHolder", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, holder);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, holder);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Emit(OpCodes.Call, rewrite);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_StaticLaunchFromRepeatedStartInfoGetter_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var process = new VariableDefinition(processType);
+        method.Body.Variables.Add(process);
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var getStartInfo = new MethodReference("get_StartInfo", startInfoType, processType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, process);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, process);
+        il.Emit(OpCodes.Callvirt, getStartInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ParameterBackedProcessStateCrossesUnknownCall_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new ParameterDefinition("startInfo", ParameterAttributes.None, startInfoType);
+        method.Parameters.Add(startInfo);
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Call, new MethodReference("RewriteGlobal", method.ReturnType,
+            new TypeReference("Test", "Helpers", null, null)));
+        il.Emit(OpCodes.Ldarg, startInfo);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentRestartSettersOnBothBranches_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var condition = new ParameterDefinition("condition", ParameterAttributes.None,
+            new TypeReference("System", "Boolean", null, null));
+        method.Parameters.Add(condition);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldarg, condition);
+        var falseBranch = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var launchLoad = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Br, launchLoad);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Append(launchLoad);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ManyLoopingNopsAfterRestartLaunch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var loopStart = Instruction.Create(OpCodes.Call,
+            new MethodReference("GetCurrentProcess", processType, processType));
+        il.Append(loopStart);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Pop);
+        for (int i = 0; i < 5_000; i++)
+            il.Emit(OpCodes.Nop);
+        il.Emit(OpCodes.Br, loopStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_FieldBackedProcessStartInfoRestart_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var field = new FieldReference("StartInfo", startInfoType,
+            new TypeReference("Test", "State", null, null));
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stsfld, field);
+        il.Emit(OpCodes.Ldsfld, field);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldsfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_InstanceFieldBackedRestart_ReturnsTrue()
+    {
+        var declaringType = new TypeReference("Test", "State", null, null);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public,
+            new TypeReference("System", "Void", null, null));
+        method.DeclaringType = new TypeDefinition("Test", "State", TypeAttributes.Public, null);
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var field = new FieldReference("RestartPath", stringType, declaringType);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stfld, field);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, field);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentRestartDefinitionsAcrossBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var falseBranch = Instruction.Create(OpCodes.Call,
+            new MethodReference("GetCurrentProcess", processType, processType));
+        var launchTarget = Instruction.Create(OpCodes.Ldloc, target);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, target);
+        il.Emit(OpCodes.Br, launchTarget);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Stloc, target);
+        il.Append(launchTarget);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentCurrentProcessStackValuesAcrossBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true };
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var falseBranch = Instruction.Create(OpCodes.Call, getCurrentProcess);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Emit(OpCodes.Br, launch);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConditionalAliasOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var launched = new VariableDefinition(startInfoType);
+        var other = new VariableDefinition(startInfoType);
+        var alias = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(launched);
+        method.Body.Variables.Add(other);
+        method.Body.Variables.Add(alias);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, launched);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, other);
+        il.Emit(OpCodes.Ldloc, launched);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, other);
+        il.Emit(OpCodes.Stloc, alias);
+        il.Emit(OpCodes.Ldarg_0);
+        var useAlias = Instruction.Create(OpCodes.Ldloc, alias);
+        il.Emit(OpCodes.Brfalse, useAlias);
+        il.Emit(OpCodes.Ldloc, launched);
+        il.Emit(OpCodes.Stloc, alias);
+        il.Append(useAlias);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, launched);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_LowerIndexLoopOverwrite_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        var safeAssignment = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Br, safeAssignment);
+        var competingAssignment = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Append(competingAssignment);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Br, launch);
+        il.Append(safeAssignment);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brtrue, competingAssignment);
+        il.Append(launch);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
     }
 
     [Fact]
@@ -1134,6 +3329,73 @@ public class ProcessStartRuleTests
 
         // Assert - Should NOT suppress because type has file writes (cross-method attack)
         result.Should().BeFalse("Process.Start should NOT be suppressed when type has file writes in other methods");
+    }
+
+    private static MethodReference CreateProcessStart(params TypeReference[] parameterTypes)
+    {
+        var processStart = new MethodReference(
+            "Start",
+            new TypeReference("System.Diagnostics", "Process", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null));
+        foreach (var parameterType in parameterTypes)
+        {
+            processStart.Parameters.Add(new ParameterDefinition(parameterType));
+        }
+
+        return processStart;
+    }
+
+    private static (MethodReference ProcessStart, InstructionCollection Instructions, int ProcessStartIndex)
+        BuildProcessStartInfoRestartScenario(bool useRestartTarget)
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var processLocal = new VariableDefinition(processType);
+        var startInfoLocal = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(processLocal);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processConstructor = new MethodReference(".ctor", method.ReturnType, processType) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", processType, processType);
+        var getMainModule = new MethodReference("get_MainModule",
+            new TypeReference("System.Diagnostics", "ProcessModule", null, null), processType)
+        { HasThis = true };
+        var getFileName = new MethodReference("get_FileName",
+            new TypeReference("System", "String", null, null), getMainModule.ReturnType)
+        { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(getFileName.ReturnType));
+        var setStartInfo = new MethodReference("set_StartInfo", method.ReturnType, processType) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfoType));
+        var processStart = new MethodReference("Start", new TypeReference("System", "Boolean", null, null),
+            processType)
+        { HasThis = true };
+
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, processConstructor);
+        il.Emit(OpCodes.Stloc, processLocal);
+        il.Emit(OpCodes.Newobj, startInfoConstructor);
+        il.Emit(OpCodes.Stloc, startInfoLocal);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Call, getCurrentProcess);
+        il.Emit(OpCodes.Callvirt, getMainModule);
+        il.Emit(OpCodes.Callvirt, getFileName);
+        if (!useRestartTarget)
+        {
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        }
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Ldloc, startInfoLocal);
+        il.Emit(OpCodes.Callvirt, setStartInfo);
+        il.Emit(OpCodes.Ldloc, processLocal);
+        il.Emit(OpCodes.Callvirt, processStart);
+
+        return (processStart, method.Body.Instructions, method.Body.Instructions.Count - 1);
     }
 
     private static (MethodReference ProcessStart, InstructionCollection Instructions, int ProcessStartIndex)
