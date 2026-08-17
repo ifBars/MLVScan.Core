@@ -927,6 +927,76 @@ public class DataFlowAnalyzerTests
     }
 
     #endregion
+
+    #region Bounded Analysis Tests
+
+    [Fact]
+    public void AnalyzeMethod_WithRepresentativeCallHeavyMethod_CompletesAnalysis()
+    {
+        using var module = ModuleDefinition.CreateModule("DataFlowCallHeavyTest", ModuleKind.Dll);
+        var method = CreateCallHeavyMethod(module, 400);
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+
+        analyzer.AnalyzeMethod(method);
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+
+        findings.Should().NotContain(finding => finding.RuleId == "DataFlowScanWarning");
+    }
+
+    [Fact]
+    public void AnalyzeMethod_WhenReachingDefinitionWorkIsExhausted_FailsClosedForManualReview()
+    {
+        using var module = ModuleDefinition.CreateModule("DataFlowBudgetTest", ModuleKind.Dll);
+        // Keep this above the representative 400-call case so it exceeds the current 256x linear budget.
+        var stress = CreateCallHeavyMethod(module, 800);
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+
+        analyzer.AnalyzeMethod(stress);
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+        var dto = ScanResultMapper.ToDto(findings, "budget-stress.dll", [0x4d, 0x5a], false);
+
+        findings.Should().ContainSingle(finding => finding.RuleId == "DataFlowScanWarning");
+        dto.AnalysisCompleteness.IsComplete.Should().BeFalse();
+        dto.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("ManualReviewRequired");
+        dto.Disposition.BlockingRecommended.Should().BeTrue();
+    }
+
+    private static MethodDefinition CreateCallHeavyMethod(ModuleDefinition module, int callCount)
+    {
+        var type = new TypeDefinition("TestNamespace", $"CallHeavy{callCount}",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var consume = new MethodDefinition("Consume",
+            MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        consume.Parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, module.TypeSystem.Int32));
+        consume.Body.GetILProcessor().Emit(OpCodes.Ret);
+        type.Methods.Add(consume);
+
+        var method = new MethodDefinition("Stress",
+            MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var local = new VariableDefinition(module.TypeSystem.Int32);
+        method.Body.Variables.Add(local);
+        method.Body.InitLocals = true;
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Stloc, local);
+        for (var index = 0; index < callCount; index++)
+        {
+            il.Emit(OpCodes.Ldloc, local);
+            il.Emit(OpCodes.Call, consume);
+        }
+
+        il.Emit(OpCodes.Ret);
+        type.Methods.Add(method);
+        return method;
+    }
+
+    #endregion
 }
 
 #pragma warning restore CS0618

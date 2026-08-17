@@ -28,5 +28,10 @@ namespace MLVScan.Models.DataFlow
         /// Data-flow chains discovered while analyzing the method.
         /// </summary>
         public List<DataFlowChain> Chains { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets whether bounded per-method data-flow analysis completed.
+        /// </summary>
+        public bool AnalysisComplete { get; set; } = true;
     }
 }

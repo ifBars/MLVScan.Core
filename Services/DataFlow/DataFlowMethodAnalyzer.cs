@@ -9,16 +9,13 @@ namespace MLVScan.Services.DataFlow
 {
     internal sealed class DataFlowMethodAnalyzer
     {
-        private readonly DataFlowOperationClassifier _operationClassifier;
         private readonly DataFlowPatternEvaluator _patternEvaluator;
         private readonly DataFlowNodeFactory _nodeFactory;
 
         public DataFlowMethodAnalyzer(
-            DataFlowOperationClassifier operationClassifier,
             DataFlowPatternEvaluator patternEvaluator,
             DataFlowNodeFactory nodeFactory)
         {
-            _operationClassifier = operationClassifier ?? throw new ArgumentNullException(nameof(operationClassifier));
             _patternEvaluator = patternEvaluator ?? throw new ArgumentNullException(nameof(patternEvaluator));
             _nodeFactory = nodeFactory ?? throw new ArgumentNullException(nameof(nodeFactory));
         }
@@ -26,8 +23,11 @@ namespace MLVScan.Services.DataFlow
         public DataFlowMethodAnalysisResult AnalyzeMethod(MethodDefinition method)
         {
             var instructions = method.Body.Instructions;
-            var operations = _operationClassifier.IdentifyInterestingOperations(method, instructions);
-            var flowInfo = BuildMethodFlowInfo(method, instructions, operations);
+            var instructionHelper = new DataFlowInstructionHelper(instructions);
+            var reachingDefinitionAnalysis = instructionHelper.GetReachingDefinitionAnalysis(instructions);
+            var operationClassifier = new DataFlowOperationClassifier(instructionHelper);
+            var operations = operationClassifier.IdentifyInterestingOperations(method, instructions);
+            var flowInfo = BuildMethodFlowInfo(method, instructions, operations, instructionHelper);
             var chains = operations.Count < 2 ? new List<DataFlowChain>() : BuildDataFlowChains(method, instructions, operations);
 
             return new DataFlowMethodAnalysisResult
@@ -35,14 +35,16 @@ namespace MLVScan.Services.DataFlow
                 MethodKey = method.GetMethodKey(),
                 Instructions = instructions,
                 FlowInfo = flowInfo,
-                Chains = chains
+                Chains = chains,
+                AnalysisComplete = reachingDefinitionAnalysis.IsComplete
             };
         }
 
         private DataFlowMethodFlowInfo BuildMethodFlowInfo(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            List<DataFlowInterestingOperation> operations)
+            List<DataFlowInterestingOperation> operations,
+            DataFlowInstructionHelper instructionHelper)
         {
             var returnTypeName = method.ReturnType.FullName == "System.Void" ? null : method.ReturnType.FullName;
             var returnsData = returnTypeName != null && operations.Any(static operation =>
@@ -72,27 +74,27 @@ namespace MLVScan.Services.DataFlow
                     continue;
                 }
 
-                var parameterMapping = DataFlowInstructionHelper.TryGetParameterMapping(
+                var parameterMapping = instructionHelper.TryGetParameterMapping(
                     instructions, index, calledMethod);
                 var parameterReachingStoreIndexes = new Dictionary<int, HashSet<int>>();
                 var forwardedParameterMapping = new Dictionary<int, int>();
                 foreach (var (parameterIndex, localIndex) in parameterMapping)
                 {
-                    if (!DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    if (!instructionHelper.TryGetCallArgumentProducerIndex(
                             instructions, index, calledMethod, parameterIndex, out var producerIndex))
                     {
                         continue;
                     }
 
-                    parameterReachingStoreIndexes[parameterIndex] = DataFlowInstructionHelper
+                    parameterReachingStoreIndexes[parameterIndex] = instructionHelper
                         .GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex)
                         .ToHashSet();
                 }
                 for (var parameterIndex = 0; parameterIndex < calledMethod.Parameters.Count; parameterIndex++)
                 {
-                    if (DataFlowInstructionHelper.TryGetCallArgumentProducerIndex(
+                    if (instructionHelper.TryGetCallArgumentProducerIndex(
                             instructions, index, calledMethod, parameterIndex, out var producerIndex) &&
-                        DataFlowInstructionHelper.TryGetMethodParameterIndex(
+                        instructionHelper.TryGetMethodParameterIndex(
                             method, instructions[producerIndex], out var callerParameterIndex))
                     {
                         forwardedParameterMapping[parameterIndex] = callerParameterIndex;
@@ -108,7 +110,7 @@ namespace MLVScan.Services.DataFlow
                     ParameterMapping = parameterMapping,
                     ParameterReachingStoreIndexes = parameterReachingStoreIndexes,
                     ForwardedParameterMapping = forwardedParameterMapping,
-                    ReturnValueUsed = DataFlowInstructionHelper.IsReturnValueUsed(instructions, index),
+                    ReturnValueUsed = instructionHelper.IsReturnValueUsed(instructions, index),
                     CalledMethodReturnsData = calledMethod.ReturnType.FullName != "System.Void"
                 });
             }
