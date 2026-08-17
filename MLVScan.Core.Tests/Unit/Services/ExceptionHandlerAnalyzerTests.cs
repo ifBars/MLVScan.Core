@@ -90,6 +90,25 @@ public class ExceptionHandlerAnalyzerTests
         tracker.GetTypeSignals(method.DeclaringType.FullName)!.HasSuspiciousNetworkDownload.Should().BeTrue();
     }
 
+    [Fact]
+    public void AnalyzeExceptionHandlers_WithTerminalSuspiciousDownload_PropagatesReflectionCompanionSignal()
+    {
+        var config = new ScanConfig { AnalyzeExceptionHandlers = true, EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new DataInfiltrationRule()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchSuspiciousDownload();
+        method.Body.ExceptionHandlers[0].HandlerEnd = null;
+        var methodSignals = new MethodSignals();
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            methodSignals, method.DeclaringType!.FullName).ToList();
+
+        findings.Should().BeEmpty("the companion-gated download finding is not independently emitted");
+        methodSignals.HasSuspiciousNetworkDownload.Should().BeTrue();
+        tracker.GetTypeSignals(method.DeclaringType.FullName)!.HasSuspiciousNetworkDownload.Should().BeTrue();
+    }
+
     private static MethodDefinition CreateMethodWithCatchCalling(string calledType, string calledMethod)
     {
         var assembly = AssemblyDefinition.CreateAssembly(

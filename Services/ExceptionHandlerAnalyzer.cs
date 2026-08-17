@@ -40,7 +40,7 @@ namespace MLVScan.Services
                 foreach (var handler in exceptionHandlers)
                 {
                     // Analyze handler block (catch/finally/filter)
-                    if (handler.HandlerStart != null && handler.HandlerEnd != null)
+                    if (handler.HandlerStart != null)
                     {
                         var handlerFindings = AnalyzeHandlerBlock(
                             method,
