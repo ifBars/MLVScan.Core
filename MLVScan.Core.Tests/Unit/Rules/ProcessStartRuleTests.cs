@@ -2198,6 +2198,46 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ShouldSuppressFinding_FileNameOverwrittenAfterLaunchOnLoopBackedge_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processType = new TypeReference("System.Diagnostics", "Process", null, null);
+        var processModuleType = new TypeReference("System.Diagnostics", "ProcessModule", null, null);
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfo = new VariableDefinition(startInfoType);
+        method.Body.Variables.Add(startInfo);
+        var constructor = new MethodReference(".ctor", method.ReturnType, startInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, startInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var processStart = CreateProcessStart(startInfoType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, startInfo);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Call, new MethodReference("GetCurrentProcess", processType, processType));
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_MainModule", processModuleType, processType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt,
+            new MethodReference("get_FileName", stringType, processModuleType) { HasThis = true });
+        il.Emit(OpCodes.Callvirt, setFileName);
+        var loopStart = Instruction.Create(OpCodes.Ldloc, startInfo);
+        il.Append(loopStart);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+        il.Emit(OpCodes.Ldloc, startInfo);
+        il.Emit(OpCodes.Ldstr, "arbitrary.exe");
+        il.Emit(OpCodes.Callvirt, setFileName);
+        il.Emit(OpCodes.Br, loopStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public void RestartAnalysisBudget_ManyStartsAndCompetingWrites_ReturnsFalse()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,

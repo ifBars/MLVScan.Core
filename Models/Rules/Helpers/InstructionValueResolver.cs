@@ -345,8 +345,6 @@ namespace MLVScan.Models.Rules.Helpers
                 {
                     if (current.CandidateSeen)
                         return true;
-
-                    continue;
                 }
 
                 var instruction = instructions[current.Index];
