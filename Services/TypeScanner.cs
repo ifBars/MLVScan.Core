@@ -222,6 +222,9 @@ namespace MLVScan.Services
 
         private static bool HasStrongReflectionCompanion(MethodSignals typeSignal, string reflectionRuleId)
         {
+            if (typeSignal.UsesSensitiveFolder || typeSignal.HasPathManipulation)
+                return true;
+
             foreach (var triggeredRuleId in typeSignal.GetTriggeredRuleIds())
             {
                 if (triggeredRuleId.Equals(reflectionRuleId, StringComparison.Ordinal))

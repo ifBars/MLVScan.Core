@@ -464,6 +464,9 @@ namespace MLVScan.Services
             if (signals == null)
                 return false;
 
+            if (signals.UsesSensitiveFolder || signals.HasPathManipulation)
+                return true;
+
             foreach (var triggeredRuleId in signals.GetTriggeredRuleIds())
             {
                 if (triggeredRuleId.Equals(reflectionRuleId, StringComparison.Ordinal))

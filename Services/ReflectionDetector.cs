@@ -360,29 +360,14 @@ namespace MLVScan.Services
             if (signals.HasEncodedStrings || signals.HasBase64)
                 return true;
 
-            if (signals.HasProcessLikeCall)
+            if (signals.HasProcessLikeCall || signals.UsesSensitiveFolder)
                 return true;
 
-            if (signals.HasEnvironmentVariableModification)
+            if (signals.HasEnvironmentVariableModification || signals.HasPathManipulation)
                 return true;
 
             if (signals.HasNetworkCall && signals.HasFileWrite)
                 return true;
-
-            // Sensitive-folder and path-manipulation signals are noisy on their own.
-            // Require additional execution/decode/network context before elevating reflection.
-            if (signals.UsesSensitiveFolder &&
-                (signals.HasProcessLikeCall || signals.HasNetworkCall || signals.HasFileWrite ||
-                 signals.HasEncodedStrings || signals.HasBase64))
-            {
-                return true;
-            }
-
-            if (signals.HasPathManipulation &&
-                (signals.HasProcessLikeCall || signals.HasNetworkCall || signals.HasEnvironmentVariableModification))
-            {
-                return true;
-            }
 
             return false;
         }
