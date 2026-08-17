@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Models.Rules.Helpers;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Xunit;
@@ -718,27 +719,184 @@ public class ProcessStartRuleTests
     [Fact]
     public void ShouldSuppressFinding_ShellFolderLaunch_ReturnsTrue()
     {
-        var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
         var processor = method.Body.GetILProcessor();
+        var processStartInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfoLocal = new VariableDefinition(processStartInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var createDirectory = new MethodReference("CreateDirectory", new TypeReference("", "DirectoryInfo", null, null),
+            new TypeReference("System.IO", "Directory", null, null));
+        createDirectory.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+
+        var constructor = new MethodReference(".ctor", new TypeReference("", "Void", null, null), processStartInfoType)
+        {
+            HasThis = true
+        };
+        var setFileName = new MethodReference("set_FileName", new TypeReference("", "Void", null, null), processStartInfoType)
+        {
+            HasThis = true
+        };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        var setUseShellExecute = new MethodReference("set_UseShellExecute", new TypeReference("", "Void", null, null), processStartInfoType)
+        {
+            HasThis = true
+        };
+        setUseShellExecute.Parameters.Add(new ParameterDefinition(new TypeReference("", "Boolean", null, null)));
+        var processStart = new MethodReference("Start", new TypeReference("", "Process", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null));
+        processStart.Parameters.Add(new ParameterDefinition(processStartInfoType));
 
         processor.Emit(OpCodes.Ldarg_0);
-        processor.Emit(OpCodes.Call, new MethodReference("Exists", new TypeReference("", "Boolean", null, null), new TypeReference("System.IO", "Directory", null, null)));
+        processor.Emit(OpCodes.Call, createDirectory);
         processor.Emit(OpCodes.Pop);
+
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
         processor.Emit(OpCodes.Ldarg_0);
-        processor.Emit(OpCodes.Call, new MethodReference("CreateDirectory", new TypeReference("", "DirectoryInfo", null, null), new TypeReference("System.IO", "Directory", null, null)));
-        processor.Emit(OpCodes.Pop);
-        processor.Emit(OpCodes.Ldarg_0);
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
         processor.Emit(OpCodes.Ldc_I4_1);
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_UseShellExecute", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
-        processor.Emit(OpCodes.Call, new MethodReference("Start", new TypeReference("", "Process", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, setUseShellExecute);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Call, processStart);
 
         var instructions = method.Body.Instructions;
         var callIndex = instructions.Count - 1;
 
-        var result = _rule.ShouldSuppressFinding(null!, instructions, callIndex, new MethodSignals());
+        var result = _rule.ShouldSuppressFinding(processStart, instructions, callIndex, new MethodSignals());
 
         result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_UnrelatedDirectoryCheckBeforeShellExecutable_ReturnsFalse()
+    {
+        var scenario = BuildShellFolderLaunchScenario(@"C:\BenignFolder", "powershell.exe", useDirectoryExists: true);
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_DifferentDirectoryTargetBeforeShellLaunch_ReturnsFalse()
+    {
+        var scenario = BuildShellFolderLaunchScenario(@"C:\BenignFolder", "powershell.exe");
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ShellProtocolTarget_ReturnsFalse()
+    {
+        var scenario = BuildShellFolderLaunchScenario("shell:AppsFolder", "shell:AppsFolder");
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ComposedDynamicTarget_ReturnsFalse()
+    {
+        var scenario = BuildShellFolderLaunchScenario(
+            @"C:\Base\<dynamic via Next>",
+            @"C:\Base\<dynamic via Next>");
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ReassignedPathParameter_ReturnsFalse()
+    {
+        var scenario = BuildShellFolderLaunchScenario(
+            @"C:\BenignFolder",
+            "different.exe",
+            useParameterTarget: true,
+            reassignParameter: true);
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EarlyReturnDirectoryExistsGuard_ReturnsTrue()
+    {
+        var scenario = BuildShellFolderLaunchScenario(
+            @"C:\BenignFolder",
+            @"C:\BenignFolder",
+            useDirectoryExists: true,
+            earlyReturnExists: true);
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_ConditionalStartInfoAliasStore_ReturnsFalse()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        var processStartInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var alias = new VariableDefinition(processStartInfoType);
+        var first = new VariableDefinition(processStartInfoType);
+        var second = new VariableDefinition(processStartInfoType);
+        method.Body.Variables.Add(alias);
+        method.Body.Variables.Add(first);
+        method.Body.Variables.Add(second);
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var constructor = new MethodReference(".ctor", method.ReturnType, processStartInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", method.ReturnType, processStartInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("System", "String", null, null)));
+        var il = method.Body.GetILProcessor();
+
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, first);
+        il.Emit(OpCodes.Ldloc, first);
+        il.Emit(OpCodes.Stloc, alias);
+        il.Emit(OpCodes.Newobj, constructor);
+        il.Emit(OpCodes.Stloc, second);
+        il.Emit(OpCodes.Ldarg_0);
+        var useAlias = Instruction.Create(OpCodes.Nop);
+        il.Emit(OpCodes.Brfalse, useAlias);
+        il.Emit(OpCodes.Ldloc, second);
+        il.Emit(OpCodes.Stloc, alias);
+        il.Append(useAlias);
+        il.Emit(OpCodes.Ldloc, alias);
+        il.Emit(OpCodes.Ldstr, "folder");
+        il.Emit(OpCodes.Callvirt, setFileName);
+
+        var result = InstructionValueResolver.TryResolveCallReceiverIdentity(
+            method.Body.Instructions, method.Body.Instructions.Count - 1, out _);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_CreatedExtensionlessFolder_ReturnsTrue()
+    {
+        var scenario = BuildShellFolderLaunchScenario("powershell", "powershell");
+
+        var result = _rule.ShouldSuppressFinding(scenario.ProcessStart, scenario.Instructions,
+            scenario.ProcessStartIndex, new MethodSignals());
+
+        result.Should().BeTrue("successful directory creation proves this target is a folder, not an interpreter lookup");
     }
 
     [Fact]
@@ -976,6 +1134,89 @@ public class ProcessStartRuleTests
 
         // Assert - Should NOT suppress because type has file writes (cross-method attack)
         result.Should().BeFalse("Process.Start should NOT be suppressed when type has file writes in other methods");
+    }
+
+    private static (MethodReference ProcessStart, InstructionCollection Instructions, int ProcessStartIndex)
+        BuildShellFolderLaunchScenario(
+            string directoryTarget,
+            string fileNameTarget,
+            bool useDirectoryExists = false,
+            bool useParameterTarget = false,
+            bool reassignParameter = false,
+            bool earlyReturnExists = false)
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("", "Void", null, null));
+        var processor = method.Body.GetILProcessor();
+        var stringType = new TypeReference("System", "String", null, null);
+        var boolType = new TypeReference("System", "Boolean", null, null);
+        var voidType = new TypeReference("System", "Void", null, null);
+        var processStartInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var startInfoLocal = new VariableDefinition(processStartInfoType);
+        method.Body.Variables.Add(startInfoLocal);
+        ParameterDefinition? pathParameter = null;
+        if (useParameterTarget)
+        {
+            pathParameter = new ParameterDefinition(stringType);
+            method.Parameters.Add(pathParameter);
+        }
+
+        var directoryMethod = new MethodReference(
+            useDirectoryExists ? "Exists" : "CreateDirectory",
+            useDirectoryExists ? boolType : new TypeReference("System.IO", "DirectoryInfo", null, null),
+            new TypeReference("System.IO", "Directory", null, null));
+        directoryMethod.Parameters.Add(new ParameterDefinition(stringType));
+        var constructor = new MethodReference(".ctor", voidType, processStartInfoType) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", voidType, processStartInfoType) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(stringType));
+        var setUseShellExecute = new MethodReference("set_UseShellExecute", voidType, processStartInfoType)
+        {
+            HasThis = true
+        };
+        setUseShellExecute.Parameters.Add(new ParameterDefinition(boolType));
+        var processStart = new MethodReference("Start", new TypeReference("System.Diagnostics", "Process", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null));
+        processStart.Parameters.Add(new ParameterDefinition(processStartInfoType));
+
+        if (useParameterTarget)
+            processor.Emit(OpCodes.Ldarg, pathParameter!);
+        else
+            processor.Emit(OpCodes.Ldstr, directoryTarget);
+        processor.Emit(OpCodes.Call, directoryMethod);
+        Instruction? guardedLaunch = null;
+        if (useDirectoryExists && earlyReturnExists)
+        {
+            guardedLaunch = Instruction.Create(OpCodes.Nop);
+            processor.Emit(OpCodes.Brtrue, guardedLaunch);
+            processor.Emit(OpCodes.Ret);
+            processor.Append(guardedLaunch);
+        }
+        else
+        {
+            processor.Emit(OpCodes.Pop);
+        }
+
+        if (reassignParameter)
+        {
+            processor.Emit(OpCodes.Ldstr, fileNameTarget);
+            processor.Emit(OpCodes.Starg, pathParameter!);
+        }
+
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        if (useParameterTarget)
+            processor.Emit(OpCodes.Ldarg, pathParameter!);
+        else
+            processor.Emit(OpCodes.Ldstr, fileNameTarget);
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldc_I4_1);
+        processor.Emit(OpCodes.Callvirt, setUseShellExecute);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Call, processStart);
+
+        return (processStart, method.Body.Instructions, method.Body.Instructions.Count - 1);
     }
 
     #endregion
