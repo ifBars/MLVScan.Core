@@ -586,6 +586,7 @@ public class FalsePositiveEdgeCaseTests
         findings.Should().ContainSingle(f =>
             f.RuleId == "DataFlowAnalysis" && f.Severity == Severity.Medium,
             "plain upload-shaped telemetry should remain visible without becoming a blocking malware finding");
+        findings.Single(f => f.RuleId == "DataFlowAnalysis").Description.Should().NotContain("sensitive data");
 
         var dto = ScanResultMapper.ToDto(findings, "BenignTelemetryUpload.dll", Array.Empty<byte>(), false);
         dto.Disposition.Should().NotBeNull();

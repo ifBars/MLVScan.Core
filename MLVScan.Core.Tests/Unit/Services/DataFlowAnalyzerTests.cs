@@ -677,6 +677,127 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
+    public void BuildDataFlowFindings_PartiallyResolvedSensitivePath_EmitsCriticalFinding()
+    {
+        var builder = TestAssemblyBuilder.Create("PartialPathExfiltrationTest");
+        var module = builder.Module;
+        var typeBuilder = builder.AddType("TestNamespace.BrowserReader");
+
+        typeBuilder.AddMethod("UploadBrowserData", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(module.TypeSystem.String, out var pathLocalIdx)
+            .AddLocal(module.TypeSystem.String, out var dataLocalIdx)
+            .EmitInt(26)
+            .EmitCallWithParams(
+                "System.Environment",
+                "GetFolderPath",
+                module.TypeSystem.String,
+                module.TypeSystem.Int32)
+            .EmitString(@"Google\Chrome\User Data\Login Data")
+            .EmitCallWithParams(
+                "System.IO.Path",
+                "Combine",
+                module.TypeSystem.String,
+                module.TypeSystem.String,
+                module.TypeSystem.String)
+            .EmitStloc(pathLocalIdx)
+            .EmitLdloc(pathLocalIdx)
+            .EmitCallWithParams(
+                "System.IO.File",
+                "ReadAllText",
+                module.TypeSystem.String,
+                module.TypeSystem.String)
+            .EmitStloc(dataLocalIdx)
+            .EmitLdloc(dataLocalIdx)
+            .EmitCallWithParams(
+                "System.Net.WebClient",
+                "UploadString",
+                module.TypeSystem.String,
+                module.TypeSystem.String)
+            .EmitPop()
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var method = assembly.MainModule.Types.First(t => t.Name == "BrowserReader")
+            .Methods.First(m => m.Name == "UploadBrowserData");
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+
+        analyzer.AnalyzeMethod(method);
+
+        analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowAnalysis" &&
+            finding.Severity == Severity.Critical &&
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DataExfiltration);
+    }
+
+    [Fact]
+    public void BuildDataFlowFindings_RegistryKeyReceiverPath_EmitsCriticalFinding()
+    {
+        using var module = ModuleDefinition.CreateModule("RegistryKeyExfiltrationTest", ModuleKind.Dll);
+        var type = new TypeDefinition(
+            "TestNamespace",
+            "RegistryKeyReader",
+            TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var registryKeyType = new TypeReference(
+            "Microsoft.Win32", "RegistryKey", module, module.TypeSystem.CoreLibrary);
+        var method = new MethodDefinition(
+            "UploadCredential",
+            MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var keyLocal = new VariableDefinition(registryKeyType);
+        var dataLocal = new VariableDefinition(module.TypeSystem.Object);
+        method.Body.Variables.Add(keyLocal);
+        method.Body.Variables.Add(dataLocal);
+        method.Body.InitLocals = true;
+        type.Methods.Add(method);
+
+        var openSubKey = new MethodReference("OpenSubKey", registryKeyType, registryKeyType)
+        {
+            HasThis = true
+        };
+        openSubKey.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var getValue = new MethodReference("GetValue", module.TypeSystem.Object, registryKeyType)
+        {
+            HasThis = true
+        };
+        getValue.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var upload = new MethodReference(
+            "UploadString",
+            module.TypeSystem.String,
+            new TypeReference("System.Net", "WebClient", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = false
+        };
+        upload.Parameters.Add(new ParameterDefinition(module.TypeSystem.Object));
+
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ldstr, @"Software\Vendor\Credentials");
+        il.Emit(OpCodes.Callvirt, openSubKey);
+        il.Emit(OpCodes.Stloc, keyLocal);
+        il.Emit(OpCodes.Ldloc, keyLocal);
+        il.Emit(OpCodes.Ldstr, "Data");
+        il.Emit(OpCodes.Callvirt, getValue);
+        il.Emit(OpCodes.Stloc, dataLocal);
+        il.Emit(OpCodes.Ldloc, dataLocal);
+        il.Emit(OpCodes.Call, upload);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+        analyzer.AnalyzeMethod(method);
+
+        analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowAnalysis" &&
+            finding.Severity == Severity.Critical &&
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DataExfiltration);
+    }
+
+    [Fact]
     public void DataFlowChain_IsCrossMethod_FlagSetCorrectly()
     {
         // Arrange: Directly test the DataFlowChain model

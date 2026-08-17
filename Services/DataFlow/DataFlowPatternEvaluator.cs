@@ -95,6 +95,8 @@ namespace MLVScan.Services.DataFlow
             if (chain.Pattern == DataFlowPattern.DataExfiltration && !HasSensitiveSourceEvidence(chain))
             {
                 chain.Severity = Severity.Medium;
+                chain.Summary =
+                    $"Data flow audit: Reads file or registry data and sends it over the network ({chain.Nodes.Count} operations)";
             }
 
             return new ScanFinding(
