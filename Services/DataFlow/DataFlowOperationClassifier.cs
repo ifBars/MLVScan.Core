@@ -67,7 +67,13 @@ namespace MLVScan.Services.DataFlow
                         MethodReference = calledMethod,
                         NodeType = operationInfo.Value.NodeType,
                         Operation = operationInfo.Value.Operation,
-                        DataDescription = operationInfo.Value.DataDescription,
+                        DataDescription = BuildDataDescription(
+                            method,
+                            instructions,
+                            index,
+                            calledMethod,
+                            operationInfo.Value.NodeType,
+                            operationInfo.Value.DataDescription),
                         LocalVariableIndex = _instructionHelper.TryGetTargetLocalVariable(instructions, index),
                         PayloadPathIdentities = payloadPathIdentities
                     });
@@ -90,6 +96,46 @@ namespace MLVScan.Services.DataFlow
             }
 
             return operations;
+        }
+
+        private static string BuildDataDescription(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            DataFlowNodeType nodeType,
+            string baseDescription)
+        {
+            if (nodeType != DataFlowNodeType.Source)
+            {
+                return baseDescription;
+            }
+
+            var declaringType = calledMethod.DeclaringType?.FullName ?? string.Empty;
+            int[] sourceArgumentIndexes = IsFileSource(declaringType, calledMethod.Name)
+                ? new[] { 0 }
+                : IsRegistrySource(declaringType, calledMethod.Name)
+                    ? new[] { 0, 1 }
+                    : Array.Empty<int>();
+
+            var resolvedArguments = sourceArgumentIndexes
+                .Where(argumentIndex => argumentIndex < calledMethod.Parameters.Count)
+                .Select(argumentIndex => InstructionValueResolver.TryResolveCallArgumentDisplay(
+                    method,
+                    calledMethod,
+                    instructions,
+                    callIndex,
+                    argumentIndex,
+                    out var display)
+                        ? display
+                        : string.Empty)
+                .Where(IsConcreteResolvedPath)
+                .Select(static display => display.Length <= 256 ? display : display[..256])
+                .ToList();
+
+            return resolvedArguments.Count == 0
+                ? baseDescription
+                : $"{baseDescription}; source argument(s): {string.Join(", ", resolvedArguments)}";
         }
 
         private HashSet<string> TryGetPayloadPathIdentities(

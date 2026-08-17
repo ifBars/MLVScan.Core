@@ -121,13 +121,7 @@ namespace MLVScan.Services.DataFlow
         {
             return chain.Nodes
                 .Where(static node => node.NodeType == DataFlowNodeType.Source)
-                .SelectMany(static node => new[]
-                {
-                    node.Location,
-                    node.Operation,
-                    node.DataDescription,
-                    node.CodeSnippet ?? string.Empty
-                })
+                .Select(static node => node.DataDescription)
                 .Any(value => SensitiveSourceTerms.Any(term =>
                     value.Contains(term, StringComparison.OrdinalIgnoreCase)));
         }

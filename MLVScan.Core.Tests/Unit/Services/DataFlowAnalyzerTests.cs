@@ -564,7 +564,8 @@ public class DataFlowAnalyzerTests
         typeBuilder.AddMethod("StealData", MethodAttributes.Public | MethodAttributes.Static)
             .AddLocal(module.TypeSystem.String, out var localIdx)
             .EmitString("passwords.txt")
-            .EmitCall("System.IO.File", "ReadAllText", module.TypeSystem.String)
+            .EmitCallWithParams("System.IO.File", "ReadAllText", module.TypeSystem.String,
+                module.TypeSystem.String)
             .EmitStloc(localIdx)
             .EmitLdloc(localIdx)
             .EmitCallInternal(sinkMethod)
@@ -601,11 +602,15 @@ public class DataFlowAnalyzerTests
         var typeBuilder = builder.AddType("TestNamespace.Exfiltrator");
 
         typeBuilder.AddMethod("UploadCredentials", MethodAttributes.Public | MethodAttributes.Static)
-            .AddLocal(module.TypeSystem.String, out var localIdx)
+            .AddLocal(module.TypeSystem.String, out var pathLocalIdx)
+            .AddLocal(module.TypeSystem.String, out var dataLocalIdx)
             .EmitString("passwords.txt")
-            .EmitCall("System.IO.File", "ReadAllText", module.TypeSystem.String)
-            .EmitStloc(localIdx)
-            .EmitLdloc(localIdx)
+            .EmitStloc(pathLocalIdx)
+            .EmitLdloc(pathLocalIdx)
+            .EmitCallWithParams("System.IO.File", "ReadAllText", module.TypeSystem.String,
+                module.TypeSystem.String)
+            .EmitStloc(dataLocalIdx)
+            .EmitLdloc(dataLocalIdx)
             .EmitCall("System.Net.WebClient", "UploadString", module.TypeSystem.String)
             .EmitPop()
             .EndMethod();
@@ -621,6 +626,49 @@ public class DataFlowAnalyzerTests
         analyzer.AnalyzeMethod(method);
 
         analyzer.SuspiciousChainCount.Should().BeGreaterThan(0);
+        analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowAnalysis" &&
+            finding.Severity == Severity.Critical &&
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DataExfiltration);
+    }
+
+    [Fact]
+    public void BuildDataFlowFindings_SensitiveRegistrySource_EmitsCriticalFinding()
+    {
+        var builder = TestAssemblyBuilder.Create("RegistryExfiltrationTest");
+        var module = builder.Module;
+        var typeBuilder = builder.AddType("TestNamespace.RegistryReader");
+
+        typeBuilder.AddMethod("UploadCredential", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(module.TypeSystem.Object, out var dataLocalIdx)
+            .EmitString(@"HKEY_CURRENT_USER\Software\Vendor\Account")
+            .EmitString("password")
+            .EmitString(string.Empty)
+            .EmitCallWithParams(
+                "Microsoft.Win32.Registry",
+                "GetValue",
+                module.TypeSystem.Object,
+                module.TypeSystem.String,
+                module.TypeSystem.String,
+                module.TypeSystem.Object)
+            .EmitStloc(dataLocalIdx)
+            .EmitLdloc(dataLocalIdx)
+            .EmitCallWithParams(
+                "System.Net.WebClient",
+                "UploadString",
+                module.TypeSystem.String,
+                module.TypeSystem.Object)
+            .EmitPop()
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var method = assembly.MainModule.Types.First(t => t.Name == "RegistryReader")
+            .Methods.First(m => m.Name == "UploadCredential");
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+
+        analyzer.AnalyzeMethod(method);
+
         analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
             finding.RuleId == "DataFlowAnalysis" &&
             finding.Severity == Severity.Critical &&

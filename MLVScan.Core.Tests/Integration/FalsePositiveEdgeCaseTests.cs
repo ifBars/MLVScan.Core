@@ -568,7 +568,7 @@ public class FalsePositiveEdgeCaseTests
         var builder = TestAssemblyBuilder.Create("BenignTelemetryUpload");
         var module = builder.Module;
         var assembly = builder
-            .AddType("Legit.Telemetry")
+            .AddType("Legit.SecretTelemetry")
             .AddMethod("UploadDiagnostics")
             .AddLocal(module.TypeSystem.String, out var localIndex)
             .EmitString("diagnostics.json")
