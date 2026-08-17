@@ -1847,6 +1847,57 @@ public class ProcessStartRuleTests
         result.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(@"C:\temp\payload.wsf")]
+    [InlineData(@"C:\temp\payload.jse")]
+    [InlineData(@"C:\temp\payload.vbe")]
+    public void ShouldSuppressFinding_ExplorerWithWindowsScriptArgument_ReturnsFalse(string argument)
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        var stringType = new TypeReference("System", "String", null, null);
+        var processStart = CreateProcessStart(stringType, stringType);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Ldstr, argument);
+        il.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSuppressFinding_EquivalentExplorerLiteralsAcrossBranch_ReturnsTrue()
+    {
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            new TypeReference("System", "Void", null, null));
+        method.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Boolean", null, null)));
+        var stringType = new TypeReference("System", "String", null, null);
+        var target = new VariableDefinition(stringType);
+        method.Body.Variables.Add(target);
+        var processStart = CreateProcessStart(stringType);
+        var il = method.Body.GetILProcessor();
+        var falseBranch = Instruction.Create(OpCodes.Ldstr, "explorer.exe");
+        var launchTarget = Instruction.Create(OpCodes.Ldloc, target);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Brfalse, falseBranch);
+        il.Emit(OpCodes.Ldstr, "explorer.exe");
+        il.Emit(OpCodes.Stloc, target);
+        il.Emit(OpCodes.Br, launchTarget);
+        il.Append(falseBranch);
+        il.Emit(OpCodes.Stloc, target);
+        il.Append(launchTarget);
+        var launch = Instruction.Create(OpCodes.Call, processStart);
+        il.Append(launch);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.IndexOf(launch), new MethodSignals());
+
+        result.Should().BeTrue();
+    }
+
     [Fact]
     public void ShouldSuppressFinding_RestartTargetOverwrittenInFinally_ReturnsFalse()
     {

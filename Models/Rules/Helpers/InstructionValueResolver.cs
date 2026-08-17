@@ -875,6 +875,18 @@ namespace MLVScan.Models.Rules.Helpers
             if (left.Equals(right, StringComparison.Ordinal))
                 return true;
 
+            if (TryGetLiteralIdentityIndex(left, out int leftLiteralIndex) &&
+                TryGetLiteralIdentityIndex(right, out int rightLiteralIndex) &&
+                leftLiteralIndex >= 0 && leftLiteralIndex < instructions.Count &&
+                rightLiteralIndex >= 0 && rightLiteralIndex < instructions.Count &&
+                instructions[leftLiteralIndex].OpCode.Code == Code.Ldstr &&
+                instructions[rightLiteralIndex].OpCode.Code == Code.Ldstr &&
+                instructions[leftLiteralIndex].Operand is string leftLiteral &&
+                instructions[rightLiteralIndex].Operand is string rightLiteral)
+            {
+                return leftLiteral.Equals(rightLiteral, StringComparison.Ordinal);
+            }
+
             return TryGetCallIdentityIndex(left, out int leftIndex) &&
                    TryGetCallIdentityIndex(right, out int rightIndex) &&
                    IsCurrentProcessFileNameCall(instructions, exceptionHandlers, leftIndex) &&
@@ -884,6 +896,14 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryGetCallIdentityIndex(string identity, out int index)
         {
             const string prefix = "call:";
+            index = -1;
+            return identity.StartsWith(prefix, StringComparison.Ordinal) &&
+                   int.TryParse(identity.AsSpan(prefix.Length), out index);
+        }
+
+        private static bool TryGetLiteralIdentityIndex(string identity, out int index)
+        {
+            const string prefix = "literal:";
             index = -1;
             return identity.StartsWith(prefix, StringComparison.Ordinal) &&
                    int.TryParse(identity.AsSpan(prefix.Length), out index);

@@ -116,7 +116,7 @@ namespace MLVScan.Models.Rules
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ScriptDropExtensionPattern = new Regex(
-            @"(?i)\.(bat|cmd|ps1|vbs|js|hta)(\b|\s|\""|'|$)",
+            @"(?i)\.(bat|cmd|ps1|psm1|psd1|vbs|vbe|js|jse|wsf|wsh|hta|sct)(\b|\s|\""|'|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ExecutableShellTargetPattern = new Regex(
