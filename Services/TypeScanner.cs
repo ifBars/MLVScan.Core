@@ -150,7 +150,13 @@ namespace MLVScan.Services
             }
             catch (Exception)
             {
-                // Skip type if it can't be properly analyzed
+                findings.Add(new ScanFinding(
+                    type.FullName,
+                    "Warning: Could not complete full IL analysis for this type. Manual review is required.",
+                    Severity.Medium)
+                {
+                    RuleId = "TypeScanWarning"
+                });
             }
             finally
             {
