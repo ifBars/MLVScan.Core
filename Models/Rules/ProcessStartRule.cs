@@ -645,7 +645,7 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            if (IsSafeBareExplorerLaunch(instructions, instructionIndex))
+            if (IsSafeBareExplorerLaunch(method, instructions, instructionIndex))
             {
                 return true;
             }
@@ -655,7 +655,7 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            if (IsCurrentProcessRestart(instructions, instructionIndex))
+            if (IsCurrentProcessRestart(method, instructions, instructionIndex))
             {
                 return true;
             }
@@ -664,33 +664,20 @@ namespace MLVScan.Models.Rules
         }
 
         private static bool IsSafeBareExplorerLaunch(
+            MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            for (int i = Math.Max(0, processStartIndex - 10); i < processStartIndex; i++)
+            if (processStartMethod == null ||
+                processStartMethod.Parameters.Count == 0 ||
+                !InstructionValueResolver.TryResolveCallArgumentDisplay(null, processStartMethod, instructions,
+                    processStartIndex, 0, out var target) ||
+                !target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
             {
-                var instruction = instructions[i];
-                if (instruction.OpCode == Mono.Cecil.Cil.OpCodes.Ldstr &&
-                    instruction.Operand is string str)
-                {
-                    if (!str.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    if (str.Contains("\\") || str.Contains("/") || str.Contains(":"))
-                    {
-                        return false;
-                    }
-
-                    if (HasPathManipulation(instructions, i, processStartIndex))
-                    {
-                        return false;
-                    }
-
-                    return true;
-                }
+                return false;
             }
 
-            return false;
+            return !HasPathManipulation(instructions, Math.Max(0, processStartIndex - 10), processStartIndex);
         }
 
         private static bool IsSafeShellFolderLaunch(
@@ -1022,9 +1009,17 @@ namespace MLVScan.Models.Rules
         }
 
         private static bool IsCurrentProcessRestart(
+            MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
+            if (processStartMethod == null ||
+                !TryResolveLaunchedTargetIdentity(processStartMethod, instructions, processStartIndex,
+                    out var launchedTargetIdentity))
+            {
+                return false;
+            }
+
             bool foundGetCurrentProcess = false;
             bool foundGetMainModule = false;
             bool foundGetFileName = false;
@@ -1099,7 +1094,81 @@ namespace MLVScan.Models.Rules
                     }
                 }
 
-                return true;
+                return launchedTargetIdentity.Equals($"call:{getFileNameIndex}", StringComparison.Ordinal);
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveLaunchedTargetIdentity(
+            MethodReference processStartMethod,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int processStartIndex,
+            out string targetIdentity)
+        {
+            targetIdentity = string.Empty;
+
+            if (processStartMethod.Parameters.Count > 0 &&
+                processStartMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
+                    processStartIndex, 0, out targetIdentity);
+            }
+
+            string startInfoIdentity;
+            if (processStartMethod.Parameters.Count > 0)
+            {
+                if (!InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
+                        processStartIndex, 0, out startInfoIdentity))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!processStartMethod.HasThis ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, processStartIndex,
+                        out var launchedProcessIdentity))
+                {
+                    return false;
+                }
+
+                startInfoIdentity = string.Empty;
+                for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+                {
+                    if (instructions[i].Operand is not MethodReference setter ||
+                        setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                        setter.Name != "set_StartInfo" ||
+                        !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                            out var receiverIdentity) ||
+                        !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal) ||
+                        !InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
+                            out startInfoIdentity))
+                    {
+                        continue;
+                    }
+
+                    break;
+                }
+
+                if (startInfoIdentity.Length == 0)
+                    return false;
+            }
+
+            for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    setter.Name != "set_FileName" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        out var receiverIdentity) ||
+                    !receiverIdentity.Equals(startInfoIdentity, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
+                    out targetIdentity);
             }
 
             return false;

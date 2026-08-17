@@ -228,6 +228,7 @@ namespace MLVScan.Models.Rules.Helpers
                 Code.Ldarg or Code.Ldarg_S when producer.Operand is ParameterDefinition parameter =>
                     $"argument:{parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)}",
                 Code.Newobj => $"new:{producerIndex}",
+                Code.Call or Code.Callvirt => $"call:{producerIndex}",
                 _ => string.Empty
             };
 
