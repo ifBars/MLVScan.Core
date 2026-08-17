@@ -135,11 +135,14 @@ namespace MLVScan.Models.Rules
             if (!ShouldReportDirectLoad(overload, provenance, postLoadScore, correlationScore))
                 yield break;
 
+            bool auditOnlyPathLoad = IsPathBasedDirectLoad(overload) &&
+                                     !HasDirectLoadRiskIndicators(provenance, postLoadScore, correlationScore);
+
             int totalScore = baseScore + provenanceScore + postLoadScore + evasionScore + resolveScore +
                              correlationScore;
 
             // Map score to severity
-            var severity = MapScoreToSeverity(totalScore);
+            var severity = auditOnlyPathLoad ? Severity.Low : MapScoreToSeverity(totalScore);
 
             if (severity == null)
                 yield break; // Score too low to report
@@ -290,6 +293,9 @@ namespace MLVScan.Models.Rules
 
             if (typeSignals != null)
                 correlationScore = Math.Max(correlationScore, ComputeCorrelationScore(typeSignals));
+
+            if (IsPathBasedDirectLoad(overload))
+                return !HasDirectLoadRiskIndicators(provenance, postLoadScore, correlationScore);
 
             return !ShouldReportDirectLoad(overload, provenance, postLoadScore, correlationScore);
         }
@@ -457,24 +463,30 @@ namespace MLVScan.Models.Rules
             if (overload == LoadOverload.LoadBytes ||
                 overload == LoadOverload.LoadBytesWithPdb ||
                 overload == LoadOverload.ALCLoadFromStream ||
-                overload == LoadOverload.ALCLoadFromStreamPdb)
+                overload == LoadOverload.ALCLoadFromStreamPdb ||
+                IsPathBasedDirectLoad(overload))
             {
                 return true;
             }
 
-            if (provenance.HasNetworkSource ||
-                provenance.HasBase64 ||
-                provenance.HasCrypto ||
-                provenance.HasCompression ||
-                provenance.HasResourceSource ||
-                provenance.HasTempPath ||
-                provenance.HasSensitivePath ||
-                provenance.HasWriteThenLoad)
-            {
-                return true;
-            }
+            return HasDirectLoadRiskIndicators(provenance, postLoadScore, correlationScore);
+        }
 
-            return postLoadScore > 0 || correlationScore > 0;
+        private static bool HasDirectLoadRiskIndicators(
+            ProvenanceResult provenance,
+            int postLoadScore,
+            int correlationScore)
+        {
+            return provenance.HasNetworkSource ||
+                   provenance.HasBase64 ||
+                   provenance.HasCrypto ||
+                   provenance.HasCompression ||
+                   provenance.HasResourceSource ||
+                   provenance.HasTempPath ||
+                   provenance.HasSensitivePath ||
+                   provenance.HasWriteThenLoad ||
+                   postLoadScore > 0 ||
+                   correlationScore > 0;
         }
 
         #endregion

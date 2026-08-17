@@ -1,6 +1,7 @@
 using FluentAssertions;
 using MLVScan.Abstractions;
 using MLVScan.Models;
+using MLVScan.Models.Rules;
 using MLVScan.Services;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -53,6 +54,24 @@ public class ExceptionHandlerAnalyzerTests
         methodSignals.HasTriggeredRuleOtherThan("SomeOtherRule").Should().BeTrue();
     }
 
+    [Fact]
+    public void AnalyzeExceptionHandlers_WithUncorrelatedPathLoad_RetainsLowContextualFinding()
+    {
+        var config = new ScanConfig { AnalyzeExceptionHandlers = true, EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new AssemblyDynamicLoadRule()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchLoadingPath();
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals(), method.DeclaringType!.FullName).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].RuleId.Should().Be("AssemblyDynamicLoadRule");
+        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].Description.Should().Contain("exception catch block");
+    }
+
     private static MethodDefinition CreateMethodWithCatchCalling(string calledType, string calledMethod)
     {
         var assembly = AssemblyDefinition.CreateAssembly(
@@ -102,6 +121,21 @@ public class ExceptionHandlerAnalyzerTests
             CatchType = module.ImportReference(typeof(Exception))
         });
 
+        return method;
+    }
+
+    private static MethodDefinition CreateMethodWithCatchLoadingPath()
+    {
+        var method = CreateMethodWithCatchCalling("System.Reflection.Assembly", "LoadFrom");
+        var call = method.Body.Instructions.Single(i =>
+            i.OpCode == OpCodes.Call && i.Operand is MethodReference reference && reference.Name == "LoadFrom");
+        var loadFrom = (MethodReference)call.Operand;
+        loadFrom.ReturnType = new TypeReference("System.Reflection", "Assembly", method.Module,
+            method.Module.TypeSystem.CoreLibrary);
+        loadFrom.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        il.InsertBefore(call, il.Create(OpCodes.Ldstr, "Plugins\\OptionalDependency.dll"));
+        il.InsertAfter(call, il.Create(OpCodes.Pop));
         return method;
     }
 
