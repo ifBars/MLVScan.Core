@@ -1089,7 +1089,7 @@ namespace MLVScan.Models.Rules
                 processStartMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
             {
                 return InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
-                    processStartIndex, 0, out targetIdentity);
+                    processStartIndex, 0, exceptionHandlers, out targetIdentity);
             }
 
             string startInfoIdentity;
@@ -1097,7 +1097,7 @@ namespace MLVScan.Models.Rules
             if (processStartMethod.Parameters.Count > 0)
             {
                 if (!InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
-                        processStartIndex, 0, out startInfoIdentity))
+                        processStartIndex, 0, exceptionHandlers, out startInfoIdentity))
                 {
                     return false;
                 }
@@ -1106,7 +1106,7 @@ namespace MLVScan.Models.Rules
             {
                 if (!processStartMethod.HasThis ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, processStartIndex,
-                        out launchedProcessIdentity))
+                        exceptionHandlers, out launchedProcessIdentity))
                 {
                     return false;
                 }
@@ -1118,14 +1118,19 @@ namespace MLVScan.Models.Rules
                         setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
                         setter.Name != "set_StartInfo" ||
                         !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
-                            out var receiverIdentity) ||
+                            exceptionHandlers, out var receiverIdentity) ||
                         !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal) ||
                         !InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
-                            out startInfoIdentity))
+                            exceptionHandlers, out var candidateStartInfoIdentity) ||
+                        !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                            instructions, exceptionHandlers, i, processStartIndex) ||
+                        HasLaterStartInfoWrite(
+                            launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
                     {
                         continue;
                     }
 
+                    startInfoIdentity = candidateStartInfoIdentity;
                     break;
                 }
 
@@ -1137,17 +1142,19 @@ namespace MLVScan.Models.Rules
                     setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
                     setter.Name != "set_FileName" ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
-                        out var receiverIdentity) ||
+                        exceptionHandlers, out var receiverIdentity) ||
                     !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
-                        instructions, i, processStartIndex) ||
+                        instructions, exceptionHandlers, i, processStartIndex) ||
                     !InstructionValueResolver.IsGuaranteedToExecuteBefore(
-                        instructions, exceptionHandlers, i, processStartIndex))
+                        instructions, exceptionHandlers, i, processStartIndex) ||
+                    HasLaterFileNameWrite(startInfoIdentity, launchedProcessIdentity, instructions,
+                        exceptionHandlers, i, processStartIndex))
                 {
                     continue;
                 }
 
                 return InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
-                    out targetIdentity);
+                    exceptionHandlers, out targetIdentity);
             }
 
             if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
@@ -1158,7 +1165,59 @@ namespace MLVScan.Models.Rules
                 constructor.Parameters[0].ParameterType.FullName == "System.String")
             {
                 return InstructionValueResolver.TryResolveCallArgumentIdentity(constructor, instructions,
-                    constructorIndex, 0, out targetIdentity);
+                    constructorIndex, 0, exceptionHandlers, out targetIdentity);
+            }
+
+            return false;
+        }
+
+        private static bool HasLaterStartInfoWrite(
+            string launchedProcessIdentity,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int assignmentIndex,
+            int processStartIndex)
+        {
+            for (int i = assignmentIndex + 1; i < processStartIndex; i++)
+            {
+                if (instructions[i].Operand is MethodReference setter &&
+                    setter.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                    setter.Name == "set_StartInfo" &&
+                    InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var receiverIdentity) &&
+                    receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasLaterFileNameWrite(
+            string assignedStartInfoIdentity,
+            string launchedProcessIdentity,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int assignmentIndex,
+            int processStartIndex)
+        {
+            for (int i = assignmentIndex + 1; i < processStartIndex; i++)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    setter.Name != "set_FileName" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var receiverIdentity))
+                {
+                    continue;
+                }
+
+                if (IsMatchingStartInfoReceiver(receiverIdentity, assignedStartInfoIdentity,
+                        launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -1169,6 +1228,7 @@ namespace MLVScan.Models.Rules
             string assignedStartInfoIdentity,
             string launchedProcessIdentity,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             int fileNameSetterIndex,
             int processStartIndex)
         {
@@ -1185,7 +1245,7 @@ namespace MLVScan.Models.Rules
                 getter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
                 getter.Name != "get_StartInfo" ||
                 !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getterIndex,
-                    out var getterReceiverIdentity) ||
+                    exceptionHandlers, out var getterReceiverIdentity) ||
                 !getterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
             {
                 return false;
@@ -1197,7 +1257,7 @@ namespace MLVScan.Models.Rules
                     setter.DeclaringType?.FullName == "System.Diagnostics.Process" &&
                     setter.Name == "set_StartInfo" &&
                     InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
-                        out var setterReceiverIdentity) &&
+                        exceptionHandlers, out var setterReceiverIdentity) &&
                     setterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
                 {
                     return false;

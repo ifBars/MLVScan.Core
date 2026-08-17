@@ -153,10 +153,20 @@ namespace MLVScan.Models.Rules.Helpers
             int callIndex,
             out string identity)
         {
+            return TryResolveCallReceiverIdentity(
+                instructions, callIndex, Array.Empty<ExceptionHandler>(), out identity);
+        }
+
+        public static bool TryResolveCallReceiverIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
             identity = string.Empty;
             var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
             return producerMap.TryGetReceiverProducer(callIndex, out int producerIndex) &&
-                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
         /// <summary>
@@ -169,6 +179,18 @@ namespace MLVScan.Models.Rules.Helpers
             int argumentIndex,
             out string identity)
         {
+            return TryResolveCallArgumentIdentity(calledMethod, instructions, callIndex, argumentIndex,
+                Array.Empty<ExceptionHandler>(), out identity);
+        }
+
+        public static bool TryResolveCallArgumentIdentity(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
             identity = string.Empty;
             if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
                 return false;
@@ -176,7 +198,7 @@ namespace MLVScan.Models.Rules.Helpers
             var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
             return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
                        out int producerIndex) &&
-                   TryBuildProducerIdentity(instructions, producerIndex, out identity);
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
         public static bool IsGuaranteedToExecuteBefore(
@@ -191,31 +213,8 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
-            const int maxExceptionalEdges = 4096;
-            var exceptionTargets = new Dictionary<int, List<int>>();
-            int exceptionalEdgeCount = 0;
-            foreach (var handler in exceptionHandlers)
-            {
-                int tryStartIndex = instructions.IndexOf(handler.TryStart);
-                int tryEndIndex = handler.TryEnd == null ? instructions.Count : instructions.IndexOf(handler.TryEnd);
-                int handlerStartIndex = instructions.IndexOf(handler.HandlerStart);
-                if (tryStartIndex < 0 || tryEndIndex < tryStartIndex || handlerStartIndex < 0)
-                    return false;
-
-                for (int i = tryStartIndex; i < tryEndIndex; i++)
-                {
-                    if (++exceptionalEdgeCount > maxExceptionalEdges)
-                        return false;
-
-                    if (!exceptionTargets.TryGetValue(i, out var targets))
-                    {
-                        targets = new List<int>();
-                        exceptionTargets[i] = targets;
-                    }
-
-                    targets.Add(handlerStartIndex);
-                }
-            }
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
 
             var pending = new Queue<(int Index, bool Executed)>();
             var visited = new HashSet<(int Index, bool Executed)>();
@@ -267,6 +266,40 @@ namespace MLVScan.Models.Rules.Helpers
             return reachedUse;
         }
 
+        private static bool TryBuildExceptionalTargets(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out Dictionary<int, List<int>> exceptionTargets)
+        {
+            const int maxExceptionalEdges = 4096;
+            exceptionTargets = new Dictionary<int, List<int>>();
+            int exceptionalEdgeCount = 0;
+            foreach (var handler in exceptionHandlers)
+            {
+                int tryStartIndex = instructions.IndexOf(handler.TryStart);
+                int tryEndIndex = handler.TryEnd == null ? instructions.Count : instructions.IndexOf(handler.TryEnd);
+                int handlerStartIndex = instructions.IndexOf(handler.HandlerStart);
+                if (tryStartIndex < 0 || tryEndIndex < tryStartIndex || handlerStartIndex < 0)
+                    return false;
+
+                for (int i = tryStartIndex; i < tryEndIndex; i++)
+                {
+                    if (++exceptionalEdgeCount > maxExceptionalEdges)
+                        return false;
+
+                    if (!exceptionTargets.TryGetValue(i, out var targets))
+                    {
+                        targets = new List<int>();
+                        exceptionTargets[i] = targets;
+                    }
+
+                    targets.Add(handlerStartIndex);
+                }
+            }
+
+            return true;
+        }
+
         public static bool TryResolveCallArgumentProducerIndex(
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
@@ -286,14 +319,16 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             out string identity)
         {
-            return TryBuildProducerIdentity(instructions, producerIndex, 0, out identity);
+            return TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, 0, out identity);
         }
 
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             int depth,
             out string identity)
         {
@@ -312,15 +347,42 @@ namespace MLVScan.Models.Rules.Helpers
                         continue;
                     }
 
-                    if (!HasUnambiguousReachingDefinition(instructions, i, producerIndex, localIndex))
+                    if (!HasUnambiguousReachingDefinition(instructions, exceptionHandlers, i, producerIndex,
+                            instruction => TryGetStoredLocalIndex(instruction, out int storedIndex) &&
+                                           storedIndex == localIndex))
                         return false;
 
                     var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
                     return producerMap.TryGetStoredValueProducer(i, out int storedValueProducer) &&
-                           TryBuildProducerIdentity(instructions, storedValueProducer, depth + 1, out identity);
+                           TryBuildProducerIdentity(instructions, storedValueProducer, exceptionHandlers,
+                               depth + 1, out identity);
                 }
 
                 return false;
+            }
+
+            if (TryGetLoadedArgumentIndex(producer, out int argumentIndex))
+            {
+                for (int i = producerIndex - 1; i >= 0; i--)
+                {
+                    if (!TryGetStoredArgumentIndex(instructions[i], out int storedArgumentIndex) ||
+                        storedArgumentIndex != argumentIndex)
+                    {
+                        continue;
+                    }
+
+                    if (!HasUnambiguousReachingDefinition(instructions, exceptionHandlers, i, producerIndex,
+                            instruction => TryGetStoredArgumentIndex(instruction, out int storedIndex) &&
+                                           storedIndex == argumentIndex))
+                    {
+                        return false;
+                    }
+
+                    var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+                    return producerMap.TryGetStoredValueProducer(i, out int storedValueProducer) &&
+                           TryBuildProducerIdentity(instructions, storedValueProducer, exceptionHandlers,
+                               depth + 1, out identity);
+                }
             }
 
             identity = producer.OpCode.Code switch
@@ -356,9 +418,10 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static bool HasUnambiguousReachingDefinition(
             Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             int definitionIndex,
             int useIndex,
-            int localIndex)
+            Func<Instruction, bool> isCompetingStore)
         {
             const byte unresolved = 0;
             const byte expectedDefinition = 1;
@@ -366,6 +429,9 @@ namespace MLVScan.Models.Rules.Helpers
 
             var pending = new Queue<(int Index, byte State)>();
             var visited = new HashSet<(int Index, byte State)>();
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
             pending.Enqueue((0, unresolved));
             bool reachedUse = false;
 
@@ -390,10 +456,15 @@ namespace MLVScan.Models.Rules.Helpers
                 {
                     nextState = expectedDefinition;
                 }
-                else if (TryGetStoredLocalIndex(instruction, out int storedLocalIndex) &&
-                         storedLocalIndex == localIndex)
+                else if (isCompetingStore(instruction))
                 {
                     nextState = overwritten;
+                }
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, current.State));
                 }
 
                 if (instruction.Operand is Instruction target)
@@ -412,6 +483,34 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             return reachedUse;
+        }
+
+        private static bool TryGetLoadedArgumentIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = instruction.OpCode.Code switch
+            {
+                Code.Ldarg_0 => 0,
+                Code.Ldarg_1 => 1,
+                Code.Ldarg_2 => 2,
+                Code.Ldarg_3 => 3,
+                Code.Ldarg or Code.Ldarg_S when instruction.Operand is ParameterDefinition parameter =>
+                    parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0),
+                _ => -1
+            };
+
+            return argumentIndex >= 0;
+        }
+
+        private static bool TryGetStoredArgumentIndex(Instruction instruction, out int argumentIndex)
+        {
+            argumentIndex = instruction.OpCode.Code switch
+            {
+                Code.Starg or Code.Starg_S when instruction.Operand is ParameterDefinition parameter =>
+                    parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0),
+                _ => -1
+            };
+
+            return argumentIndex >= 0;
         }
 
         private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
@@ -503,7 +602,8 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
 
                 var instruction = instructions[i];
-                if (TryGetStoredLocalIndex(instruction, out _) && stack.Count > 0)
+                if ((TryGetStoredLocalIndex(instruction, out _) ||
+                     TryGetStoredArgumentIndex(instruction, out _)) && stack.Count > 0)
                 {
                     producersByStoreIndex[i] = stack[^1];
                 }
