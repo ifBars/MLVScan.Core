@@ -67,7 +67,13 @@ namespace MLVScan.Services.DataFlow
                         MethodReference = calledMethod,
                         NodeType = operationInfo.Value.NodeType,
                         Operation = operationInfo.Value.Operation,
-                        DataDescription = operationInfo.Value.DataDescription,
+                        DataDescription = BuildDataDescription(
+                            method,
+                            instructions,
+                            index,
+                            calledMethod,
+                            operationInfo.Value.NodeType,
+                            operationInfo.Value.DataDescription),
                         LocalVariableIndex = _instructionHelper.TryGetTargetLocalVariable(instructions, index),
                         PayloadPathIdentities = payloadPathIdentities
                     });
@@ -90,6 +96,123 @@ namespace MLVScan.Services.DataFlow
             }
 
             return operations;
+        }
+
+        private string BuildDataDescription(
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            DataFlowNodeType nodeType,
+            string baseDescription)
+        {
+            if (nodeType != DataFlowNodeType.Source)
+            {
+                return baseDescription;
+            }
+
+            var declaringType = calledMethod.DeclaringType?.FullName ?? string.Empty;
+            var resolvedArguments = new List<string>();
+            if (IsFileSource(declaringType, calledMethod.Name))
+            {
+                AddResolvedSourceArgument(
+                    resolvedArguments, method, instructions, callIndex, calledMethod, 0);
+            }
+            else if (IsRegistrySource(declaringType, calledMethod.Name))
+            {
+                if (calledMethod.HasThis)
+                {
+                    AddRegistryReceiverSourceArguments(
+                        resolvedArguments, method, instructions, callIndex, calledMethod);
+                    AddResolvedSourceArgument(
+                        resolvedArguments, method, instructions, callIndex, calledMethod, 0);
+                }
+                else
+                {
+                    AddResolvedSourceArgument(
+                        resolvedArguments, method, instructions, callIndex, calledMethod, 0);
+                    AddResolvedSourceArgument(
+                        resolvedArguments, method, instructions, callIndex, calledMethod, 1);
+                }
+            }
+
+            return resolvedArguments.Count == 0
+                ? baseDescription
+                : $"{baseDescription}; source argument(s): {string.Join(", ", resolvedArguments)}";
+        }
+
+        private static void AddResolvedSourceArgument(
+            ICollection<string> resolvedArguments,
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod,
+            int argumentIndex)
+        {
+            if (argumentIndex >= calledMethod.Parameters.Count ||
+                !InstructionValueResolver.TryResolveCallArgumentDisplay(
+                    method,
+                    calledMethod,
+                    instructions,
+                    callIndex,
+                    argumentIndex,
+                    out var display) ||
+                !IsUsableResolvedSourceArgument(display))
+            {
+                return;
+            }
+
+            resolvedArguments.Add(display.Length <= 256 ? display : display[..256]);
+        }
+
+        private void AddRegistryReceiverSourceArguments(
+            ICollection<string> resolvedArguments,
+            MethodDefinition method,
+            Collection<Instruction> instructions,
+            int callIndex,
+            MethodReference calledMethod)
+        {
+            if (!_instructionHelper.TryGetCallReceiverProducerIndex(
+                    instructions, callIndex, calledMethod, out var receiverProducerIndex))
+            {
+                return;
+            }
+
+            var candidateProducerIndexes = new HashSet<int> { receiverProducerIndex };
+            if (instructions[receiverProducerIndex].TryGetLocalIndex(out var receiverLocalIndex))
+            {
+                foreach (var storeIndex in _instructionHelper.GetReachingLocalStoreIndexes(
+                             instructions, receiverProducerIndex, receiverLocalIndex))
+                {
+                    if (_instructionHelper.TryGetConsumedValueProducerIndex(
+                            instructions, storeIndex, out var storedValueProducerIndex))
+                    {
+                        candidateProducerIndexes.Add(storedValueProducerIndex);
+                    }
+                }
+            }
+
+            foreach (var producerIndex in candidateProducerIndexes)
+            {
+                if (instructions[producerIndex].Operand is not MethodReference receiverFactory ||
+                    !receiverFactory.Name.Equals("OpenSubKey", StringComparison.OrdinalIgnoreCase) ||
+                    !(receiverFactory.DeclaringType?.FullName ?? string.Empty)
+                        .Contains("Microsoft.Win32.RegistryKey", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                AddResolvedSourceArgument(
+                    resolvedArguments, method, instructions, producerIndex, receiverFactory, 0);
+            }
+        }
+
+        private static bool IsUsableResolvedSourceArgument(string display)
+        {
+            return !string.IsNullOrWhiteSpace(display) &&
+                   !display.Equals("<unknown/non-literal>", StringComparison.OrdinalIgnoreCase) &&
+                   !display.Equals("<unknown>", StringComparison.OrdinalIgnoreCase) &&
+                   !display.Equals("<null>", StringComparison.OrdinalIgnoreCase);
         }
 
         private HashSet<string> TryGetPayloadPathIdentities(
