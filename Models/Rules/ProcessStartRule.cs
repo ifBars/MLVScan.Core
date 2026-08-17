@@ -1479,15 +1479,38 @@ namespace MLVScan.Models.Rules
                     continue;
                 }
 
+                if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                    calledMethod.Name != "set_FileName")
+                {
+                    continue;
+                }
+
                 for (int argumentIndex = 0; argumentIndex < calledMethod.Parameters.Count; argumentIndex++)
                 {
                     if (InstructionValueResolver.TryResolveCallArgumentIdentity(calledMethod, instructions, i,
-                            argumentIndex, exceptionHandlers, out var argumentIdentity) &&
-                        IsMatchingStartInfoReceiver(argumentIdentity, assignedStartInfoIdentity,
-                            launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                            argumentIndex, exceptionHandlers, out var argumentIdentity))
+                    {
+                        if (IsMatchingStartInfoReceiver(argumentIdentity, assignedStartInfoIdentity,
+                                launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                        {
+                            return true;
+                        }
+                    }
+                    else if (CanPotentiallyAliasProcessState(calledMethod.Parameters[argumentIndex].ParameterType))
                     {
                         return true;
                     }
+                }
+
+                if (calledMethod.HasThis &&
+                    calledMethod.DeclaringType?.FullName is not
+                        ("System.Diagnostics.Process" or "System.Diagnostics.ProcessStartInfo") &&
+                    InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var callReceiverIdentity) &&
+                    IsMatchingStartInfoReceiver(callReceiverIdentity, assignedStartInfoIdentity,
+                        launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    return true;
                 }
 
                 if (calledMethod.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
@@ -1508,6 +1531,15 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static bool CanPotentiallyAliasProcessState(TypeReference parameterType)
+        {
+            while (parameterType is ByReferenceType byReferenceType)
+                parameterType = byReferenceType.ElementType;
+
+            return !parameterType.IsValueType &&
+                   parameterType.FullName != "System.String";
         }
 
         private static bool IsMatchingStartInfoReceiver(
