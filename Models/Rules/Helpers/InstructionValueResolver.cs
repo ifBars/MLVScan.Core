@@ -181,6 +181,7 @@ namespace MLVScan.Models.Rules.Helpers
 
         public static bool IsGuaranteedToExecuteBefore(
             Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             int instructionIndex,
             int useIndex)
         {
@@ -188,6 +189,32 @@ namespace MLVScan.Models.Rules.Helpers
                 instructionIndex >= instructions.Count || useIndex >= instructions.Count)
             {
                 return false;
+            }
+
+            const int maxExceptionalEdges = 4096;
+            var exceptionTargets = new Dictionary<int, List<int>>();
+            int exceptionalEdgeCount = 0;
+            foreach (var handler in exceptionHandlers)
+            {
+                int tryStartIndex = instructions.IndexOf(handler.TryStart);
+                int tryEndIndex = handler.TryEnd == null ? instructions.Count : instructions.IndexOf(handler.TryEnd);
+                int handlerStartIndex = instructions.IndexOf(handler.HandlerStart);
+                if (tryStartIndex < 0 || tryEndIndex < tryStartIndex || handlerStartIndex < 0)
+                    return false;
+
+                for (int i = tryStartIndex; i < tryEndIndex; i++)
+                {
+                    if (++exceptionalEdgeCount > maxExceptionalEdges)
+                        return false;
+
+                    if (!exceptionTargets.TryGetValue(i, out var targets))
+                    {
+                        targets = new List<int>();
+                        exceptionTargets[i] = targets;
+                    }
+
+                    targets.Add(handlerStartIndex);
+                }
             }
 
             var pending = new Queue<(int Index, bool Executed)>();
@@ -212,6 +239,16 @@ namespace MLVScan.Models.Rules.Helpers
 
                 bool executed = current.Executed || current.Index == instructionIndex;
                 var instruction = instructions[current.Index];
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                    {
+                        // A protected instruction may transfer to the handler before completing.
+                        pending.Enqueue((handlerTarget, current.Executed));
+                    }
+                }
+
                 if (instruction.Operand is Instruction target)
                 {
                     pending.Enqueue((instructions.IndexOf(target), executed));

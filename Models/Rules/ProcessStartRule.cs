@@ -655,7 +655,8 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            if (IsCurrentProcessRestart(method, instructions, instructionIndex))
+            if (IsCurrentProcessRestart(method, instructions, instructionIndex,
+                    methodSignals?.ExceptionHandlers ?? Array.Empty<ExceptionHandler>()))
             {
                 return true;
             }
@@ -1013,10 +1014,12 @@ namespace MLVScan.Models.Rules
         private static bool IsCurrentProcessRestart(
             MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
                 !TryResolveLaunchedTargetIdentity(processStartMethod, instructions, processStartIndex,
+                    exceptionHandlers,
                     out var launchedTargetIdentity))
             {
                 return false;
@@ -1077,6 +1080,7 @@ namespace MLVScan.Models.Rules
             MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
             out string targetIdentity)
         {
             targetIdentity = string.Empty;
@@ -1136,7 +1140,8 @@ namespace MLVScan.Models.Rules
                         out var receiverIdentity) ||
                     !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
                         instructions, i, processStartIndex) ||
-                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(instructions, i, processStartIndex))
+                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex))
                 {
                     continue;
                 }

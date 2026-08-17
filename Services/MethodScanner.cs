@@ -126,6 +126,7 @@ namespace MLVScan.Services
                 // Initialize signal tracking for this method
                 var methodSignals = _signalTracker.CreateMethodSignals();
                 var effectiveMethodSignals = methodSignals ?? new MethodSignals();
+                effectiveMethodSignals.ExceptionHandlers = method.Body.ExceptionHandlers.ToArray();
 
                 // Analyze local variables if present
                 if (method.Body.HasVariables)
