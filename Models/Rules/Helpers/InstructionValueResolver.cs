@@ -637,7 +637,11 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static bool IsPotentialFieldMutation(Instruction instruction)
         {
-            return instruction.OpCode.Code is Code.Call or Code.Callvirt or Code.Calli or Code.Newobj;
+            return instruction.OpCode.Code is
+                Code.Call or Code.Callvirt or Code.Calli or Code.Newobj or
+                Code.Ldflda or Code.Ldsflda or
+                Code.Stind_I or Code.Stind_I1 or Code.Stind_I2 or Code.Stind_I4 or Code.Stind_I8 or
+                Code.Stind_R4 or Code.Stind_R8 or Code.Stind_Ref;
         }
 
         private static bool TryGetLoadedLocalIndex(Instruction instruction, out int localIndex)

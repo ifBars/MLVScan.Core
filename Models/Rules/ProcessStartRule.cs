@@ -124,7 +124,7 @@ namespace MLVScan.Models.Rules
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ExecutableShellTargetPattern = new Regex(
-            @"(?i)\.(exe|com|msi|msp|scr|cpl|lnk|url|scf)(\b|\s|\""|'|$)",
+            @"(?i)\.(exe|com|msi|msp|mst|scr|cpl|lnk|url|scf|application|appref-ms|gadget|diagcab|chm|jar|reg|inf|settingcontent-ms)(\b|\s|\""|'|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex StagedLoaderPivotPattern = new Regex(
@@ -1481,11 +1481,8 @@ namespace MLVScan.Models.Rules
 
                 for (int argumentIndex = 0; argumentIndex < calledMethod.Parameters.Count; argumentIndex++)
                 {
-                    if (!IsProcessStartInfoParameter(calledMethod.Parameters[argumentIndex].ParameterType))
-                        continue;
-
-                    if (!InstructionValueResolver.TryResolveCallArgumentIdentity(calledMethod, instructions, i,
-                            argumentIndex, exceptionHandlers, out var argumentIdentity) ||
+                    if (InstructionValueResolver.TryResolveCallArgumentIdentity(calledMethod, instructions, i,
+                            argumentIndex, exceptionHandlers, out var argumentIdentity) &&
                         IsMatchingStartInfoReceiver(argumentIdentity, assignedStartInfoIdentity,
                             launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
                     {
@@ -1513,13 +1510,6 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
-        private static bool IsProcessStartInfoParameter(TypeReference parameterType)
-        {
-            return parameterType.FullName == "System.Diagnostics.ProcessStartInfo" ||
-                   parameterType is ByReferenceType byReferenceType &&
-                   byReferenceType.ElementType.FullName == "System.Diagnostics.ProcessStartInfo";
-        }
-
         private static bool IsMatchingStartInfoReceiver(
             string receiverIdentity,
             string assignedStartInfoIdentity,
@@ -1531,6 +1521,12 @@ namespace MLVScan.Models.Rules
         {
             if (assignedStartInfoIdentity.Length > 0 &&
                 receiverIdentity.Equals(assignedStartInfoIdentity, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (launchedProcessIdentity.Length > 0 &&
+                receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
             {
                 return true;
             }
