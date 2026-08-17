@@ -384,6 +384,112 @@ namespace MLVScan.Core.Tests.Unit.Rules
             decoded.Should().Contain("System.Net.WebClient");
         }
 
+        [Fact]
+        public void PostAnalysisRefine_WhenStaticArrayStringBudgetIsExhausted_FailsClosedForManualReview()
+        {
+            var assembly = TestAssemblyBuilder.Create("StaticArrayBudgetExhaustion").Build();
+            ModuleDefinition module = assembly.MainModule;
+            var type = new TypeDefinition(
+                "TestNamespace",
+                "StaticData",
+                TypeAttributes.Public | TypeAttributes.Class,
+                module.TypeSystem.Object);
+            module.Types.Add(type);
+
+            for (var index = 0; index < 256; index++)
+            {
+                type.Fields.Add(new FieldDefinition(
+                    $"Padding{index}",
+                    FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                    module.TypeSystem.Byte)
+                {
+                    InitialValue = System.Text.Encoding.ASCII.GetBytes($"benign-padding-{index:D3}")
+                });
+            }
+            type.Fields.Add(new FieldDefinition(
+                "LaterMalwareMarker",
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                module.TypeSystem.Byte)
+            {
+                InitialValue = System.Text.Encoding.ASCII.GetBytes("System.Net.WebClient")
+            });
+
+            List<ScanFinding> findings = _rule
+                .PostAnalysisRefine(module, Enumerable.Empty<ScanFinding>())
+                .ToList();
+
+            findings.Should().ContainSingle(finding => finding.RuleId == "StaticRvaScanWarning");
+            findings.Single().Severity.Should().Be(Severity.Low);
+            findings.Single().Description.Should().ContainEquivalentOf("manual review");
+        }
+
+        [Fact]
+        public void PostAnalysisRefine_WhenEveryStaticArrayStringFitsBudget_RemainsComplete()
+        {
+            var assembly = TestAssemblyBuilder.Create("StaticArrayWithinBudget").Build();
+            ModuleDefinition module = assembly.MainModule;
+            var type = new TypeDefinition(
+                "TestNamespace",
+                "StaticData",
+                TypeAttributes.Public | TypeAttributes.Class,
+                module.TypeSystem.Object);
+            module.Types.Add(type);
+
+            for (var index = 0; index < 256; index++)
+            {
+                type.Fields.Add(new FieldDefinition(
+                    $"Value{index}",
+                    FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                    module.TypeSystem.Byte)
+                {
+                    InitialValue = System.Text.Encoding.ASCII.GetBytes($"benign-value-{index:D3}")
+                });
+            }
+
+            List<ScanFinding> findings = _rule
+                .PostAnalysisRefine(module, Enumerable.Empty<ScanFinding>())
+                .ToList();
+
+            findings.Should().NotContain(finding => finding.RuleId == "StaticRvaScanWarning");
+        }
+
+        [Fact]
+        public void PostAnalysisRefine_WhenStaticArrayByteBudgetIsExhausted_FailsClosedForManualReview()
+        {
+            var assembly = TestAssemblyBuilder.Create("StaticArrayByteBudgetExhaustion").Build();
+            ModuleDefinition module = assembly.MainModule;
+            var type = new TypeDefinition(
+                "TestNamespace",
+                "StaticData",
+                TypeAttributes.Public | TypeAttributes.Class,
+                module.TypeSystem.Object);
+            module.Types.Add(type);
+
+            for (var index = 0; index < 64; index++)
+            {
+                type.Fields.Add(new FieldDefinition(
+                    $"Block{index}",
+                    FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                    module.TypeSystem.Byte)
+                {
+                    InitialValue = Enumerable.Repeat((byte)'A', 4096).ToArray()
+                });
+            }
+            type.Fields.Add(new FieldDefinition(
+                "LaterEligibleValue",
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
+                module.TypeSystem.Byte)
+            {
+                InitialValue = System.Text.Encoding.ASCII.GetBytes("later-value")
+            });
+
+            List<ScanFinding> findings = _rule
+                .PostAnalysisRefine(module, Enumerable.Empty<ScanFinding>())
+                .ToList();
+
+            findings.Should().ContainSingle(finding => finding.RuleId == "StaticRvaScanWarning");
+        }
+
         private static (MethodDefinition Method, ModuleDefinition Module) CreateTestMethod()
         {
             var assembly = TestAssemblyBuilder.Create("TestAssembly").Build();

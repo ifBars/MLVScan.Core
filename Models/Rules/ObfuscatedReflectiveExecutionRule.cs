@@ -118,8 +118,24 @@ namespace MLVScan.Models.Rules
 
             List<ScanFinding> priorFindings = existingFindings?.ToList() ?? new List<ScanFinding>();
             var findings = new List<ScanFinding>();
-            IReadOnlyList<string> moduleDecodedStrings = CollectDecodedStaticArrayStrings(module);
+            (IReadOnlyList<string> moduleDecodedStrings, bool staticArrayCollectionTruncated) =
+                CollectDecodedStaticArrayStringsWithStatus(module);
             var moduleDecodedMarkerCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+            if (staticArrayCollectionTruncated)
+            {
+                findings.Add(new ScanFinding(
+                    module.Name,
+                    "Static RVA string analysis reached its bounded work budget before every eligible field " +
+                    "could be inspected. Full IL analysis was skipped for the remaining static data and manual " +
+                    "review is required.",
+                    Severity.Low)
+                {
+                    RuleId = "StaticRvaScanWarning",
+                    RiskScore = 20,
+                    BypassCompanionCheck = true
+                });
+            }
 
             foreach (var namespaceGroup in EnumerateTypes(module)
                          .Where(static type => !string.IsNullOrWhiteSpace(type.Namespace))
@@ -517,6 +533,12 @@ namespace MLVScan.Models.Rules
 
         private static IReadOnlyList<string> CollectDecodedStaticArrayStrings(ModuleDefinition module)
         {
+            return CollectDecodedStaticArrayStringsWithStatus(module).Strings;
+        }
+
+        private static (IReadOnlyList<string> Strings, bool WasTruncated)
+            CollectDecodedStaticArrayStringsWithStatus(ModuleDefinition module)
+        {
             var strings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int inspectedBytes = 0;
 
@@ -539,7 +561,7 @@ namespace MLVScan.Models.Rules
                     if (strings.Count >= MaximumDecodedStaticArrayStrings ||
                         field.InitialValue.Length > MaximumDecodedStaticArrayBytes - inspectedBytes)
                     {
-                        return strings.ToList();
+                        return (strings.ToList(), true);
                     }
 
                     inspectedBytes += field.InitialValue.Length;
@@ -550,7 +572,7 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            return strings.ToList();
+            return (strings.ToList(), false);
         }
 
         private static bool TryDecodePrintableBytes(byte[] bytes, out string decoded)
