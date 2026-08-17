@@ -109,6 +109,76 @@ public class ExceptionHandlerAnalyzerTests
         tracker.GetTypeSignals(method.DeclaringType.FullName)!.HasSuspiciousNetworkDownload.Should().BeTrue();
     }
 
+    [Fact]
+    public void AnalyzeExceptionHandlers_WhenHandlerBudgetIsExceeded_FailsClosedForManualReview()
+    {
+        var config = new ScanConfig
+        {
+            MaxExceptionHandlersPerMethod = 1
+        };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new ExceptionRuleStub()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchCalling("System.Diagnostics.Process", "Start");
+        var first = method.Body.ExceptionHandlers[0];
+        method.Body.ExceptionHandlers.Add(new ExceptionHandler(first.HandlerType)
+        {
+            TryStart = first.TryStart,
+            TryEnd = first.TryEnd,
+            HandlerStart = first.HandlerStart,
+            HandlerEnd = first.HandlerEnd,
+            CatchType = first.CatchType
+        });
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals(), method.DeclaringType!.FullName).ToList();
+        var dto = ScanResultMapper.ToDto(findings, "handler-budget.dll", [0x4d, 0x5a], false);
+
+        findings.Should().ContainSingle(finding => finding.RuleId == "ExceptionHandlerScanWarning");
+        dto.AnalysisCompleteness.IsComplete.Should().BeFalse();
+        dto.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        dto.Disposition!.Classification.Should().Be("ManualReviewRequired");
+        dto.Disposition.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzeExceptionHandlers_WhenInstructionBudgetIsExceeded_StopsAtTheLimit()
+    {
+        var config = new ScanConfig
+        {
+            MaxExceptionHandlerInstructionsPerMethod = 1
+        };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer([new ExceptionRuleStub()], tracker,
+            new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchCalling("System.Diagnostics.Process", "Start");
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals(), method.DeclaringType!.FullName).ToList();
+
+        findings.Should().ContainSingle(finding => finding.RuleId == "ExceptionHandlerScanWarning");
+        findings.Should().NotContain(finding => finding.RuleId == "ExceptionRuleStub");
+    }
+
+    [Fact]
+    public void AnalyzeExceptionHandlers_WhenFindingBudgetIsExceeded_StopsAtTheLimit()
+    {
+        var config = new ScanConfig
+        {
+            MaxExceptionHandlerFindingsPerMethod = 1
+        };
+        var tracker = new SignalTracker(config);
+        var analyzer = new ExceptionHandlerAnalyzer(
+            [new ExceptionRuleStub(), new ExceptionRuleStub()], tracker, new CodeSnippetBuilder(), config);
+        var method = CreateMethodWithCatchCalling("System.Diagnostics.Process", "Start");
+
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals(), method.DeclaringType!.FullName).ToList();
+
+        findings.Count(finding => finding.RuleId == "ExceptionRuleStub").Should().Be(1);
+        findings.Should().ContainSingle(finding => finding.RuleId == "ExceptionHandlerScanWarning");
+    }
+
     private static MethodDefinition CreateMethodWithCatchCalling(string calledType, string calledMethod)
     {
         var assembly = AssemblyDefinition.CreateAssembly(
