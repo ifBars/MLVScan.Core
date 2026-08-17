@@ -48,6 +48,13 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
             _rules = rules as IReadOnlyCollection<IScanRule> ?? rules.ToList();
+            foreach (var rule in _rules)
+            {
+                if (rule is AssemblyDynamicLoadRule dynamicLoadRule)
+                {
+                    dynamicLoadRule.ConfigureRecursiveResourceScanning(_config);
+                }
+            }
             _telemetry = new ScanTelemetryHub();
             _progressReporter = progressReporter;
 

@@ -1,6 +1,8 @@
 using FluentAssertions;
+using System.IO.Compression;
 using MLVScan.Models;
 using MLVScan.Models.Rules;
+using MLVScan.Services;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Xunit;
@@ -77,6 +79,42 @@ public class AssemblyDynamicLoadRuleBranchTests
             finding.Description.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) &&
             finding.Description.Contains("dl.bat", StringComparison.OrdinalIgnoreCase) &&
             finding.BypassCompanionCheck);
+    }
+
+    [Fact]
+    public void PostAnalysisRefine_WhenRecursiveScanningDisabled_SkipsEmbeddedAssembly()
+    {
+        const string resourceName = "payload.dll";
+        var outerAssembly = CreateAssembly("DisabledRecursiveScan");
+        outerAssembly.MainModule.Resources.Add(new EmbeddedResource(resourceName,
+            Mono.Cecil.ManifestResourceAttributes.Private, BuildInnerAssemblyBytesWithProcessStart()));
+        QueueEmbeddedResourceLoad(_rule, outerAssembly.MainModule, resourceName);
+        _ = new AssemblyScanner([_rule], new ScanConfig { EnableRecursiveResourceScanning = false });
+
+        var refined = _rule.PostAnalysisRefine(outerAssembly.MainModule,
+            Enumerable.Empty<ScanFinding>()).ToList();
+
+        refined.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PostAnalysisRefine_WhenGzipExpansionExceedsConfiguredLimit_StopsWithoutScanning()
+    {
+        const string resourceName = "compressed-payload.dll";
+        var outerAssembly = CreateAssembly("BoundedRecursiveScan");
+        var compressedPayload = BuildOversizedGzipPayload(
+            BuildInnerAssemblyBytesWithProcessStart(),
+            2 * 1024 * 1024);
+        compressedPayload.Length.Should().BeLessThan(1024 * 1024);
+        outerAssembly.MainModule.Resources.Add(new EmbeddedResource(resourceName,
+            Mono.Cecil.ManifestResourceAttributes.Private, compressedPayload));
+        QueueEmbeddedResourceLoad(_rule, outerAssembly.MainModule, resourceName);
+        _ = new AssemblyScanner([_rule], new ScanConfig { MaxRecursiveResourceSizeMB = 1 });
+
+        var refined = _rule.PostAnalysisRefine(outerAssembly.MainModule,
+            Enumerable.Empty<ScanFinding>()).ToList();
+
+        refined.Should().BeEmpty();
     }
 
     [Fact]
@@ -231,6 +269,44 @@ public class AssemblyDynamicLoadRuleBranchTests
         using var ms = new MemoryStream();
         assembly.Write(ms);
         return ms.ToArray();
+    }
+
+    private static void QueueEmbeddedResourceLoad(
+        AssemblyDynamicLoadRule rule,
+        ModuleDefinition module,
+        string resourceName)
+    {
+        var loadBytes = CreateMethodReference("System.Reflection", "Assembly", "Load", module, "System.Byte[]");
+        var getResource = CreateMethodReference("System.Reflection", "Assembly", "GetManifestResourceStream",
+            module, "System.String");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, resourceName),
+            Instruction.Create(OpCodes.Call, getResource),
+            Instruction.Create(OpCodes.Call, loadBytes)
+        };
+
+        rule.AnalyzeContextualPattern(loadBytes, instructions, 2, new MethodSignals()).ToList();
+    }
+
+    private static byte[] BuildOversizedGzipPayload(byte[] payload, int expandedSize)
+    {
+        expandedSize.Should().BeGreaterThan(payload.Length);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            gzip.Write(payload, 0, payload.Length);
+            var zeros = new byte[81920];
+            int remaining = expandedSize - payload.Length;
+            while (remaining > 0)
+            {
+                int count = Math.Min(remaining, zeros.Length);
+                gzip.Write(zeros, 0, count);
+                remaining -= count;
+            }
+        }
+
+        return output.ToArray();
     }
 
     private static MethodReference CreateProcessStartInfoStart(ModuleDefinition module, TypeReference processStartInfoType)
