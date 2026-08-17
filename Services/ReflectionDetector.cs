@@ -366,6 +366,9 @@ namespace MLVScan.Services
             if (signals.HasEnvironmentVariableModification)
                 return true;
 
+            if (signals.HasSuspiciousNetworkDownload)
+                return true;
+
             if (signals.HasNetworkCall && signals.HasFileWrite)
                 return true;
 

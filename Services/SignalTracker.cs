@@ -218,6 +218,27 @@ namespace MLVScan.Services
         }
 
         /// <summary>
+        /// Marks the current method and declaring type as containing a rule-confirmed suspicious download.
+        /// </summary>
+        /// <param name="methodSignals">The method-level signal bag to update.</param>
+        /// <param name="declaringType">The declaring type used for type-level aggregation, if available.</param>
+        public void MarkSuspiciousNetworkDownload(MethodSignals? methodSignals, TypeDefinition? declaringType)
+        {
+            if (methodSignals == null)
+                return;
+
+            methodSignals.HasSuspiciousNetworkDownload = true;
+            if (declaringType != null)
+            {
+                var typeSignal = GetOrCreateTypeSignals(declaringType.FullName);
+                if (typeSignal != null)
+                {
+                    typeSignal.HasSuspiciousNetworkDownload = true;
+                }
+            }
+        }
+
+        /// <summary>
         /// Marks the current method and declaring type as using suspicious local variables.
         /// </summary>
         /// <param name="methodSignals">The method-level signal bag to update.</param>

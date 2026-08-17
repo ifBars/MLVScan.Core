@@ -40,7 +40,7 @@ namespace MLVScan.Services
                 foreach (var handler in exceptionHandlers)
                 {
                     // Analyze handler block (catch/finally/filter)
-                    if (handler.HandlerStart != null && handler.HandlerEnd != null)
+                    if (handler.HandlerStart != null)
                     {
                         var handlerFindings = AnalyzeHandlerBlock(
                             method,
@@ -88,6 +88,9 @@ namespace MLVScan.Services
                         // Check if any rule considers this method suspicious
                         foreach (var rule in _rules)
                         {
+                            TrackSuspiciousDownloadSignal(method, calledMethod, allInstructions,
+                                allInstructions.IndexOf(instruction), methodSignals, rule);
+
                             if (rule.IsSuspicious(calledMethod))
                             {
                                 var instructionIndex = allInstructions.IndexOf(instruction);
@@ -180,6 +183,30 @@ namespace MLVScan.Services
             }
 
             return findings;
+        }
+
+        private void TrackSuspiciousDownloadSignal(
+            MethodDefinition method,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> allInstructions,
+            int instructionIndex,
+            MethodSignals? methodSignals,
+            IScanRule rule)
+        {
+            if (instructionIndex < 0 || methodSignals == null ||
+                !rule.RuleId.Equals("DataInfiltrationRule", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            foreach (var finding in rule.AnalyzeContextualPattern(
+                         calledMethod, allInstructions, instructionIndex, methodSignals))
+            {
+                if (finding.Severity is Severity.High or Severity.Critical)
+                {
+                    _signalTracker.MarkSuspiciousNetworkDownload(methodSignals, method.DeclaringType);
+                }
+            }
         }
 
         private static List<Instruction> GetInstructionsInRange(

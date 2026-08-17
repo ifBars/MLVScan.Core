@@ -210,6 +210,14 @@ namespace MLVScan.Services
                                     contextualRuleStart);
                                 foreach (var finding in ruleFindings)
                                 {
+                                    if (methodSignals != null &&
+                                        rule.RuleId.Equals("DataInfiltrationRule", StringComparison.Ordinal) &&
+                                        finding.Severity is Severity.High or Severity.Critical)
+                                    {
+                                        _signalTracker.MarkSuspiciousNetworkDownload(methodSignals,
+                                            method.DeclaringType);
+                                    }
+
                                     // If rule requires companion finding, check if other rules have been triggered
                                     // Exception: Low severity findings are always allowed (e.g., legitimate update checkers)
                                     // Exception: Findings with BypassCompanionCheck are always allowed (high-confidence scored findings)
@@ -476,7 +484,8 @@ namespace MLVScan.Services
             if (signals == null)
                 return false;
 
-            if (signals.UsesSensitiveFolder || signals.HasEnvironmentVariableModification)
+            if (signals.UsesSensitiveFolder || signals.HasEnvironmentVariableModification ||
+                signals.HasSuspiciousNetworkDownload)
                 return true;
 
             foreach (var triggeredRuleId in signals.GetTriggeredRuleIds())
