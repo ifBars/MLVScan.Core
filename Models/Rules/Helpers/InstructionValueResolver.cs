@@ -243,6 +243,23 @@ namespace MLVScan.Models.Rules.Helpers
             var pending = new Queue<(int Index, bool Executed)>();
             var visited = new HashSet<(int Index, bool Executed)>();
             pending.Enqueue((0, false));
+            foreach (var handler in exceptionHandlers)
+            {
+                int handlerEndIndex = instructions.Count;
+                if (handler.HandlerType == ExceptionHandlerType.Catch ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    continue;
+                }
+
+                if (instructionIndex >= handlerStartIndex && instructionIndex < handlerEndIndex &&
+                    useIndex >= handlerStartIndex && useIndex < handlerEndIndex)
+                {
+                    pending.Enqueue((handlerStartIndex, false));
+                }
+            }
             bool reachedUse = false;
 
             while (pending.Count > 0)
@@ -552,7 +569,7 @@ namespace MLVScan.Models.Rules.Helpers
             if (TryGetLoadedArgumentIndex(producer, out int argumentIndex))
             {
                 bool hasArgumentStore = false;
-                for (int i = 0; i < producerIndex; i++)
+                for (int i = 0; i < instructions.Count; i++)
                 {
                     if (TryGetStoredArgumentIndex(instructions[i], out int storedArgumentIndex) &&
                         storedArgumentIndex == argumentIndex)
