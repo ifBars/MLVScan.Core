@@ -672,12 +672,14 @@ namespace MLVScan.Models.Rules
                 processStartMethod.Parameters.Count == 0 ||
                 !InstructionValueResolver.TryResolveCallArgumentDisplay(null, processStartMethod, instructions,
                     processStartIndex, 0, out var target) ||
+                !InstructionValueResolver.TryResolveCallArgumentProducerIndex(processStartMethod, instructions,
+                    processStartIndex, 0, out var targetProducerIndex) ||
                 !target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            return !HasPathManipulation(instructions, Math.Max(0, processStartIndex - 10), processStartIndex);
+            return !HasPathManipulation(instructions, targetProducerIndex, processStartIndex);
         }
 
         private static bool IsSafeShellFolderLaunch(
@@ -1020,81 +1022,52 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            bool foundGetCurrentProcess = false;
-            bool foundGetMainModule = false;
-            bool foundGetFileName = false;
-
-            int getCurrentProcessIndex = -1;
-            int getMainModuleIndex = -1;
-            int getFileNameIndex = -1;
-
             int searchStart = Math.Max(0, processStartIndex - 40);
-
-            for (int i = searchStart; i < processStartIndex; i++)
+            for (int getFileNameIndex = searchStart; getFileNameIndex < processStartIndex; getFileNameIndex++)
             {
-                var instruction = instructions[i];
-
-                if (instruction.OpCode != Mono.Cecil.Cil.OpCodes.Call &&
-                    instruction.OpCode != Mono.Cecil.Cil.OpCodes.Callvirt)
+                if (!launchedTargetIdentity.Equals($"call:{getFileNameIndex}", StringComparison.Ordinal) ||
+                    instructions[getFileNameIndex].Operand is not MethodReference getFileName ||
+                    getFileName.DeclaringType?.FullName != "System.Diagnostics.ProcessModule" ||
+                    getFileName.Name != "get_FileName" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getFileNameIndex,
+                        out var mainModuleIdentity) ||
+                    !TryGetCallProducerIndex(mainModuleIdentity, out int getMainModuleIndex) ||
+                    instructions[getMainModuleIndex].Operand is not MethodReference getMainModule ||
+                    getMainModule.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    getMainModule.Name != "get_MainModule" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getMainModuleIndex,
+                        out var currentProcessIdentity) ||
+                    !TryGetCallProducerIndex(currentProcessIdentity, out int getCurrentProcessIndex) ||
+                    instructions[getCurrentProcessIndex].Operand is not MethodReference getCurrentProcess ||
+                    getCurrentProcess.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    getCurrentProcess.Name != "GetCurrentProcess")
+                {
                     continue;
-
-                if (instruction.Operand is not MethodReference methodRef)
-                    continue;
-
-                var typeName = methodRef.DeclaringType?.FullName ?? "";
-                var methodName = methodRef.Name ?? "";
-
-                if (typeName == "System.Diagnostics.Process" && methodName == "GetCurrentProcess")
-                {
-                    foundGetCurrentProcess = true;
-                    getCurrentProcessIndex = i;
                 }
-                else if (typeName == "System.Diagnostics.Process" && methodName == "get_MainModule")
-                {
-                    if (foundGetCurrentProcess && i > getCurrentProcessIndex)
-                    {
-                        foundGetMainModule = true;
-                        getMainModuleIndex = i;
-                    }
-                }
-                else if (typeName == "System.Diagnostics.ProcessModule" && methodName == "get_FileName")
-                {
-                    if (foundGetMainModule && i > getMainModuleIndex)
-                    {
-                        foundGetFileName = true;
-                        getFileNameIndex = i;
-                    }
-                }
-            }
 
-            if (foundGetCurrentProcess && foundGetMainModule && foundGetFileName)
-            {
-                if (getFileNameIndex > 0)
+                for (int i = getFileNameIndex + 1; i < processStartIndex; i++)
                 {
-                    for (int i = getFileNameIndex + 1; i < processStartIndex; i++)
-                    {
-                        var inst = instructions[i];
-                        if (inst.OpCode != Mono.Cecil.Cil.OpCodes.Call &&
-                            inst.OpCode != Mono.Cecil.Cil.OpCodes.Callvirt)
-                            continue;
+                    var inst = instructions[i];
+                    if (inst.OpCode != Mono.Cecil.Cil.OpCodes.Call &&
+                        inst.OpCode != Mono.Cecil.Cil.OpCodes.Callvirt)
+                        continue;
 
-                        if (inst.Operand is MethodReference methodRef)
+                    if (inst.Operand is MethodReference methodRef)
+                    {
+                        var typeName = methodRef.DeclaringType?.FullName ?? "";
+                        var methodName = methodRef.Name ?? "";
+
+                        if ((typeName == "System.String" &&
+                             (methodName == "Concat" || methodName == "Format" || methodName == "Replace")) ||
+                            (typeName == "System.IO.Path" &&
+                             (methodName == "Combine" || methodName == "Join")))
                         {
-                            var typeName = methodRef.DeclaringType?.FullName ?? "";
-                            var methodName = methodRef.Name ?? "";
-
-                            if ((typeName == "System.String" &&
-                                 (methodName == "Concat" || methodName == "Format" || methodName == "Replace")) ||
-                                (typeName == "System.IO.Path" &&
-                                 (methodName == "Combine" || methodName == "Join")))
-                            {
-                                return false;
-                            }
+                            return false;
                         }
                     }
                 }
 
-                return launchedTargetIdentity.Equals($"call:{getFileNameIndex}", StringComparison.Ordinal);
+                return true;
             }
 
             return false;
@@ -1171,7 +1144,30 @@ namespace MLVScan.Models.Rules
                     out targetIdentity);
             }
 
+            if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
+                instructions[constructorIndex].OpCode == OpCodes.Newobj &&
+                instructions[constructorIndex].Operand is MethodReference constructor &&
+                constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                constructor.Parameters.Count > 0 &&
+                constructor.Parameters[0].ParameterType.FullName == "System.String")
+            {
+                return InstructionValueResolver.TryResolveCallArgumentIdentity(constructor, instructions,
+                    constructorIndex, 0, out targetIdentity);
+            }
+
             return false;
+        }
+
+        private static bool TryGetCallProducerIndex(string identity, out int producerIndex)
+        {
+            return TryGetProducerIndex(identity, "call:", out producerIndex);
+        }
+
+        private static bool TryGetProducerIndex(string identity, string prefix, out int producerIndex)
+        {
+            producerIndex = -1;
+            return identity.StartsWith(prefix, StringComparison.Ordinal) &&
+                   int.TryParse(identity.AsSpan(prefix.Length), out producerIndex);
         }
 
         private static string ExtractProcessTarget(

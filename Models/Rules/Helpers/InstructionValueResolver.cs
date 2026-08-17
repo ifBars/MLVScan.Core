@@ -179,6 +179,22 @@ namespace MLVScan.Models.Rules.Helpers
                    TryBuildProducerIdentity(instructions, producerIndex, out identity);
         }
 
+        public static bool TryResolveCallArgumentProducerIndex(
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int callIndex,
+            int argumentIndex,
+            out int producerIndex)
+        {
+            producerIndex = -1;
+            if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
+                return false;
+
+            var producerMap = CallArgumentProducerMaps.GetValue(instructions, BuildCallArgumentProducerMap);
+            return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
+                out producerIndex);
+        }
+
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
@@ -381,12 +397,13 @@ namespace MLVScan.Models.Rules.Helpers
                     producersByStoreIndex[i] = stack[^1];
                 }
 
-                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
+                if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt ||
+                     instruction.OpCode == OpCodes.Newobj) &&
                     instruction.Operand is MethodReference calledMethod &&
                     calledMethod.Parameters.Count <= MaxTrackedCallArguments)
                 {
                     int parameterCount = calledMethod.Parameters.Count;
-                    int receiverCount = calledMethod.HasThis ? 1 : 0;
+                    int receiverCount = instruction.OpCode == OpCodes.Newobj ? 0 : calledMethod.HasThis ? 1 : 0;
                     int consumedCount = parameterCount + receiverCount;
                     if (stack.Count >= consumedCount)
                     {
