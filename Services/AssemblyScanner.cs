@@ -67,7 +67,7 @@ namespace MLVScan.Services
             _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder, entryPointProvider);
 
             // Create data flow analyzer for tracking data movement through operations
-            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder, _telemetry);
+            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder, _config, _telemetry);
 
             var reflectionDetector =
                 new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);

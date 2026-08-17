@@ -2,6 +2,7 @@ using FluentAssertions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Services;
+using MLVScan.Services.Diagnostics;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Xunit;
@@ -1136,6 +1137,122 @@ public class DataFlowAnalyzerTests
         dto.Disposition.Should().NotBeNull();
         dto.Disposition!.Classification.Should().Be("ManualReviewRequired");
         dto.Disposition.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzeMethod_WhenOperationBudgetIsExhausted_FailsClosedForManualReview()
+    {
+        using var module = ModuleDefinition.CreateModule("DataFlowOperationBudgetTest", ModuleKind.Dll);
+        var stress = CreateInterestingCallHeavyMethod(module, 32);
+        var config = new DataFlowAnalyzerConfig
+        {
+            MaxDataFlowOperationsPerMethod = 4,
+            MaxDataFlowChainsPerMethod = 16
+        };
+        var analyzer = new DataFlowAnalyzer(
+            RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(), config);
+
+        analyzer.AnalyzeMethod(stress);
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowScanWarning" && finding.Severity == Severity.Medium);
+    }
+
+    [Fact]
+    public void AnalyzeMethod_ScanConfigOperationBudget_IsAppliedToAnalyzer()
+    {
+        using var module = ModuleDefinition.CreateModule("ScanConfigDataFlowBudgetTest", ModuleKind.Dll);
+        var stress = CreateInterestingCallHeavyMethod(module, 2);
+        var config = new ScanConfig
+        {
+            MaxDataFlowOperationsPerMethod = 0,
+            MaxDataFlowChainsPerMethod = 0
+        };
+        var analyzer = new DataFlowAnalyzer(
+            RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(), config, new ScanTelemetryHub());
+
+        analyzer.AnalyzeMethod(stress);
+
+        analyzer.BuildDataFlowFindings().Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowScanWarning" && finding.Severity == Severity.Medium);
+    }
+
+    [Fact]
+    public void AnalyzeCrossMethodFlows_WhenEdgeBudgetIsExhausted_FailsClosedForManualReview()
+    {
+        using var module = ModuleDefinition.CreateModule("CrossMethodBudgetTest", ModuleKind.Dll);
+        var stress = CreateCallHeavyMethod(module, 8);
+        var target = stress.DeclaringType.Methods.Single(method => method.Name == "Consume");
+        var config = new DataFlowAnalyzerConfig
+        {
+            MaxCrossMethodCallEdges = 1,
+            MaxCrossMethodChains = 8,
+            MaxCallChainDepth = 5
+        };
+        var analyzer = new DataFlowAnalyzer(
+            RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(), config);
+
+        analyzer.AnalyzeMethod(target);
+        analyzer.AnalyzeMethod(stress);
+        analyzer.AnalyzeCrossMethodFlows();
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowScanWarning" &&
+            finding.Location == "Cross-method data flow analysis" &&
+            finding.Severity == Severity.Medium);
+    }
+
+    [Fact]
+    public void AnalyzeCrossMethodFlows_UnresolvedCallsConsumeEdgeBudget()
+    {
+        using var module = ModuleDefinition.CreateModule("UnresolvedCrossMethodBudgetTest", ModuleKind.Dll);
+        var stress = CreateInterestingCallHeavyMethod(module, 8);
+        var config = new DataFlowAnalyzerConfig
+        {
+            MaxCrossMethodCallEdges = 1,
+            MaxCrossMethodChains = 8,
+            MaxCallChainDepth = 5
+        };
+        var analyzer = new DataFlowAnalyzer(
+            RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(), config);
+
+        analyzer.AnalyzeMethod(stress);
+        analyzer.AnalyzeCrossMethodFlows();
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowScanWarning" &&
+            finding.Location == "Cross-method data flow analysis" &&
+            finding.Severity == Severity.Medium);
+    }
+
+    private static MethodDefinition CreateInterestingCallHeavyMethod(ModuleDefinition module, int callCount)
+    {
+        var type = new TypeDefinition("TestNamespace", $"InterestingCallHeavy{callCount}",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        module.Types.Add(type);
+        var method = new MethodDefinition("Stress",
+            MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var processType = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var processStart = new MethodReference("Start", processType, processType)
+        {
+            HasThis = false
+        };
+        processStart.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        for (var index = 0; index < callCount; index++)
+        {
+            il.Emit(OpCodes.Ldstr, "tool.exe");
+            il.Emit(OpCodes.Call, processStart);
+            il.Emit(OpCodes.Pop);
+        }
+
+        il.Emit(OpCodes.Ret);
+        type.Methods.Add(method);
+        return method;
     }
 
     private static MethodDefinition CreateCallHeavyMethod(ModuleDefinition module, int callCount)

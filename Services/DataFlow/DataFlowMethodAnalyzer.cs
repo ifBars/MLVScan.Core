@@ -7,17 +7,21 @@ using Mono.Cecil.Cil;
 
 namespace MLVScan.Services.DataFlow
 {
+#pragma warning disable CS0618
     internal sealed class DataFlowMethodAnalyzer
     {
         private readonly DataFlowPatternEvaluator _patternEvaluator;
         private readonly DataFlowNodeFactory _nodeFactory;
+        private readonly DataFlowAnalyzerConfig _config;
 
         public DataFlowMethodAnalyzer(
             DataFlowPatternEvaluator patternEvaluator,
-            DataFlowNodeFactory nodeFactory)
+            DataFlowNodeFactory nodeFactory,
+            DataFlowAnalyzerConfig config)
         {
             _patternEvaluator = patternEvaluator ?? throw new ArgumentNullException(nameof(patternEvaluator));
             _nodeFactory = nodeFactory ?? throw new ArgumentNullException(nameof(nodeFactory));
+            _config = config ?? throw new ArgumentNullException(nameof(config));
         }
 
         public DataFlowMethodAnalysisResult AnalyzeMethod(MethodDefinition method)
@@ -26,9 +30,16 @@ namespace MLVScan.Services.DataFlow
             var instructionHelper = new DataFlowInstructionHelper(instructions);
             var reachingDefinitionAnalysis = instructionHelper.GetReachingDefinitionAnalysis(instructions);
             var operationClassifier = new DataFlowOperationClassifier(instructionHelper);
-            var operations = operationClassifier.IdentifyInterestingOperations(method, instructions);
+            var identifiedOperations = operationClassifier.IdentifyInterestingOperations(method, instructions);
+            var operations = identifiedOperations
+                .Take(_config.MaxDataFlowOperationsPerMethod)
+                .ToList();
+            bool operationsComplete = identifiedOperations.Count <= _config.MaxDataFlowOperationsPerMethod;
             var flowInfo = BuildMethodFlowInfo(method, instructions, operations, instructionHelper);
-            var chains = operations.Count < 2 ? new List<DataFlowChain>() : BuildDataFlowChains(method, instructions, operations);
+            bool chainsComplete = true;
+            var chains = operations.Count < 2
+                ? new List<DataFlowChain>()
+                : BuildDataFlowChains(method, instructions, operations, out chainsComplete);
 
             return new DataFlowMethodAnalysisResult
             {
@@ -36,7 +47,7 @@ namespace MLVScan.Services.DataFlow
                 Instructions = instructions,
                 FlowInfo = flowInfo,
                 Chains = chains,
-                AnalysisComplete = reachingDefinitionAnalysis.IsComplete
+                AnalysisComplete = reachingDefinitionAnalysis.IsComplete && operationsComplete && chainsComplete
             };
         }
 
@@ -121,9 +132,11 @@ namespace MLVScan.Services.DataFlow
         private List<DataFlowChain> BuildDataFlowChains(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            List<DataFlowInterestingOperation> operations)
+            List<DataFlowInterestingOperation> operations,
+            out bool analysisComplete)
         {
             var chains = new List<DataFlowChain>();
+            analysisComplete = true;
 
             var operationsByVariable = operations
                 .Where(static operation => operation.LocalVariableIndex.HasValue)
@@ -140,15 +153,31 @@ namespace MLVScan.Services.DataFlow
 
                 if ((hasSource || hasTransform) && hasSink)
                 {
+                    if (chains.Count >= _config.MaxDataFlowChainsPerMethod)
+                    {
+                        analysisComplete = false;
+                        return chains;
+                    }
+
                     chains.Add(BuildChain(method, instructions, orderedOperations));
                 }
             }
 
-            chains.AddRange(BuildSequentialChains(method, instructions, operations));
+            if (!AppendSequentialChains(method, instructions, operations, chains))
+            {
+                analysisComplete = false;
+                return chains;
+            }
 
             var directDownloadChain = BuildDirectDownloadToExecuteChain(method, instructions, operations);
             if (directDownloadChain != null)
             {
+                if (chains.Count >= _config.MaxDataFlowChainsPerMethod)
+                {
+                    analysisComplete = false;
+                    return chains;
+                }
+
                 chains.Add(directDownloadChain);
             }
 
@@ -193,31 +222,31 @@ namespace MLVScan.Services.DataFlow
             });
         }
 
-        private List<DataFlowChain> BuildSequentialChains(
+        private bool AppendSequentialChains(
             MethodDefinition method,
             Collection<Instruction> instructions,
-            List<DataFlowInterestingOperation> operations)
+            List<DataFlowInterestingOperation> operations,
+            List<DataFlowChain> chains)
         {
             const int maxInstructionDistance = 250;
-            var chains = new List<DataFlowChain>();
 
             for (var index = 0; index < operations.Count - 1; index++)
             {
                 var operation = operations[index];
-                var subsequentOperations = operations
-                    .Skip(index + 1)
-                    .Where(candidate => candidate.InstructionIndex - operation.InstructionIndex <= maxInstructionDistance)
-                    .ToList();
-
-                if (subsequentOperations.Count == 0)
+                var chainOperations = new List<DataFlowInterestingOperation>(6) { operation };
+                for (int candidateIndex = index + 1;
+                     candidateIndex < operations.Count && chainOperations.Count < 6;
+                     candidateIndex++)
                 {
-                    continue;
+                    var candidate = operations[candidateIndex];
+                    if (candidate.InstructionIndex - operation.InstructionIndex > maxInstructionDistance)
+                        break;
+
+                    chainOperations.Add(candidate);
                 }
 
-                var chainOperations = new List<DataFlowInterestingOperation> { operation };
-                chainOperations.AddRange(subsequentOperations.Take(5));
-
-                if (!chainOperations.Any(static candidate => candidate.NodeType == DataFlowNodeType.Sink))
+                if (chainOperations.Count == 1 ||
+                    !chainOperations.Any(static candidate => candidate.NodeType == DataFlowNodeType.Sink))
                 {
                     continue;
                 }
@@ -225,11 +254,14 @@ namespace MLVScan.Services.DataFlow
                 var pattern = _patternEvaluator.RecognizePattern(chainOperations);
                 if (pattern != DataFlowPattern.Legitimate && pattern != DataFlowPattern.Unknown)
                 {
+                    if (chains.Count >= _config.MaxDataFlowChainsPerMethod)
+                        return false;
+
                     chains.Add(BuildChain(method, instructions, chainOperations));
                 }
             }
 
-            return chains;
+            return true;
         }
 
         private DataFlowChain BuildChain(
@@ -256,4 +288,5 @@ namespace MLVScan.Services.DataFlow
             return chain;
         }
     }
+#pragma warning restore CS0618
 }
