@@ -1290,29 +1290,24 @@ namespace MLVScan.Models.Rules
             var complexity = RestartAnalysisComplexities.GetValue(instructions, static body =>
             {
                 int processStartCount = 0;
-                int competingWriteCount = 0;
+                int candidateCallCount = 0;
                 foreach (var instruction in body)
                 {
                     if (instruction.Operand is not MethodReference method)
                         continue;
+
+                    candidateCallCount++;
 
                     if (method.DeclaringType?.FullName == "System.Diagnostics.Process" &&
                         method.Name == "Start")
                     {
                         processStartCount++;
                     }
-                    else if ((method.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                              method.Name == "set_StartInfo") ||
-                             (method.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
-                              method.Name == "set_FileName"))
-                    {
-                        competingWriteCount++;
-                    }
                 }
 
                 long estimatedWork = (long)Math.Max(1, processStartCount) *
-                                     Math.Max(1, competingWriteCount) *
-                                     Math.Max(1, competingWriteCount) *
+                                     Math.Max(1, candidateCallCount) *
+                                     Math.Max(1, candidateCallCount) *
                                      Math.Max(1, body.Count);
                 return new RestartAnalysisComplexity(estimatedWork <= MaxRestartReachabilityWork);
             });
@@ -1466,12 +1461,27 @@ namespace MLVScan.Models.Rules
             for (int i = 0; i < instructions.Count; i++)
             {
                 if (i == assignmentIndex || i == processStartIndex ||
-                    instructions[i].Operand is not MethodReference calledMethod ||
                     !InstructionValueResolver.CanExecuteBetween(
                         instructions, exceptionHandlers, assignmentIndex, i, processStartIndex))
                 {
                     continue;
                 }
+
+                if (instructions[i].OpCode.Code is Code.Stfld or Code.Stsfld or Code.Stelem_Ref)
+                {
+                    if (!InstructionValueResolver.TryResolveStoredValueIdentity(
+                            instructions, i, exceptionHandlers, out var escapedIdentity) ||
+                        IsMatchingStartInfoReceiver(escapedIdentity, assignedStartInfoIdentity,
+                            launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (instructions[i].Operand is not MethodReference calledMethod)
+                    continue;
 
                 if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.Process" &&
                     calledMethod.Name == "set_StartInfo")

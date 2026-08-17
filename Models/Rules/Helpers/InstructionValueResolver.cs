@@ -535,6 +535,18 @@ namespace MLVScan.Models.Rules.Helpers
                 out producerIndex);
         }
 
+        public static bool TryResolveStoredValueIdentity(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int storeIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string identity)
+        {
+            identity = string.Empty;
+            var producerMap = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            return producerMap.TryGetStoredValueProducer(storeIndex, out int producerIndex) &&
+                   TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
+        }
+
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
@@ -608,7 +620,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
                     instruction => IsMatchingFieldStore(instruction, loadedField,
                         producer.OpCode.Code == Code.Ldsfld), depth, out identity,
-                    receiverIdentity, IsPotentialFieldMutation);
+                    receiverIdentity, instruction => IsPotentialFieldMutation(instruction, loadedField.FieldType));
             }
 
             identity = producer.OpCode.Code switch
@@ -635,8 +647,19 @@ namespace MLVScan.Models.Rules.Helpers
                    instruction.OpCode.Code == (isStatic ? Code.Stsfld : Code.Stfld);
         }
 
-        private static bool IsPotentialFieldMutation(Instruction instruction)
+        private static bool IsPotentialFieldMutation(Instruction instruction, TypeReference fieldType)
         {
+            if (fieldType.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                instruction.Operand is MethodReference method &&
+                ((method.DeclaringType?.FullName, method.Name) is
+                    ("System.Diagnostics.Process", "GetCurrentProcess") or
+                    ("System.Diagnostics.Process", "get_MainModule") or
+                    ("System.Diagnostics.ProcessModule", "get_FileName") ||
+                 method.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo"))
+            {
+                return false;
+            }
+
             return instruction.OpCode.Code is
                 Code.Call or Code.Callvirt or Code.Calli or Code.Newobj or
                 Code.Ldflda or Code.Ldsflda or
@@ -1163,7 +1186,8 @@ namespace MLVScan.Models.Rules.Helpers
                 var instruction = instructions[i];
                 if ((TryGetStoredLocalIndex(instruction, out _) ||
                      TryGetStoredArgumentIndex(instruction, out _) ||
-                     instruction.OpCode.Code is Code.Stfld or Code.Stsfld) && stack.Count > 0)
+                     instruction.OpCode.Code is Code.Stfld or Code.Stsfld ||
+                     IsArrayElementStore(instruction)) && stack.Count > 0)
                 {
                     int producer = stack[^1];
                     producersByStoreIndex[i] = producersByStoreIndex.TryGetValue(i, out int existingProducer)
