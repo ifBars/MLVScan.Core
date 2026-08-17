@@ -1135,7 +1135,8 @@ namespace MLVScan.Models.Rules
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
                         out var receiverIdentity) ||
                     !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
-                        instructions, i, processStartIndex))
+                        instructions, i, processStartIndex) ||
+                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(instructions, i, processStartIndex))
                 {
                     continue;
                 }

@@ -179,6 +179,57 @@ namespace MLVScan.Models.Rules.Helpers
                    TryBuildProducerIdentity(instructions, producerIndex, out identity);
         }
 
+        public static bool IsGuaranteedToExecuteBefore(
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int instructionIndex,
+            int useIndex)
+        {
+            if (instructions == null || instructionIndex < 0 || useIndex < 0 ||
+                instructionIndex >= instructions.Count || useIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            var pending = new Queue<(int Index, bool Executed)>();
+            var visited = new HashSet<(int Index, bool Executed)>();
+            pending.Enqueue((0, false));
+            bool reachedUse = false;
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    reachedUse = true;
+                    if (!current.Executed)
+                        return false;
+
+                    continue;
+                }
+
+                bool executed = current.Executed || current.Index == instructionIndex;
+                var instruction = instructions[current.Index];
+                if (instruction.Operand is Instruction target)
+                {
+                    pending.Enqueue((instructions.IndexOf(target), executed));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                        pending.Enqueue((instructions.IndexOf(switchTarget), executed));
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, executed));
+            }
+
+            return reachedUse;
+        }
+
         public static bool TryResolveCallArgumentProducerIndex(
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
