@@ -1224,6 +1224,9 @@ namespace MLVScan.Models.Rules
             int processStartIndex,
             IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
+            bool allowDetachedFrameworkReferences = processStartMethod?.DeclaringType?.Scope == null &&
+                                                    processStartMethod?.Module == null;
+
             if (processStartMethod == null ||
                 !IsRestartAnalysisWithinBudget(instructions) ||
                 !TryResolveLaunchedTargetIdentity(processStartMethod, instructions, processStartIndex,
@@ -1238,20 +1241,20 @@ namespace MLVScan.Models.Rules
             {
                 if (!launchedTargetIdentity.Equals($"call:{getFileNameIndex}", StringComparison.Ordinal) ||
                     instructions[getFileNameIndex].Operand is not MethodReference getFileName ||
-                    getFileName.DeclaringType?.FullName != "System.Diagnostics.ProcessModule" ||
-                    getFileName.Name != "get_FileName" ||
+                    !InstructionValueResolver.IsTrustedFrameworkMethod(getFileName,
+                        "System.Diagnostics.ProcessModule", "get_FileName", allowDetachedFrameworkReferences) ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getFileNameIndex,
                         exceptionHandlers, out var mainModuleIdentity) ||
                     !TryGetCallProducerIndex(mainModuleIdentity, out int getMainModuleIndex) ||
                     instructions[getMainModuleIndex].Operand is not MethodReference getMainModule ||
-                    getMainModule.DeclaringType?.FullName != "System.Diagnostics.Process" ||
-                    getMainModule.Name != "get_MainModule" ||
+                    !InstructionValueResolver.IsTrustedFrameworkMethod(getMainModule,
+                        "System.Diagnostics.Process", "get_MainModule", allowDetachedFrameworkReferences) ||
                     !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, getMainModuleIndex,
                         exceptionHandlers, out var currentProcessIdentity) ||
                     !TryGetCallProducerIndex(currentProcessIdentity, out int getCurrentProcessIndex) ||
                     instructions[getCurrentProcessIndex].Operand is not MethodReference getCurrentProcess ||
-                    getCurrentProcess.DeclaringType?.FullName != "System.Diagnostics.Process" ||
-                    getCurrentProcess.Name != "GetCurrentProcess")
+                    !InstructionValueResolver.IsTrustedFrameworkMethod(getCurrentProcess,
+                        "System.Diagnostics.Process", "GetCurrentProcess", allowDetachedFrameworkReferences))
                 {
                     continue;
                 }

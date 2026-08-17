@@ -31,6 +31,33 @@ namespace MLVScan.Models.Rules.Helpers
         private static readonly Regex FormatItemRegex =
             new Regex(@"\{(\d+)(?:[^}]*)\}", RegexOptions.CultureInvariant);
 
+        private static readonly HashSet<string> TrustedFrameworkAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mscorlib",
+            "netstandard",
+            "System",
+            "System.Diagnostics.Process",
+            "System.Runtime"
+        };
+
+        internal static bool IsTrustedFrameworkMethod(
+            MethodReference method,
+            string declaringType,
+            string methodName,
+            bool allowDetachedReference = false)
+        {
+            if (method.DeclaringType?.FullName != declaringType || method.Name != methodName)
+                return false;
+
+            var scope = method.DeclaringType.Scope;
+            if (scope is AssemblyNameReference assemblyReference)
+                return TrustedFrameworkAssemblyNames.Contains(assemblyReference.Name);
+
+            // Unit tests construct detached Cecil references without a module or resolution scope.
+            // Production references must identify a known framework assembly explicitly.
+            return allowDetachedReference && scope == null && method.Module == null;
+        }
+
         /// <summary>
         /// Tries to resolve the executable or command target passed to a process-launching call.
         /// </summary>
@@ -967,8 +994,8 @@ namespace MLVScan.Models.Rules.Helpers
         {
             if (fileNameIndex < 0 || fileNameIndex >= instructions.Count ||
                 instructions[fileNameIndex].Operand is not MethodReference fileName ||
-                fileName.DeclaringType?.FullName != "System.Diagnostics.ProcessModule" ||
-                fileName.Name != "get_FileName")
+                !IsTrustedFrameworkMethod(fileName,
+                    "System.Diagnostics.ProcessModule", "get_FileName", allowDetachedReference: true))
             {
                 return false;
             }
@@ -977,13 +1004,13 @@ namespace MLVScan.Models.Rules.Helpers
             return producerMap.TryGetReceiverProducer(fileNameIndex, out int mainModuleIndex) &&
                    mainModuleIndex >= 0 && mainModuleIndex < instructions.Count &&
                    instructions[mainModuleIndex].Operand is MethodReference mainModule &&
-                   mainModule.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                   mainModule.Name == "get_MainModule" &&
+                   IsTrustedFrameworkMethod(mainModule,
+                       "System.Diagnostics.Process", "get_MainModule", allowDetachedReference: true) &&
                    producerMap.TryGetReceiverProducer(mainModuleIndex, out int currentProcessIndex) &&
                    currentProcessIndex >= 0 && currentProcessIndex < instructions.Count &&
                    instructions[currentProcessIndex].Operand is MethodReference currentProcess &&
-                   currentProcess.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                   currentProcess.Name == "GetCurrentProcess";
+                   IsTrustedFrameworkMethod(currentProcess,
+                       "System.Diagnostics.Process", "GetCurrentProcess", allowDetachedReference: true);
         }
 
         private sealed class ExceptionalTargetCache
@@ -1362,8 +1389,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             return index >= 0 && index < instructions.Count &&
                    instructions[index].Operand is MethodReference method &&
-                   method.DeclaringType?.FullName == declaringType &&
-                   method.Name == methodName;
+                   IsTrustedFrameworkMethod(method, declaringType, methodName, allowDetachedReference: true);
         }
 
         private static bool IsArrayElementStore(Instruction instruction)

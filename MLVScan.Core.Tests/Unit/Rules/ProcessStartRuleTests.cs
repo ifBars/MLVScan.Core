@@ -1919,6 +1919,44 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void ShouldSuppressFinding_SameModuleTypesSpoofCurrentProcessChain_ReturnsFalse()
+    {
+        using var module = ModuleDefinition.CreateModule("SpoofedProcessTypes", ModuleKind.Dll);
+        var voidType = module.TypeSystem.Void;
+        var stringType = module.TypeSystem.String;
+        var fakeProcess = new TypeDefinition("System.Diagnostics", "Process",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        var fakeProcessModule = new TypeDefinition("System.Diagnostics", "ProcessModule",
+            TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
+        var host = new TypeDefinition("Tests", "Host", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(fakeProcess);
+        module.Types.Add(fakeProcessModule);
+        module.Types.Add(host);
+
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static, voidType);
+        host.Methods.Add(method);
+        var getCurrentProcess = new MethodReference("GetCurrentProcess", fakeProcess, fakeProcess);
+        var getMainModule = new MethodReference("get_MainModule", fakeProcessModule, fakeProcess) { HasThis = true };
+        var getFileName = new MethodReference("get_FileName", stringType, fakeProcessModule) { HasThis = true };
+        var frameworkScope = new AssemblyNameReference("System.Diagnostics.Process", new Version(8, 0, 0, 0));
+        var frameworkProcess = new TypeReference("System.Diagnostics", "Process", module, frameworkScope);
+        var processStart = new MethodReference("Start", frameworkProcess, frameworkProcess);
+        processStart.Parameters.Add(new ParameterDefinition(stringType));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Call, getCurrentProcess);
+        processor.Emit(OpCodes.Callvirt, getMainModule);
+        processor.Emit(OpCodes.Callvirt, getFileName);
+        processor.Emit(OpCodes.Call, processStart);
+
+        var result = _rule.ShouldSuppressFinding(processStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1, new MethodSignals());
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public void ShouldSuppressFinding_RestartTargetOverwrittenInFinally_ReturnsFalse()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
