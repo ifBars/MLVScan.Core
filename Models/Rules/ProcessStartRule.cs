@@ -1461,30 +1461,57 @@ namespace MLVScan.Models.Rules
             int assignmentIndex,
             int processStartIndex)
         {
+            bool processStateEscapedBeforeAssignment = false;
             for (int i = 0; i < instructions.Count; i++)
             {
-                if (i == assignmentIndex || i == processStartIndex ||
-                    !InstructionValueResolver.CanExecuteBetween(
-                        instructions, exceptionHandlers, assignmentIndex, i, processStartIndex))
-                {
+                if (i == assignmentIndex || i == processStartIndex)
                     continue;
-                }
 
-                if (instructions[i].OpCode.Code is Code.Stfld or Code.Stsfld or Code.Stelem_Ref)
+                bool isEscapeStore = instructions[i].OpCode.Code is Code.Stfld or Code.Stsfld or Code.Stelem_Ref;
+                bool isMethodCall = instructions[i].Operand is MethodReference;
+                if (!isEscapeStore && !isMethodCall)
+                    continue;
+
+                if (isEscapeStore)
                 {
+                    bool precedesSafeAssignment = i < assignmentIndex;
+                    int reachabilityStart = precedesSafeAssignment ? i : assignmentIndex;
+                    if (!InstructionValueResolver.CanExecuteBetween(
+                            instructions, exceptionHandlers, reachabilityStart, i, processStartIndex))
+                    {
+                        continue;
+                    }
+
                     if (!InstructionValueResolver.TryResolveStoredValueIdentity(
-                            instructions, i, exceptionHandlers, out var escapedIdentity) ||
-                        IsMatchingStartInfoReceiver(escapedIdentity, assignedStartInfoIdentity,
+                            instructions, i, exceptionHandlers, out var escapedIdentity))
+                    {
+                        if (!precedesSafeAssignment)
+                            return true;
+
+                        continue;
+                    }
+
+                    if (IsMatchingStartInfoReceiver(escapedIdentity, assignedStartInfoIdentity,
                             launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
                     {
+                        if (precedesSafeAssignment)
+                        {
+                            processStateEscapedBeforeAssignment = true;
+                            continue;
+                        }
+
                         return true;
                     }
 
                     continue;
                 }
 
-                if (instructions[i].Operand is not MethodReference calledMethod)
+                if (!InstructionValueResolver.CanExecuteBetween(
+                        instructions, exceptionHandlers, assignmentIndex, i, processStartIndex) ||
+                    instructions[i].Operand is not MethodReference calledMethod)
+                {
                     continue;
+                }
 
                 if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.Process" &&
                     calledMethod.Name == "set_StartInfo")
@@ -1495,7 +1522,19 @@ namespace MLVScan.Models.Rules
                 if (calledMethod.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     calledMethod.Name != "set_FileName")
                 {
+                    if (processStateEscapedBeforeAssignment &&
+                        !IsKnownProcessConfigurationMethod(calledMethod))
+                    {
+                        return true;
+                    }
+
                     continue;
+                }
+
+                if (processStateEscapedBeforeAssignment &&
+                    !IsKnownProcessConfigurationMethod(calledMethod))
+                {
+                    return true;
                 }
 
                 for (int argumentIndex = 0; argumentIndex < calledMethod.Parameters.Count; argumentIndex++)
@@ -1544,6 +1583,26 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static bool IsKnownProcessConfigurationMethod(MethodReference method)
+        {
+            if (method.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo")
+            {
+                return InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                    "System.Diagnostics.ProcessStartInfo", method.Name, allowDetachedReference: true);
+            }
+
+            return InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                       "System.Diagnostics.Process", "GetCurrentProcess", allowDetachedReference: true) ||
+                   InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                       "System.Diagnostics.Process", "get_MainModule", allowDetachedReference: true) ||
+                   InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                       "System.Diagnostics.ProcessModule", "get_FileName", allowDetachedReference: true) ||
+                   InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                       "System.Diagnostics.Process", "get_StartInfo", allowDetachedReference: true) ||
+                   InstructionValueResolver.IsTrustedFrameworkMethod(method,
+                       "System.Diagnostics.Process", "set_StartInfo", allowDetachedReference: true);
         }
 
         private static bool CanPotentiallyAliasProcessState(TypeReference parameterType)
