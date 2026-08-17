@@ -1,8 +1,10 @@
 using FluentAssertions;
+using MLVScan.Abstractions;
 using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Services;
 using Mono.Cecil.Cil;
+using Mono.Cecil;
 using Xunit;
 
 namespace MLVScan.Core.Tests.Integration;
@@ -228,6 +230,45 @@ public class AssemblyScannerTests
     }
 
     [Fact]
+    public void Scan_MalformedAssembly_ReturnsBlockingIncompleteAnalysisFinding()
+    {
+        byte[] malformedAssembly = [0x4D, 0x5A, 0x00, 0x01, 0x02, 0x03];
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        using var stream = new MemoryStream(malformedAssembly);
+
+        var findings = scanner.Scan(stream).ToList();
+        var result = ScanResultMapper.ToDto(findings, "malformed.dll", malformedAssembly, false);
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "AssemblyScanner" && finding.Severity == Severity.Medium);
+        result.AnalysisCompleteness.IsComplete.Should().BeFalse();
+        result.AnalysisCompleteness.ReviewRecommended.Should().BeTrue();
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("ManualReviewRequired");
+        result.Disposition.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Scan_MethodRuleFailure_ReturnsBlockingIncompleteAnalysisFinding()
+    {
+        var assembly = TestAssemblyBuilder.Create("MethodRuleFailure")
+            .AddType("TestType")
+                .AddMethod("Run")
+                .EndMethod()
+            .EndType()
+            .Build();
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        stream.Position = 0;
+        var scanner = new AssemblyScanner([new ThrowingInstructionPassRule()]);
+
+        var findings = scanner.Scan(stream, "MethodRuleFailure.dll").ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "MethodScanWarning" && finding.Severity == Severity.Medium);
+    }
+
+    [Fact]
     public void Scan_EmptyPath_ThrowsArgumentException()
     {
         var rules = RuleFactory.CreateDefaultRules();
@@ -382,4 +423,20 @@ public class AssemblyScannerTests
             _events.Add(value);
         }
     }
+
+    private sealed class ThrowingInstructionPassRule : IScanRule
+    {
+        public string Description => "Test rule";
+        public Severity Severity => Severity.Low;
+        public string RuleId => nameof(ThrowingInstructionPassRule);
+        public bool RequiresCompanionFinding => false;
+        public bool IsSuspicious(MethodReference method) => false;
+
+        public IEnumerable<ScanFinding> AnalyzeInstructions(
+            MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            MethodSignals methodSignals)
+            => throw new InvalidOperationException("test failure");
+    }
+
 }

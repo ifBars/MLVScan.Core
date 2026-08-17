@@ -290,7 +290,13 @@ namespace MLVScan.Services
             }
             catch (Exception)
             {
-                // Skip method if it can't be properly analyzed
+                result.Findings.Add(new ScanFinding(
+                    $"{method.DeclaringType?.FullName}.{method.Name}",
+                    "Warning: Could not complete full IL analysis for this method. Manual review is required.",
+                    Severity.Medium)
+                {
+                    RuleId = "MethodScanWarning"
+                });
             }
             finally
             {
