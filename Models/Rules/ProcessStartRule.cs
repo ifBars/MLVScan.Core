@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using MLVScan.Abstractions;
 using MLVScan.Models;
 using MLVScan.Models.Rules.Helpers;
@@ -22,6 +23,12 @@ namespace MLVScan.Models.Rules
     /// </summary>
     public class ProcessStartRule : IScanRule
     {
+        private const long MaxRestartReachabilityWork = 4_000_000;
+
+        private static readonly ConditionalWeakTable<
+            Mono.Collections.Generic.Collection<Instruction>, RestartAnalysisComplexity>
+            RestartAnalysisComplexities = new();
+
         private Severity _severity = Severity.Critical;
 
         public string Description => "Detected Process.Start call which could execute arbitrary programs.";
@@ -110,6 +117,10 @@ namespace MLVScan.Models.Rules
 
         private static readonly Regex ScriptDropExtensionPattern = new Regex(
             @"(?i)\.(bat|cmd|ps1|vbs|js|hta)(\b|\s|\""|'|$)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ExecutableShellTargetPattern = new Regex(
+            @"(?i)\.(exe|com|msi|msp|scr|cpl|lnk|url|scf)(\b|\s|\""|'|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex StagedLoaderPivotPattern = new Regex(
@@ -652,7 +663,7 @@ namespace MLVScan.Models.Rules
                 return true;
             }
 
-            if (IsSafeShellFolderLaunch(method, instructions, instructionIndex))
+            if (IsSafeShellFolderLaunch(method, instructions, instructionIndex, exceptionHandlers))
             {
                 return true;
             }
@@ -673,11 +684,11 @@ namespace MLVScan.Models.Rules
             IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
-                processStartMethod.Parameters.Count == 0 ||
+                processStartMethod.Parameters.Count is < 1 or > 2 ||
                 !InstructionValueResolver.TryResolveCallArgumentDisplay(null, processStartMethod, instructions,
-                    processStartIndex, 0, out var target) ||
+                    processStartIndex, 0, exceptionHandlers, out var target) ||
                 !InstructionValueResolver.TryResolveCallArgumentProducerIndex(processStartMethod, instructions,
-                    processStartIndex, 0, out var targetProducerIndex) ||
+                    processStartIndex, 0, exceptionHandlers, out var targetProducerIndex) ||
                 !InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
                     processStartIndex, 0, exceptionHandlers, out _) ||
                 !target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
@@ -685,19 +696,76 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            return !HasPathManipulation(instructions, targetProducerIndex, processStartIndex);
+            if (HasPathManipulation(instructions, targetProducerIndex, processStartIndex))
+                return false;
+
+            if (processStartMethod.Parameters.Count == 1)
+                return true;
+
+            if (!InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
+                    processStartIndex, 1, exceptionHandlers, out var launchArgumentIdentity))
+            {
+                return false;
+            }
+
+            bool hasDisplay = InstructionValueResolver.TryResolveCallArgumentDisplay(null, processStartMethod,
+                instructions, processStartIndex, 1, exceptionHandlers, out var launchArgument);
+            if (hasDisplay &&
+                (ScriptDropExtensionPattern.IsMatch(launchArgument) ||
+                 ExecutableShellTargetPattern.IsMatch(launchArgument)))
+            {
+                return false;
+            }
+
+            return (hasDisplay && !IsUnsafeShellTarget(launchArgument)) ||
+                   IsValidatedExplorerFolderArgument(launchArgumentIdentity, instructions,
+                       processStartIndex, exceptionHandlers);
+        }
+
+        private static bool IsValidatedExplorerFolderArgument(
+            string launchArgumentIdentity,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
+        {
+            int searchStart = Math.Max(0, processStartIndex - 80);
+            for (int i = searchStart; i < processStartIndex; i++)
+            {
+                if (instructions[i].Operand is not MethodReference directoryMethod ||
+                    directoryMethod.DeclaringType?.FullName != "System.IO.Directory" ||
+                    directoryMethod.Name is not ("Exists" or "CreateDirectory") ||
+                    !InstructionValueResolver.TryResolveCallArgumentIdentity(directoryMethod, instructions, i, 0,
+                        exceptionHandlers, out var directoryIdentity) ||
+                    !directoryIdentity.Equals(launchArgumentIdentity, StringComparison.Ordinal) ||
+                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                if (directoryMethod.Name == "CreateDirectory" ||
+                    IsTrueDirectoryExistsGuard(instructions, i, processStartIndex) ||
+                    IsEnsureDirectoryGuard(instructions, i, processStartIndex, launchArgumentIdentity,
+                        exceptionHandlers))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsSafeShellFolderLaunch(
             MethodReference processStartMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
                 processStartMethod.Parameters.Count != 1 ||
                 processStartMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo" ||
                 !InstructionValueResolver.TryResolveCallArgumentIdentity(processStartMethod, instructions,
-                    processStartIndex, 0, out var launchedStartInfoIdentity))
+                    processStartIndex, 0, exceptionHandlers, out var launchedStartInfoIdentity))
             {
                 return false;
             }
@@ -726,7 +794,9 @@ namespace MLVScan.Models.Rules
                             ? HasStraightLineDominance(instructions, i, processStartIndex)
                             : IsTrueDirectoryExistsGuard(instructions, i, processStartIndex) ||
                               IsEnsureDirectoryGuard(instructions, i, processStartIndex, directoryTarget);
-                        if (validatesDirectory)
+                        if (validatesDirectory &&
+                            InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                                instructions, exceptionHandlers, i, processStartIndex))
                         {
                             checkedDirectoryTargets[directoryTarget] = i;
                         }
@@ -738,8 +808,10 @@ namespace MLVScan.Models.Rules
                 if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     methodRef.Name == "set_FileName")
                 {
-                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity) &&
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity, exceptionHandlers) &&
                         HasStraightLineDominance(instructions, i, processStartIndex) &&
+                        InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                            instructions, exceptionHandlers, i, processStartIndex) &&
                         InstructionValueResolver.TryResolveStackValueDisplay(null, instructions, i - 1,
                             out var resolvedFileName))
                     {
@@ -752,8 +824,10 @@ namespace MLVScan.Models.Rules
                 if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     methodRef.Name == "set_UseShellExecute")
                 {
-                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity) &&
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity, exceptionHandlers) &&
                         HasStraightLineDominance(instructions, i, processStartIndex) &&
+                        InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                            instructions, exceptionHandlers, i, processStartIndex) &&
                         InstructionValueResolver.TryResolveStackValueDisplay(null, instructions, i - 1,
                             out var resolvedUseShell))
                     {
@@ -766,7 +840,7 @@ namespace MLVScan.Models.Rules
                 if (methodRef.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
                     methodRef.Name == "set_Arguments")
                 {
-                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity))
+                    if (HasMatchingReceiverIdentity(instructions, i, launchedStartInfoIdentity, exceptionHandlers))
                     {
                         setsArguments = true;
                     }
@@ -784,10 +858,11 @@ namespace MLVScan.Models.Rules
         private static bool HasMatchingReceiverIdentity(
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int callIndex,
-            string expectedIdentity)
+            string expectedIdentity,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             return InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, callIndex,
-                       out var receiverIdentity) &&
+                       exceptionHandlers, out var receiverIdentity) &&
                    receiverIdentity == expectedIdentity;
         }
 
@@ -920,17 +995,9 @@ namespace MLVScan.Models.Rules
             int processStartIndex,
             string existsTarget)
         {
-            int branchIndex = existsCallIndex + 1;
-            if (branchIndex >= instructions.Count ||
-                (instructions[branchIndex].OpCode != OpCodes.Brtrue &&
-                 instructions[branchIndex].OpCode != OpCodes.Brtrue_S) ||
-                instructions[branchIndex].Operand is not Instruction joinTarget)
-            {
-                return false;
-            }
-
-            int joinIndex = instructions.IndexOf(joinTarget);
-            if (joinIndex <= branchIndex || joinIndex >= processStartIndex ||
+            if (!TryGetEnsureDirectoryJoin(instructions, existsCallIndex, out int branchIndex,
+                    out int joinIndex) ||
+                joinIndex >= processStartIndex ||
                 !HasStraightLineDominance(instructions, joinIndex, processStartIndex))
             {
                 return false;
@@ -960,6 +1027,113 @@ namespace MLVScan.Models.Rules
             }
 
             return createsMatchingDirectory;
+        }
+
+        private static bool IsEnsureDirectoryGuard(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int existsCallIndex,
+            int processStartIndex,
+            string existsIdentity,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers)
+        {
+            if (!TryGetEnsureDirectoryJoin(instructions, existsCallIndex, out int branchIndex,
+                    out int joinIndex) ||
+                joinIndex >= processStartIndex ||
+                !HasStraightLineDominance(instructions, joinIndex, processStartIndex))
+            {
+                return false;
+            }
+
+            for (int i = branchIndex + 1; i < joinIndex; i++)
+            {
+                var flowControl = instructions[i].OpCode.FlowControl;
+                if (flowControl is FlowControl.Branch or FlowControl.Cond_Branch or
+                    FlowControl.Return or FlowControl.Throw)
+                {
+                    return false;
+                }
+
+                if ((instructions[i].OpCode == OpCodes.Call || instructions[i].OpCode == OpCodes.Callvirt) &&
+                    instructions[i].Operand is MethodReference methodRef &&
+                    methodRef.DeclaringType?.FullName == "System.IO.Directory" &&
+                    methodRef.Name == "CreateDirectory" &&
+                    InstructionValueResolver.TryResolveCallArgumentIdentity(methodRef, instructions, i, 0,
+                        exceptionHandlers, out var createIdentity) &&
+                    createIdentity.Equals(existsIdentity, StringComparison.Ordinal) &&
+                    HasStraightLineDominance(instructions, branchIndex, i))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetEnsureDirectoryJoin(
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int existsCallIndex,
+            out int branchIndex,
+            out int joinIndex)
+        {
+            branchIndex = existsCallIndex + 1;
+            joinIndex = -1;
+            if (branchIndex < instructions.Count &&
+                (instructions[branchIndex].OpCode == OpCodes.Brtrue ||
+                 instructions[branchIndex].OpCode == OpCodes.Brtrue_S) &&
+                instructions[branchIndex].Operand is Instruction directJoin)
+            {
+                joinIndex = instructions.IndexOf(directJoin);
+                return joinIndex > branchIndex;
+            }
+
+            if (existsCallIndex + 5 >= instructions.Count ||
+                instructions[existsCallIndex + 1].OpCode != OpCodes.Ldc_I4_0 ||
+                instructions[existsCallIndex + 2].OpCode != OpCodes.Ceq ||
+                !TryGetStoredLocalIndex(instructions[existsCallIndex + 3], out int storedLocalIndex) ||
+                !TryGetLoadedLocalIndex(instructions[existsCallIndex + 4], out int loadedLocalIndex) ||
+                storedLocalIndex != loadedLocalIndex)
+            {
+                return false;
+            }
+
+            branchIndex = existsCallIndex + 5;
+            if ((instructions[branchIndex].OpCode != OpCodes.Brfalse &&
+                 instructions[branchIndex].OpCode != OpCodes.Brfalse_S) ||
+                instructions[branchIndex].Operand is not Instruction normalizedJoin)
+            {
+                return false;
+            }
+
+            joinIndex = instructions.IndexOf(normalizedJoin);
+            return joinIndex > branchIndex;
+        }
+
+        private static bool TryGetLoadedLocalIndex(Instruction instruction, out int localIndex)
+        {
+            localIndex = instruction.OpCode.Code switch
+            {
+                Code.Ldloc_0 => 0,
+                Code.Ldloc_1 => 1,
+                Code.Ldloc_2 => 2,
+                Code.Ldloc_3 => 3,
+                Code.Ldloc or Code.Ldloc_S when instruction.Operand is VariableDefinition variable => variable.Index,
+                _ => -1
+            };
+            return localIndex >= 0;
+        }
+
+        private static bool TryGetStoredLocalIndex(Instruction instruction, out int localIndex)
+        {
+            localIndex = instruction.OpCode.Code switch
+            {
+                Code.Stloc_0 => 0,
+                Code.Stloc_1 => 1,
+                Code.Stloc_2 => 2,
+                Code.Stloc_3 => 3,
+                Code.Stloc or Code.Stloc_S when instruction.Operand is VariableDefinition variable => variable.Index,
+                _ => -1
+            };
+            return localIndex >= 0;
         }
 
         private static bool IsUnsafeShellTarget(string target)
@@ -1023,6 +1197,7 @@ namespace MLVScan.Models.Rules
             IReadOnlyList<ExceptionHandler> exceptionHandlers)
         {
             if (processStartMethod == null ||
+                !IsRestartAnalysisWithinBudget(instructions) ||
                 !TryResolveLaunchedTargetIdentity(processStartMethod, instructions, processStartIndex,
                     exceptionHandlers,
                     out var launchedTargetIdentity))
@@ -1079,6 +1254,52 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        internal static bool IsRestartAnalysisWithinBudget(
+            Mono.Collections.Generic.Collection<Instruction> instructions)
+        {
+            var complexity = RestartAnalysisComplexities.GetValue(instructions, static body =>
+            {
+                int processStartCount = 0;
+                int competingWriteCount = 0;
+                foreach (var instruction in body)
+                {
+                    if (instruction.Operand is not MethodReference method)
+                        continue;
+
+                    if (method.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                        method.Name == "Start")
+                    {
+                        processStartCount++;
+                    }
+                    else if ((method.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                              method.Name == "set_StartInfo") ||
+                             (method.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                              method.Name == "set_FileName"))
+                    {
+                        competingWriteCount++;
+                    }
+                }
+
+                long estimatedWork = (long)Math.Max(1, processStartCount) *
+                                     Math.Max(1, competingWriteCount) *
+                                     Math.Max(1, competingWriteCount) *
+                                     Math.Max(1, body.Count);
+                return new RestartAnalysisComplexity(estimatedWork <= MaxRestartReachabilityWork);
+            });
+
+            return complexity.IsWithinBudget;
+        }
+
+        private sealed class RestartAnalysisComplexity
+        {
+            public RestartAnalysisComplexity(bool isWithinBudget)
+            {
+                IsWithinBudget = isWithinBudget;
+            }
+
+            public bool IsWithinBudget { get; }
         }
 
         private static bool TryResolveLaunchedTargetIdentity(
@@ -1185,17 +1406,22 @@ namespace MLVScan.Models.Rules
             int assignmentIndex,
             int processStartIndex)
         {
-            for (int i = assignmentIndex + 1; i < processStartIndex; i++)
+            for (int i = 0; i < instructions.Count; i++)
             {
-                if (instructions[i].Operand is MethodReference setter &&
-                    setter.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                    setter.Name == "set_StartInfo" &&
-                    InstructionValueResolver.TryResolveCallReceiverIdentity(
-                        instructions, i, exceptionHandlers, out var receiverIdentity) &&
-                    receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                if (i == assignmentIndex ||
+                    instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    setter.Name != "set_StartInfo" ||
+                    !InstructionValueResolver.CanExecuteBetween(
+                        instructions, exceptionHandlers, assignmentIndex, i, processStartIndex))
                 {
-                    return true;
+                    continue;
                 }
+
+                if (!InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var receiverIdentity) ||
+                    receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                    return true;
             }
 
             return false;
@@ -1209,16 +1435,21 @@ namespace MLVScan.Models.Rules
             int assignmentIndex,
             int processStartIndex)
         {
-            for (int i = assignmentIndex + 1; i < processStartIndex; i++)
+            for (int i = 0; i < instructions.Count; i++)
             {
-                if (instructions[i].Operand is not MethodReference setter ||
+                if (i == assignmentIndex ||
+                    instructions[i].Operand is not MethodReference setter ||
                     setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
                     setter.Name != "set_FileName" ||
-                    !InstructionValueResolver.TryResolveCallReceiverIdentity(
-                        instructions, i, exceptionHandlers, out var receiverIdentity))
+                    !InstructionValueResolver.CanExecuteBetween(
+                        instructions, exceptionHandlers, assignmentIndex, i, processStartIndex))
                 {
                     continue;
                 }
+
+                if (!InstructionValueResolver.TryResolveCallReceiverIdentity(
+                        instructions, i, exceptionHandlers, out var receiverIdentity))
+                    return true;
 
                 if (IsMatchingStartInfoReceiver(receiverIdentity, assignedStartInfoIdentity,
                         launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
@@ -1258,17 +1489,21 @@ namespace MLVScan.Models.Rules
                 return false;
             }
 
-            for (int i = getterIndex + 1; i < processStartIndex; i++)
+            for (int i = 0; i < instructions.Count; i++)
             {
-                if (instructions[i].Operand is MethodReference setter &&
-                    setter.DeclaringType?.FullName == "System.Diagnostics.Process" &&
-                    setter.Name == "set_StartInfo" &&
-                    InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
-                        exceptionHandlers, out var setterReceiverIdentity) &&
-                    setterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    setter.Name != "set_StartInfo" ||
+                    !InstructionValueResolver.CanExecuteBetween(
+                        instructions, exceptionHandlers, getterIndex, i, processStartIndex))
                 {
-                    return false;
+                    continue;
                 }
+
+                if (!InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        exceptionHandlers, out var setterReceiverIdentity) ||
+                    setterReceiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal))
+                    return false;
             }
 
             return true;

@@ -257,7 +257,8 @@ namespace MLVScan.Services
                 // Analyze instructions for method calls and suspicious patterns
                 var instructionAnalyzerStart = _telemetry.StartTimestamp();
                 var instructionResult =
-                    _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName);
+                    _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName,
+                        effectiveMethodSignals.ExceptionHandlers);
                 _telemetry.AddPhaseElapsed("MethodScanner.InstructionAnalyzer", instructionAnalyzerStart);
                 result.Findings.AddRange(instructionResult.Findings);
                 result.PendingReflectionFindings.AddRange(instructionResult.PendingReflectionFindings);
