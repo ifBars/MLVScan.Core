@@ -39,13 +39,13 @@ namespace MLVScan.Services.DataFlow
             {
                 foreach (var callSite in callerInfo.OutgoingCalls)
                 {
+                    if (!budget.TryConsumeEdge())
+                        return new CrossMethodAnalysisResult(chains, false);
+
                     if (!state.MethodFlowInfos.TryGetValue(callSite.TargetMethodKey, out var calleeInfo))
                     {
                         continue;
                     }
-
-                    if (!budget.TryConsumeEdge())
-                        return new CrossMethodAnalysisResult(chains, false);
 
                     var crossMethodChain = TryBuildCrossMethodChain(state, callerInfo, callSite, calleeInfo);
                     if (crossMethodChain != null)

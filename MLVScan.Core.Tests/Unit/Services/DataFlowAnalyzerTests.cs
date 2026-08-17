@@ -1204,6 +1204,30 @@ public class DataFlowAnalyzerTests
             finding.Severity == Severity.Medium);
     }
 
+    [Fact]
+    public void AnalyzeCrossMethodFlows_UnresolvedCallsConsumeEdgeBudget()
+    {
+        using var module = ModuleDefinition.CreateModule("UnresolvedCrossMethodBudgetTest", ModuleKind.Dll);
+        var stress = CreateInterestingCallHeavyMethod(module, 8);
+        var config = new DataFlowAnalyzerConfig
+        {
+            MaxCrossMethodCallEdges = 1,
+            MaxCrossMethodChains = 8,
+            MaxCallChainDepth = 5
+        };
+        var analyzer = new DataFlowAnalyzer(
+            RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(), config);
+
+        analyzer.AnalyzeMethod(stress);
+        analyzer.AnalyzeCrossMethodFlows();
+        var findings = analyzer.BuildDataFlowFindings().ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "DataFlowScanWarning" &&
+            finding.Location == "Cross-method data flow analysis" &&
+            finding.Severity == Severity.Medium);
+    }
+
     private static MethodDefinition CreateInterestingCallHeavyMethod(ModuleDefinition module, int callCount)
     {
         var type = new TypeDefinition("TestNamespace", $"InterestingCallHeavy{callCount}",
