@@ -12,7 +12,7 @@ namespace MLVScan.Services
     /// </summary>
     public class ExceptionHandlerAnalyzer
     {
-        private readonly IEnumerable<IScanRule> _rules;
+        private readonly IReadOnlyList<IScanRule> _rules;
         private readonly SignalTracker _signalTracker;
         private readonly CodeSnippetBuilder _snippetBuilder;
         private readonly ScanConfig _config;
@@ -20,7 +20,7 @@ namespace MLVScan.Services
         public ExceptionHandlerAnalyzer(IEnumerable<IScanRule> rules, SignalTracker signalTracker,
             CodeSnippetBuilder snippetBuilder, ScanConfig config)
         {
-            _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+            _rules = rules?.ToArray() ?? throw new ArgumentNullException(nameof(rules));
             _signalTracker = signalTracker ?? throw new ArgumentNullException(nameof(signalTracker));
             _snippetBuilder = snippetBuilder ?? throw new ArgumentNullException(nameof(snippetBuilder));
             _config = config ?? new ScanConfig();
@@ -31,158 +31,202 @@ namespace MLVScan.Services
             MethodSignals? methodSignals, string typeFullName)
         {
             var findings = new List<ScanFinding>();
-
             if (!_config.AnalyzeExceptionHandlers)
                 return findings;
 
+            bool incomplete = false;
             try
             {
-                foreach (var handler in exceptionHandlers)
+                var instructions = method.Body.Instructions;
+                var instructionIndexes = instructions
+                    .Select((instruction, index) => (instruction, index))
+                    .ToDictionary(item => item.instruction, item => item.index);
+                int instructionBudget = Math.Max(1, _config.MaxExceptionHandlerInstructionsPerMethod);
+                int findingBudget = Math.Max(1, _config.MaxExceptionHandlerFindingsPerMethod);
+                int handlerBudget = Math.Max(1, _config.MaxExceptionHandlersPerMethod);
+
+                for (int handlerIndex = 0; handlerIndex < exceptionHandlers.Count; handlerIndex++)
                 {
-                    // Analyze handler block (catch/finally/filter)
-                    if (handler.HandlerStart != null)
+                    if (handlerIndex >= handlerBudget)
                     {
-                        var handlerFindings = AnalyzeHandlerBlock(
-                            method,
-                            handler,
-                            method.Body.Instructions,
-                            methodSignals,
-                            typeFullName);
-                        findings.AddRange(handlerFindings);
+                        incomplete = true;
+                        break;
                     }
+
+                    var handler = exceptionHandlers[handlerIndex];
+                    if (handler.HandlerStart == null)
+                        continue;
+
+                    AnalyzeHandlerBlock(method, handler, instructions, instructionIndexes, methodSignals,
+                        typeFullName, findings, ref instructionBudget, ref findingBudget, ref incomplete);
+
+                    if (incomplete)
+                        break;
                 }
             }
             catch (Exception)
             {
-                // Skip if exception handler analysis fails
+                incomplete = true;
+            }
+
+            if (incomplete)
+            {
+                findings.Add(new ScanFinding(
+                    $"{method.DeclaringType?.FullName}.{method.Name}",
+                    "Exception-handler analysis reached a safety limit and could not complete; manual review is required.",
+                    Severity.Medium,
+                    string.Empty)
+                {
+                    RuleId = "ExceptionHandlerScanWarning"
+                });
             }
 
             return findings;
         }
 
-        private IEnumerable<ScanFinding> AnalyzeHandlerBlock(MethodDefinition method,
+        private void AnalyzeHandlerBlock(MethodDefinition method,
             ExceptionHandler handler,
             Mono.Collections.Generic.Collection<Instruction> allInstructions,
+            IReadOnlyDictionary<Instruction, int> instructionIndexes,
             MethodSignals? methodSignals,
-            string typeFullName)
+            string typeFullName,
+            ICollection<ScanFinding> findings,
+            ref int instructionBudget,
+            ref int findingBudget,
+            ref bool incomplete)
         {
-            var findings = new List<ScanFinding>();
-
-            try
+            if (!instructionIndexes.TryGetValue(handler.HandlerStart, out int startIndex))
             {
-                var handlerInstructions = GetInstructionsInRange(
-                    allInstructions,
-                    handler.HandlerStart,
-                    handler.HandlerEnd);
+                incomplete = true;
+                return;
+            }
 
-                if (handlerInstructions.Count == 0)
-                    return findings;
+            int endExclusive = allInstructions.Count;
+            if (handler.HandlerEnd != null &&
+                !instructionIndexes.TryGetValue(handler.HandlerEnd, out endExclusive))
+            {
+                incomplete = true;
+                return;
+            }
 
-                // Analyze instructions in the handler block
-                foreach (var instruction in handlerInstructions)
+            if (endExclusive < startIndex)
+            {
+                incomplete = true;
+                return;
+            }
+
+            int instructionCount = endExclusive - startIndex;
+            int instructionsToAnalyze = Math.Min(instructionCount, instructionBudget);
+            if (instructionsToAnalyze < instructionCount)
+                incomplete = true;
+
+            for (int instructionIndex = startIndex;
+                 instructionIndex < startIndex + instructionsToAnalyze;
+                 instructionIndex++)
+            {
+                instructionBudget--;
+                var instruction = allInstructions[instructionIndex];
+                if ((instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) ||
+                    instruction.Operand is not MethodReference calledMethod)
                 {
-                    // Check for method calls in exception handlers
-                    if ((instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) &&
-                        instruction.Operand is MethodReference calledMethod)
+                    continue;
+                }
+
+                foreach (var rule in _rules)
+                {
+                    try
                     {
-                        // Check if any rule considers this method suspicious
-                        foreach (var rule in _rules)
+                        TrackSuspiciousDownloadSignal(method, calledMethod, allInstructions,
+                            instructionIndex, methodSignals, rule);
+
+                        if (!rule.IsSuspicious(calledMethod))
+                            continue;
+
+                        var effectiveSignals = methodSignals ?? new MethodSignals();
+                        var handlerTypeDesc = GetHandlerTypeDescription(handler);
+                        bool addedContextualFinding = false;
+
+                        foreach (var contextualFinding in rule.AnalyzeContextualPattern(
+                                     calledMethod, allInstructions, instructionIndex, effectiveSignals))
                         {
-                            TrackSuspiciousDownloadSignal(method, calledMethod, allInstructions,
-                                allInstructions.IndexOf(instruction), methodSignals, rule);
-
-                            if (rule.IsSuspicious(calledMethod))
+                            if (rule.RequiresCompanionFinding &&
+                                contextualFinding.Severity != Severity.Low &&
+                                !contextualFinding.BypassCompanionCheck)
                             {
-                                var instructionIndex = allInstructions.IndexOf(instruction);
-                                var effectiveSignals = methodSignals ?? new MethodSignals();
-                                var handlerTypeDesc = GetHandlerTypeDescription(handler);
-                                bool addedContextualFinding = false;
-
-                                if (instructionIndex >= 0)
-                                {
-                                    foreach (var contextualFinding in rule.AnalyzeContextualPattern(
-                                                 calledMethod, allInstructions, instructionIndex, effectiveSignals))
-                                    {
-                                        if (rule.RequiresCompanionFinding &&
-                                            contextualFinding.Severity != Severity.Low &&
-                                            !contextualFinding.BypassCompanionCheck)
-                                        {
-                                            bool hasOtherMethodRule = methodSignals != null &&
-                                                                      methodSignals.HasTriggeredRuleOtherThan(
-                                                                          rule.RuleId);
-                                            var typeSignals = string.IsNullOrEmpty(typeFullName)
-                                                ? null
-                                                : _signalTracker.GetTypeSignals(typeFullName);
-                                            bool hasOtherTypeRule = typeSignals != null &&
-                                                                    typeSignals.HasTriggeredRuleOtherThan(rule.RuleId);
-                                            if (!hasOtherMethodRule && !hasOtherTypeRule)
-                                                continue;
-                                        }
-
-                                        contextualFinding.Description += $" (found in exception {handlerTypeDesc})";
-                                        contextualFinding.RuleId = rule.RuleId;
-                                        contextualFinding.DeveloperGuidance = rule.DeveloperGuidance;
-                                        findings.Add(contextualFinding);
-                                        addedContextualFinding = true;
-
-                                        if (methodSignals != null &&
-                                            !(rule.RequiresCompanionFinding &&
-                                              contextualFinding.Severity == Severity.Low))
-                                        {
-                                            _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
-                                                rule.RuleId);
-                                        }
-
-                                        if (methodSignals != null)
-                                        {
-                                            _signalTracker.MarkSuspiciousExceptionHandling(methodSignals,
-                                                method.DeclaringType);
-                                        }
-                                    }
-                                }
-
-                                if (addedContextualFinding)
+                                bool hasOtherMethodRule = methodSignals != null &&
+                                                          methodSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                var typeSignals = string.IsNullOrEmpty(typeFullName)
+                                    ? null
+                                    : _signalTracker.GetTypeSignals(typeFullName);
+                                bool hasOtherTypeRule = typeSignals != null &&
+                                                        typeSignals.HasTriggeredRuleOtherThan(rule.RuleId);
+                                if (!hasOtherMethodRule && !hasOtherTypeRule)
                                     continue;
-
-                                if (instructionIndex >= 0 &&
-                                    methodSignals != null &&
-                                    rule.ShouldSuppressFinding(calledMethod, allInstructions, instructionIndex,
-                                        methodSignals))
-                                {
-                                    continue;
-                                }
-
-                                var snippet = _snippetBuilder.BuildSnippet(allInstructions, instructionIndex, 2);
-
-                                var finding = new ScanFinding(
-                                    $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
-                                    rule.Description + $" (found in exception {handlerTypeDesc})",
-                                    rule.Severity,
-                                    snippet) { RuleId = rule.RuleId, DeveloperGuidance = rule.DeveloperGuidance };
-
-                                findings.Add(finding);
-
-                                if (methodSignals != null)
-                                {
-                                    if (!(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
-                                    {
-                                        _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType,
-                                            rule.RuleId);
-                                    }
-
-                                    _signalTracker.MarkSuspiciousExceptionHandling(methodSignals, method.DeclaringType);
-                                }
                             }
+
+                            if (findingBudget == 0)
+                            {
+                                incomplete = true;
+                                return;
+                            }
+
+                            contextualFinding.Description += $" (found in exception {handlerTypeDesc})";
+                            contextualFinding.RuleId = rule.RuleId;
+                            contextualFinding.DeveloperGuidance = rule.DeveloperGuidance;
+                            findings.Add(contextualFinding);
+                            findingBudget--;
+                            addedContextualFinding = true;
+                            MarkFindingSignals(method, methodSignals, rule, contextualFinding);
                         }
+
+                        if (addedContextualFinding)
+                            continue;
+
+                        if (methodSignals != null &&
+                            rule.ShouldSuppressFinding(calledMethod, allInstructions, instructionIndex, methodSignals))
+                        {
+                            continue;
+                        }
+
+                        if (findingBudget == 0)
+                        {
+                            incomplete = true;
+                            return;
+                        }
+
+                        var snippet = _snippetBuilder.BuildSnippet(allInstructions, instructionIndex, 2);
+                        var finding = new ScanFinding(
+                            $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
+                            rule.Description + $" (found in exception {handlerTypeDesc})",
+                            rule.Severity,
+                            snippet)
+                        {
+                            RuleId = rule.RuleId,
+                            DeveloperGuidance = rule.DeveloperGuidance
+                        };
+
+                        findings.Add(finding);
+                        findingBudget--;
+                        MarkFindingSignals(method, methodSignals, rule, finding);
+                    }
+                    catch (Exception)
+                    {
+                        // Individual rules may require optional dependency resolution. Other rules still run.
                     }
                 }
             }
-            catch (Exception)
-            {
-                // Skip if handler block analysis fails
-            }
+        }
 
-            return findings;
+        private void MarkFindingSignals(MethodDefinition method, MethodSignals? methodSignals,
+            IScanRule rule, ScanFinding finding)
+        {
+            if (methodSignals == null)
+                return;
+
+            if (!(rule.RequiresCompanionFinding && finding.Severity == Severity.Low))
+                _signalTracker.MarkRuleTriggered(methodSignals, method.DeclaringType, rule.RuleId);
+
+            _signalTracker.MarkSuspiciousExceptionHandling(methodSignals, method.DeclaringType);
         }
 
         private void TrackSuspiciousDownloadSignal(
@@ -203,42 +247,8 @@ namespace MLVScan.Services
                          calledMethod, allInstructions, instructionIndex, methodSignals))
             {
                 if (finding.Severity is Severity.High or Severity.Critical)
-                {
                     _signalTracker.MarkSuspiciousNetworkDownload(methodSignals, method.DeclaringType);
-                }
             }
-        }
-
-        private static List<Instruction> GetInstructionsInRange(
-            Mono.Collections.Generic.Collection<Instruction> allInstructions,
-            Instruction start,
-            Instruction? end)
-        {
-            var result = new List<Instruction>();
-
-            if (start == null)
-                return result;
-
-            bool inRange = false;
-            foreach (var instruction in allInstructions)
-            {
-                if (instruction == start)
-                {
-                    inRange = true;
-                }
-
-                if (inRange)
-                {
-                    result.Add(instruction);
-                }
-
-                if (instruction == end)
-                {
-                    break;
-                }
-            }
-
-            return result;
         }
 
         private static string GetHandlerTypeDescription(ExceptionHandler handler)

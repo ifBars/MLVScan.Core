@@ -15,6 +15,9 @@ public class ScanConfigTests
         config.DetectAssemblyMetadata.Should().BeTrue();
         config.EnableMultiSignalDetection.Should().BeTrue();
         config.AnalyzeExceptionHandlers.Should().BeTrue();
+        config.MaxExceptionHandlersPerMethod.Should().Be(128);
+        config.MaxExceptionHandlerInstructionsPerMethod.Should().Be(16384);
+        config.MaxExceptionHandlerFindingsPerMethod.Should().Be(256);
         config.AnalyzeLocalVariables.Should().BeTrue();
         config.AnalyzePropertyAccessors.Should().BeTrue();
         config.DeveloperMode.Should().BeFalse();
@@ -29,6 +32,9 @@ public class ScanConfigTests
             DetectAssemblyMetadata = false,
             EnableMultiSignalDetection = false,
             AnalyzeExceptionHandlers = false,
+            MaxExceptionHandlersPerMethod = 4,
+            MaxExceptionHandlerInstructionsPerMethod = 32,
+            MaxExceptionHandlerFindingsPerMethod = 2,
             AnalyzeLocalVariables = false,
             AnalyzePropertyAccessors = false,
             DeveloperMode = true
@@ -38,6 +44,9 @@ public class ScanConfigTests
         config.DetectAssemblyMetadata.Should().BeFalse();
         config.EnableMultiSignalDetection.Should().BeFalse();
         config.AnalyzeExceptionHandlers.Should().BeFalse();
+        config.MaxExceptionHandlersPerMethod.Should().Be(4);
+        config.MaxExceptionHandlerInstructionsPerMethod.Should().Be(32);
+        config.MaxExceptionHandlerFindingsPerMethod.Should().Be(2);
         config.AnalyzeLocalVariables.Should().BeFalse();
         config.AnalyzePropertyAccessors.Should().BeFalse();
         config.DeveloperMode.Should().BeTrue();
