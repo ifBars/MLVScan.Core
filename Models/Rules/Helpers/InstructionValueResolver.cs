@@ -60,20 +60,26 @@ namespace MLVScan.Models.Rules.Helpers
         /// Tries to resolve the argument string passed to a process-launching call.
         /// </summary>
         /// <param name="containingMethod">The method containing the call site.</param>
+        /// <param name="calledMethod">The process-launching method being invoked.</param>
         /// <param name="instructions">The method body instructions.</param>
         /// <param name="processStartIndex">The call instruction index.</param>
         /// <param name="arguments">Receives the resolved argument display string.</param>
         /// <returns><see langword="true"/> when the arguments could be reconstructed.</returns>
         public static bool TryResolveProcessArguments(
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out string arguments)
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoArgumentsSetter(context, containingMethod, instructions, processStartIndex,
-                    out var resolved))
+            if (TryResolveFromProcessArgumentOverload(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out var resolved) ||
+                TryResolveFromStartInfoArgumentsSetter(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved) ||
+                TryResolveFromStartInfoConstructor(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved))
             {
                 arguments = resolved.Display;
                 return true;
@@ -81,6 +87,95 @@ namespace MLVScan.Models.Rules.Helpers
 
             arguments = "<unknown/no-arguments>";
             return false;
+        }
+
+        private static bool TryResolveFromProcessArgumentOverload(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                !HasCommandArgumentParameter(calledMethod))
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArguments(context, containingMethod, instructions, processStartIndex,
+                    calledMethod.Parameters.Count, null, 0, out var args) || args.Count <= 1)
+            {
+                return false;
+            }
+
+            value = args[1];
+            return true;
+        }
+
+        private static bool HasCommandArgumentParameter(MethodReference calledMethod)
+        {
+            if (calledMethod.Parameters.Count == 2)
+            {
+                return calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                       calledMethod.Parameters[1].ParameterType.FullName == "System.String";
+            }
+
+            if (calledMethod.Parameters.Count != 5)
+                return false;
+
+            return calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[1].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[2].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[3].ParameterType.FullName == "System.Security.SecureString" &&
+                   calledMethod.Parameters[4].ParameterType.FullName == "System.String";
+        }
+
+        private static bool TryResolveFromStartInfoConstructor(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                !string.Equals(calledMethod.Parameters[0].ParameterType.FullName,
+                    "System.Diagnostics.ProcessStartInfo", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var identity) ||
+                !identity.StartsWith("new:", StringComparison.Ordinal) ||
+                !int.TryParse(identity.AsSpan(4), out int constructorIndex) ||
+                constructorIndex < 0 || constructorIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            if (instructions[constructorIndex].OpCode != OpCodes.Newobj ||
+                instructions[constructorIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                constructor.Name != ".ctor" ||
+                constructor.Parameters.Count < 2 ||
+                constructor.Parameters[1].ParameterType.FullName != "System.String")
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArguments(context, containingMethod, instructions, constructorIndex,
+                    constructor.Parameters.Count, null, 0, out var args) || args.Count <= 1)
+            {
+                return false;
+            }
+
+            value = args[1];
+            return true;
         }
 
         /// <summary>
@@ -740,11 +835,19 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryResolveFromStartInfoArgumentsSetter(
             ResolverContext context,
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out ResolvedValue value)
         {
             value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                calledMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return false;
+            }
+
             int searchStart = Math.Max(0, processStartIndex - 400);
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
