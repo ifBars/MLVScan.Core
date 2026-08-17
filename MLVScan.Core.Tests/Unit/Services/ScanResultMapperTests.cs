@@ -564,6 +564,26 @@ public class ScanResultMapperTests
     }
 
     [Fact]
+    public void ToDto_WithStandaloneCriticalFinding_MapsBlockingDispositionAndDefaultVisibility()
+    {
+        var finding = new ScanFinding(
+            "Suspicious.Mod.Initialize",
+            "Critical native behavior detected",
+            Severity.Critical)
+        {
+            RuleId = "DllImportRule"
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
+
+        result.Disposition.Should().NotBeNull();
+        result.Disposition!.Classification.Should().Be("Suspicious");
+        result.Disposition.BlockingRecommended.Should().BeTrue();
+        result.Findings.Should().ContainSingle().Which.Visibility.Should().Be("Default");
+        result.Disposition.RelatedFindingIds.Should().Contain(result.Findings[0].Id);
+    }
+
+    [Fact]
     public void ToDto_WithSuspiciousDataFlow_MapsSuspiciousDisposition()
     {
         var dataFlow = new DataFlowChain(

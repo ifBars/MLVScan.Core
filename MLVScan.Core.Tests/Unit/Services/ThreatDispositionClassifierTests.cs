@@ -274,6 +274,28 @@ public class ThreatDispositionClassifierTests
         result.BlockingRecommended.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("ProcessStartRule")]
+    [InlineData("MultiSignalDetection")]
+    [InlineData("DllImportRule")]
+    public void Classify_WithStandaloneCriticalFinding_ReturnsSuspicious(string ruleId)
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var finding = new ScanFinding(
+            "Suspicious.Mod.Initialize",
+            "Critical security behavior detected",
+            Severity.Critical)
+        {
+            RuleId = ruleId
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
     [Fact]
     public void Classify_WithSingleHighSeverityCallChainFinding_ReturnsClean()
     {
