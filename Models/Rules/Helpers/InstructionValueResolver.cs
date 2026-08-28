@@ -58,6 +58,13 @@ namespace MLVScan.Models.Rules.Helpers
             return allowDetachedReference && scope == null && method.Module == null;
         }
 
+        private static readonly HashSet<string> RecognizedBareProcessTargets =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "curl",
+                "wget"
+            };
+
         /// <summary>
         /// Tries to resolve the executable or command target passed to a process-launching call.
         /// </summary>
@@ -76,8 +83,12 @@ namespace MLVScan.Models.Rules.Helpers
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoSetter(context, containingMethod, instructions, processStartIndex,
-                    out var resolved) ||
+            if ((calledMethod.Parameters.Count > 0 &&
+                 calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                 TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions,
+                     processStartIndex, out var resolved)) ||
+                TryResolveFromStartInfoSetter(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved) ||
                 TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions,
                     processStartIndex, out resolved))
             {
@@ -1878,6 +1889,12 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var launchedStartInfoIdentity))
+            {
+                return false;
+            }
+
             int searchStart = Math.Max(0, processStartIndex - 400);
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
@@ -1895,6 +1912,13 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
+                if (!TryResolveCallReceiverIdentity(instructions, i, out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, Array.Empty<ExceptionHandler>(),
+                        launchedStartInfoIdentity, setterReceiverIdentity))
+                {
+                    continue;
+                }
+
                 return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
                     out _);
             }
@@ -1905,11 +1929,25 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryResolveFromStartInfoSetter(
             ResolverContext context,
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out ResolvedValue value)
         {
             value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                calledMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var launchedStartInfoIdentity))
+            {
+                return false;
+            }
+
             int searchStart = Math.Max(0, processStartIndex - 400);
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
@@ -1923,6 +1961,13 @@ namespace MLVScan.Models.Rules.Helpers
 
                 if (methodRef.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
                     methodRef.Name != "set_FileName")
+                {
+                    continue;
+                }
+
+                if (!TryResolveCallReceiverIdentity(instructions, i, out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, Array.Empty<ExceptionHandler>(),
+                        launchedStartInfoIdentity, setterReceiverIdentity))
                 {
                     continue;
                 }
@@ -2563,7 +2608,8 @@ namespace MLVScan.Models.Rules.Helpers
                    normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                    normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
                    normalized.Contains("\\") ||
-                   normalized.Contains("/");
+                   normalized.Contains("/") ||
+                   RecognizedBareProcessTargets.Contains(normalized);
         }
 
         private sealed class ResolverContext
