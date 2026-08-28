@@ -134,6 +134,9 @@ jobs:
     - name: Publish to npm
       run: |
         package_tarball="$(realpath ./package-artifact/*.tgz)"
-        bun publish "$package_tarball" --access public
+        mkdir ./package-to-publish
+        tar -xzf "$package_tarball" --strip-components=1 -C ./package-to-publish
+        cd ./package-to-publish
+        bun publish --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
