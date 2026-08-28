@@ -375,14 +375,35 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             var context = new ResolverContext(containingMethod?.Module);
-            if (!TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, null, 0,
-                    out var resolved))
+            if (!TryResolveIdentityValue(context, containingMethod, instructions, identity, out var resolved))
             {
                 return false;
             }
 
             valueDisplay = resolved.Display;
             return true;
+        }
+
+        private static bool TryResolveIdentityValue(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            string identity,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!identity.StartsWith("literal:", StringComparison.Ordinal) &&
+                !identity.StartsWith("call:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int separatorIndex = identity.IndexOf(':');
+            return separatorIndex > 0 &&
+                   int.TryParse(identity.AsSpan(separatorIndex + 1), out int producerIndex) &&
+                   producerIndex >= 0 && producerIndex < instructions.Count &&
+                   TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, null, 0,
+                       out value);
         }
 
         internal static string FormatProcessTargetDisplay(string valueDisplay)
@@ -1932,7 +1953,11 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
             int searchStart = Math.Max(0, processStartIndex - 400);
+            var matchingSetters = new HashSet<Instruction>();
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
             {
@@ -1949,15 +1974,30 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
-                if (!TryResolveCallReceiverIdentity(instructions, i, out var setterReceiverIdentity) ||
-                    !AreEquivalentProducerIdentities(instructions, Array.Empty<ExceptionHandler>(),
+                if (!TryResolveCallReceiverIdentity(instructions, i, exceptionHandlers,
+                        out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, exceptionHandlers,
                         launchedStartInfoIdentity, setterReceiverIdentity))
+                {
+                    continue;
+                }
+
+                matchingSetters.Add(instructions[i]);
+                if (!IsGuaranteedToExecuteBefore(instructions, exceptionHandlers, i, processStartIndex))
                 {
                     continue;
                 }
 
                 return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
                     out _);
+            }
+
+            if (matchingSetters.Count > 1 &&
+                TryResolveEquivalentCallArgumentReachingDefinitions(instructions, exceptionHandlers,
+                    processStartIndex, matchingSetters.Contains, 0, out var equivalentIdentity) &&
+                TryResolveIdentityValue(context, containingMethod, instructions, equivalentIdentity, out value))
+            {
+                return true;
             }
 
             return false;
@@ -1985,7 +2025,11 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
             int searchStart = Math.Max(0, processStartIndex - 400);
+            var matchingSetters = new HashSet<Instruction>();
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
             {
@@ -2002,15 +2046,30 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
-                if (!TryResolveCallReceiverIdentity(instructions, i, out var setterReceiverIdentity) ||
-                    !AreEquivalentProducerIdentities(instructions, Array.Empty<ExceptionHandler>(),
+                if (!TryResolveCallReceiverIdentity(instructions, i, exceptionHandlers,
+                        out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, exceptionHandlers,
                         launchedStartInfoIdentity, setterReceiverIdentity))
+                {
+                    continue;
+                }
+
+                matchingSetters.Add(instructions[i]);
+                if (!IsGuaranteedToExecuteBefore(instructions, exceptionHandlers, i, processStartIndex))
                 {
                     continue;
                 }
 
                 return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
                     out _);
+            }
+
+            if (matchingSetters.Count > 1 &&
+                TryResolveEquivalentCallArgumentReachingDefinitions(instructions, exceptionHandlers,
+                    processStartIndex, matchingSetters.Contains, 0, out var equivalentIdentity) &&
+                TryResolveIdentityValue(context, containingMethod, instructions, equivalentIdentity, out value))
+            {
+                return true;
             }
 
             return false;
