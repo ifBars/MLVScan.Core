@@ -994,6 +994,119 @@ namespace MLVScan.Models.Rules.Helpers
                 });
         }
 
+        public static bool TryResolveCallArgumentReachingDefinitionDisplays(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int useIndex,
+            Func<Instruction, bool> isDefinition,
+            int argumentIndex,
+            out IReadOnlyList<string> displays)
+        {
+            displays = Array.Empty<string>();
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
+            const int maxReachingDefinitions = 64;
+            const int maxWorkUnits = 65_536;
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+            var pending = new Queue<(int Index, int DefinitionIndex)>();
+            var visited = new HashSet<(int Index, int DefinitionIndex)>();
+            var reachingDefinitions = new HashSet<int>();
+            pending.Enqueue((0, -1));
+            foreach (var handler in exceptionHandlers)
+            {
+                int handlerEndIndex = instructions.Count;
+                if (handler.HandlerType == ExceptionHandlerType.Catch ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    continue;
+                }
+
+                if (useIndex >= handlerStartIndex && useIndex < handlerEndIndex)
+                    pending.Enqueue((handlerStartIndex, -1));
+            }
+
+            int workUnits = 0;
+            while (pending.Count > 0)
+            {
+                if (++workUnits > maxWorkUnits)
+                    return false;
+
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    if (current.DefinitionIndex < 0 ||
+                        reachingDefinitions.Count >= maxReachingDefinitions &&
+                        !reachingDefinitions.Contains(current.DefinitionIndex))
+                    {
+                        return false;
+                    }
+
+                    reachingDefinitions.Add(current.DefinitionIndex);
+                    continue;
+                }
+
+                var instruction = instructions[current.Index];
+                int nextDefinition = isDefinition(instruction) ? current.Index : current.DefinitionIndex;
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, current.DefinitionIndex));
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return false;
+
+                    pending.Enqueue((targetIndex, nextDefinition));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
+                            return false;
+
+                        pending.Enqueue((targetIndex, nextDefinition));
+                    }
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, nextDefinition));
+            }
+
+            if (reachingDefinitions.Count == 0)
+                return false;
+
+            var resolvedDisplays = new List<string>(reachingDefinitions.Count);
+            foreach (int definitionIndex in reachingDefinitions.OrderBy(index => index))
+            {
+                if (HasRelevantUnsupportedHandler(instructions, exceptionHandlers, definitionIndex, useIndex) ||
+                    instructions[definitionIndex].Operand is not MethodReference method ||
+                    argumentIndex < 0 || argumentIndex >= method.Parameters.Count ||
+                    !TryResolveCallArgumentDisplay(containingMethod, method, instructions, definitionIndex,
+                        argumentIndex, exceptionHandlers, out var display))
+                {
+                    return false;
+                }
+
+                if (!resolvedDisplays.Contains(display, StringComparer.Ordinal))
+                    resolvedDisplays.Add(display);
+            }
+
+            displays = resolvedDisplays;
+            return displays.Count > 0;
+        }
+
         private static bool TryResolveEquivalentReachingDefinitions(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             IReadOnlyList<ExceptionHandler> exceptionHandlers,
@@ -1983,20 +2096,15 @@ namespace MLVScan.Models.Rules.Helpers
                 }
 
                 matchingSetters.Add(instructions[i]);
-                if (!IsGuaranteedToExecuteBefore(instructions, exceptionHandlers, i, processStartIndex))
-                {
-                    continue;
-                }
-
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
-                    out _);
             }
 
-            if (matchingSetters.Count > 1 &&
-                TryResolveEquivalentCallArgumentReachingDefinitions(instructions, exceptionHandlers,
-                    processStartIndex, matchingSetters.Contains, 0, out var equivalentIdentity) &&
-                TryResolveIdentityValue(context, containingMethod, instructions, equivalentIdentity, out value))
+            if (matchingSetters.Count > 0 &&
+                TryResolveCallArgumentReachingDefinitionDisplays(containingMethod, instructions,
+                    exceptionHandlers, processStartIndex, matchingSetters.Contains, 0, out var displays))
             {
+                string combinedDisplay = string.Join(" | ", displays);
+                value = new ResolvedValue(combinedDisplay, ExtractExecutableName(combinedDisplay),
+                    displays.All(display => !display.StartsWith("<", StringComparison.Ordinal)));
                 return true;
             }
 

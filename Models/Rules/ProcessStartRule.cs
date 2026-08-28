@@ -1510,23 +1510,14 @@ namespace MLVScan.Models.Rules
                 }
 
                 matchingArgumentSetters.Add(instructions[i]);
-                if (!InstructionValueResolver.IsGuaranteedToExecuteBefore(
-                        instructions, exceptionHandlers, i, processStartIndex))
-                {
-                    continue;
-                }
-
-                return InstructionValueResolver.TryResolveCallArgumentDisplay(containingMethod, setter,
-                    instructions, i, 0, exceptionHandlers, out argumentsDisplay);
             }
 
-            if (matchingArgumentSetters.Count > 1 &&
-                InstructionValueResolver.TryResolveEquivalentCallArgumentReachingDefinitions(
-                    instructions, exceptionHandlers, processStartIndex,
-                    matchingArgumentSetters.Contains, 0, out var equivalentArgumentsIdentity) &&
-                InstructionValueResolver.TryResolveIdentityDisplay(containingMethod, instructions,
-                    equivalentArgumentsIdentity, out argumentsDisplay))
+            if (matchingArgumentSetters.Count > 0 &&
+                InstructionValueResolver.TryResolveCallArgumentReachingDefinitionDisplays(
+                    containingMethod, instructions, exceptionHandlers, processStartIndex,
+                    matchingArgumentSetters.Contains, 0, out var displays))
             {
+                argumentsDisplay = string.Join(" | ", displays);
                 return true;
             }
 
