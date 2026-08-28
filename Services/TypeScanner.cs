@@ -150,7 +150,13 @@ namespace MLVScan.Services
             }
             catch (Exception)
             {
-                // Skip type if it can't be properly analyzed
+                findings.Add(new ScanFinding(
+                    type.FullName,
+                    "Warning: Could not complete full IL analysis for this type. Manual review is required.",
+                    Severity.Medium)
+                {
+                    RuleId = "TypeScanWarning"
+                });
             }
             finally
             {
@@ -222,6 +228,10 @@ namespace MLVScan.Services
 
         private static bool HasStrongReflectionCompanion(MethodSignals typeSignal, string reflectionRuleId)
         {
+            if (typeSignal.UsesSensitiveFolder || typeSignal.HasEnvironmentVariableModification ||
+                typeSignal.HasSuspiciousNetworkDownload)
+                return true;
+
             foreach (var triggeredRuleId in typeSignal.GetTriggeredRuleIds())
             {
                 if (triggeredRuleId.Equals(reflectionRuleId, StringComparison.Ordinal))

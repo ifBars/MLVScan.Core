@@ -254,6 +254,18 @@ public class SignalTrackerTests
     }
 
     [Fact]
+    public void MarkSuspiciousNetworkDownload_SetsFlag()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true };
+        var tracker = new SignalTracker(config);
+        var signals = new MethodSignals();
+
+        tracker.MarkSuspiciousNetworkDownload(signals, null);
+
+        signals.HasSuspiciousNetworkDownload.Should().BeTrue();
+    }
+
+    [Fact]
     public void MarkRuleTriggered_AddsRuleIdToSignals()
     {
         var config = new ScanConfig { EnableMultiSignalDetection = true };

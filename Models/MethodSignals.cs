@@ -6,6 +6,9 @@ namespace MLVScan.Models
     /// </summary>
     public class MethodSignals
     {
+        internal IReadOnlyList<Mono.Cecil.Cil.ExceptionHandler> ExceptionHandlers { get; set; } =
+            Array.Empty<Mono.Cecil.Cil.ExceptionHandler>();
+
         /// <summary>
         /// Gets or sets a value indicating whether encoded or obfuscated strings were observed.
         /// </summary>
@@ -35,6 +38,11 @@ namespace MLVScan.Models
         /// Gets or sets a value indicating whether network activity was observed.
         /// </summary>
         public bool HasNetworkCall { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether a download rule matched a suspicious endpoint or payload source.
+        /// </summary>
+        public bool HasSuspiciousNetworkDownload { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether the method writes data to disk.

@@ -48,6 +48,13 @@ namespace MLVScan.Services
             _config = config ?? new ScanConfig();
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
             _rules = rules as IReadOnlyCollection<IScanRule> ?? rules.ToList();
+            foreach (var rule in _rules)
+            {
+                if (rule is AssemblyDynamicLoadRule dynamicLoadRule)
+                {
+                    dynamicLoadRule.ConfigureRecursiveResourceScanning(_config);
+                }
+            }
             _telemetry = new ScanTelemetryHub();
             _progressReporter = progressReporter;
 
@@ -60,7 +67,7 @@ namespace MLVScan.Services
             _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder, entryPointProvider);
 
             // Create data flow analyzer for tracking data movement through operations
-            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder, _telemetry);
+            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder, _config, _telemetry);
 
             var reflectionDetector =
                 new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
@@ -153,8 +160,8 @@ namespace MLVScan.Services
             {
                 findings.Add(new ScanFinding(
                     "Assembly scanning",
-                    "Warning: Some parts of the assembly could not be scanned. This doesn't necessarily mean the mod is malicious.",
-                    Severity.Low) { RuleId = "AssemblyScanner" });
+                    "Warning: The assembly could not be scanned completely. Manual review is required before treating this input as clean.",
+                    Severity.Medium) { RuleId = "AssemblyScanner" });
             }
 
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
@@ -240,8 +247,8 @@ namespace MLVScan.Services
             {
                 findings.Add(new ScanFinding(
                     virtualPath ?? "Assembly scanning",
-                    "Warning: Some parts of the assembly could not be scanned. Please ensure this is a valid managed .NET assembly. This doesn't necessarily mean the assembly is malicious.",
-                    Severity.Low) { RuleId = "AssemblyScanner" });
+                    "Warning: The assembly could not be scanned completely. Please ensure this is a valid managed .NET assembly. Manual review is required before treating this input as clean.",
+                    Severity.Medium) { RuleId = "AssemblyScanner" });
             }
 
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
@@ -372,14 +379,6 @@ namespace MLVScan.Services
 
         private static IEnumerable<ScanFinding> FilterEmptyFindings(List<ScanFinding> findings)
         {
-            // Filter out single low-severity warning when nothing else was found
-            if (findings.Count == 1 &&
-                findings[0].Location == "Assembly scanning" &&
-                string.IsNullOrEmpty(findings[0].CodeSnippet))
-            {
-                return new List<ScanFinding>();
-            }
-
             return findings;
         }
 

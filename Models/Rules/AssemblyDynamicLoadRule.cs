@@ -36,6 +36,14 @@ namespace MLVScan.Models.Rules
 
         // Pending findings collected during AnalyzeContextualPattern, refined in PostAnalysisRefine
         private readonly List<PendingLoadFinding> _pendingFindings = new();
+        private bool _enableRecursiveResourceScanning = true;
+        private long _maxRecursiveResourceBytes = 10L * 1024 * 1024;
+
+        internal void ConfigureRecursiveResourceScanning(ScanConfig config)
+        {
+            _enableRecursiveResourceScanning = config.EnableRecursiveResourceScanning;
+            _maxRecursiveResourceBytes = Math.Max(0L, (long)config.MaxRecursiveResourceSizeMB * 1024 * 1024);
+        }
 
         #region Well-Known Safe Assembly Names
 
@@ -306,13 +314,19 @@ namespace MLVScan.Models.Rules
         {
             var additionalFindings = new List<ScanFinding>();
 
+            if (!_enableRecursiveResourceScanning || _maxRecursiveResourceBytes == 0)
+            {
+                _pendingFindings.Clear();
+                return additionalFindings;
+            }
+
             foreach (var pending in _pendingFindings)
             {
                 if (string.IsNullOrEmpty(pending.ResourceName))
                     continue;
 
                 // Try to find and scan the embedded resource
-                var innerFindings = ScanEmbeddedResource(module, pending.ResourceName);
+                var innerFindings = ScanEmbeddedResource(module, pending.ResourceName, _maxRecursiveResourceBytes);
                 if (innerFindings.Count > 0)
                 {
                     // Compute boost from inner findings
@@ -1086,7 +1100,10 @@ namespace MLVScan.Models.Rules
 
         #region Recursive Embedded Resource Scanning
 
-        private static List<ScanFinding> ScanEmbeddedResource(ModuleDefinition module, string resourceName)
+        private static List<ScanFinding> ScanEmbeddedResource(
+            ModuleDefinition module,
+            string resourceName,
+            long maxResourceBytes)
         {
             var findings = new List<ScanFinding>();
 
@@ -1109,12 +1126,9 @@ namespace MLVScan.Models.Rules
                 if (resource == null)
                     return findings;
 
-                var resourceData = resource.GetResourceData();
-                if (resourceData == null || resourceData.Length == 0)
-                    return findings;
-
-                // Size limit: skip resources larger than 10MB
-                if (resourceData.Length > 10 * 1024 * 1024)
+                using var storedResourceStream = resource.GetResourceStream();
+                if (!TryReadBounded(storedResourceStream, maxResourceBytes, out var resourceData) ||
+                    resourceData.Length == 0)
                     return findings;
 
                 // Check if it looks like a PE/assembly (MZ header)
@@ -1129,7 +1143,17 @@ namespace MLVScan.Models.Rules
                             using var gzipStream = new System.IO.Compression.GZipStream(
                                 compressedStream, System.IO.Compression.CompressionMode.Decompress);
                             using var decompressedStream = new System.IO.MemoryStream();
-                            gzipStream.CopyTo(decompressedStream);
+                            var buffer = new byte[81920];
+                            long expandedBytes = 0;
+                            int bytesRead;
+                            while ((bytesRead = gzipStream.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                expandedBytes += bytesRead;
+                                if (expandedBytes > maxResourceBytes)
+                                    return findings;
+
+                                decompressedStream.Write(buffer, 0, bytesRead);
+                            }
                             resourceData = decompressedStream.ToArray();
 
                             // Re-check for MZ header after decompression
@@ -1177,6 +1201,29 @@ namespace MLVScan.Models.Rules
             }
 
             return findings;
+        }
+
+        private static bool TryReadBounded(Stream source, long maxBytes, out byte[] data)
+        {
+            data = Array.Empty<byte>();
+            if (maxBytes <= 0 || (source.CanSeek && source.Length > maxBytes))
+                return false;
+
+            using var destination = new MemoryStream();
+            var buffer = new byte[81920];
+            long totalBytes = 0;
+            int bytesRead;
+            while ((bytesRead = source.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                totalBytes += bytesRead;
+                if (totalBytes > maxBytes)
+                    return false;
+
+                destination.Write(buffer, 0, bytesRead);
+            }
+
+            data = destination.ToArray();
+            return true;
         }
 
         private static ScanFinding CreateEmbeddedChildFinding(string resourceName, ScanFinding innerFinding)

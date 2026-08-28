@@ -22,19 +22,26 @@ namespace MLVScan.Services.DataFlow
             _deepCallChainAnalyzer = new DeepCallChainAnalyzer(patternEvaluator, nodeFactory, config.MaxCallChainDepth);
         }
 
-        public IReadOnlyList<DataFlowChain> Analyze(DataFlowAnalysisState state)
+        public CrossMethodAnalysisResult Analyze(DataFlowAnalysisState state)
         {
             if (!_config.EnableCrossMethodAnalysis)
             {
-                return Array.Empty<DataFlowChain>();
+                return new CrossMethodAnalysisResult(Array.Empty<DataFlowChain>(), true);
             }
 
             var chains = new List<DataFlowChain>();
+            var budget = new CrossMethodAnalysisBudget(
+                _config.MaxCrossMethodCallEdges,
+                _config.MaxDeepCallChainEdges,
+                _config.MaxCrossMethodChains);
 
             foreach (var callerInfo in state.MethodFlowInfos.Values)
             {
                 foreach (var callSite in callerInfo.OutgoingCalls)
                 {
+                    if (!budget.TryConsumeEdge())
+                        return new CrossMethodAnalysisResult(chains, false);
+
                     if (!state.MethodFlowInfos.TryGetValue(callSite.TargetMethodKey, out var calleeInfo))
                     {
                         continue;
@@ -43,6 +50,9 @@ namespace MLVScan.Services.DataFlow
                     var crossMethodChain = TryBuildCrossMethodChain(state, callerInfo, callSite, calleeInfo);
                     if (crossMethodChain != null)
                     {
+                        if (!budget.TryReserveChain())
+                            return new CrossMethodAnalysisResult(chains, false);
+
                         chains.Add(crossMethodChain);
                     }
 
@@ -51,6 +61,9 @@ namespace MLVScan.Services.DataFlow
                         var returnValueChain = TryBuildReturnValueChain(state, callerInfo, callSite, calleeInfo);
                         if (returnValueChain != null)
                         {
+                            if (!budget.TryReserveChain())
+                                return new CrossMethodAnalysisResult(chains, false);
+
                             chains.Add(returnValueChain);
                         }
                     }
@@ -59,10 +72,10 @@ namespace MLVScan.Services.DataFlow
 
             if (_config.MaxCallChainDepth > 2)
             {
-                chains.AddRange(_deepCallChainAnalyzer.Analyze(state));
+                chains.AddRange(_deepCallChainAnalyzer.Analyze(state, budget));
             }
 
-            return chains;
+            return new CrossMethodAnalysisResult(chains, budget.IsComplete);
         }
 
         private DataFlowChain? TryBuildCrossMethodChain(
@@ -265,5 +278,73 @@ namespace MLVScan.Services.DataFlow
                 .ToList();
         }
     }
-#pragma warning restore CS0618
+
+    internal sealed class CrossMethodAnalysisResult
+    {
+        public CrossMethodAnalysisResult(IReadOnlyList<DataFlowChain> chains, bool isComplete)
+        {
+            Chains = chains;
+            IsComplete = isComplete;
+        }
+
+        public IReadOnlyList<DataFlowChain> Chains { get; }
+
+        public bool IsComplete { get; }
+    }
+
+    internal sealed class CrossMethodAnalysisBudget
+    {
+        private readonly int _maxEdges;
+        private readonly int _maxDeepEdges;
+        private readonly int _maxChains;
+        private int _edges;
+        private int _deepEdges;
+        private int _chains;
+
+        public CrossMethodAnalysisBudget(int maxEdges, int maxDeepEdges, int maxChains)
+        {
+            _maxEdges = Math.Max(0, maxEdges);
+            _maxDeepEdges = Math.Max(0, maxDeepEdges);
+            _maxChains = Math.Max(0, maxChains);
+        }
+
+        public bool IsComplete { get; private set; } = true;
+
+        public bool TryConsumeEdge()
+        {
+            if (_edges >= _maxEdges)
+            {
+                IsComplete = false;
+                return false;
+            }
+
+            _edges++;
+            return true;
+        }
+
+        public bool TryConsumeDeepEdge()
+        {
+            if (_deepEdges >= _maxDeepEdges)
+            {
+                IsComplete = false;
+                return false;
+            }
+
+            _deepEdges++;
+            return true;
+        }
+
+        public bool TryReserveChain()
+        {
+            if (_chains >= _maxChains)
+            {
+                IsComplete = false;
+                return false;
+            }
+
+            _chains++;
+            return true;
+        }
+    }
 }
+#pragma warning restore CS0618

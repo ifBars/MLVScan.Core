@@ -38,6 +38,66 @@ public class TypeScannerTests
     }
 
     [Fact]
+    public void ScanType_WithReflectionAndSensitiveFolderAcrossMethods_AddsCombinedReflectionFinding()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true, AnalyzePropertyAccessors = false };
+        var rules = new IScanRule[] { new ReflectionRule(), new ProcessStartRule() };
+
+        var signalTracker = new SignalTracker(config);
+        var snippetBuilder = new CodeSnippetBuilder();
+        var stringPatternDetector = new StringPatternDetector();
+        var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
+        var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
+        var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
+            stringPatternDetector, snippetBuilder, config, null);
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
+            localVariableAnalyzer, exceptionHandlerAnalyzer, config);
+        var propertyEventScanner = new PropertyEventScanner(methodScanner, config);
+        var typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder,
+            propertyEventScanner, rules, config);
+
+        var type = CreateTypeWithReflectionAndSensitiveFolderMethods();
+
+        var findings = typeScanner.ScanType(type).ToList();
+
+        findings.Should().Contain(finding =>
+            finding.RuleId == "ReflectionRule" &&
+            finding.Severity == Severity.High &&
+            finding.Description.Contains("combined with other suspicious patterns detected in this type"));
+    }
+
+    [Fact]
+    public void ScanType_WithReflectionAndSuspiciousDownloadAcrossMethods_AddsCombinedReflectionFinding()
+    {
+        var config = new ScanConfig { EnableMultiSignalDetection = true, AnalyzePropertyAccessors = false };
+        var rules = new IScanRule[] { new DataInfiltrationRule(), new ReflectionRule() };
+
+        var signalTracker = new SignalTracker(config);
+        var snippetBuilder = new CodeSnippetBuilder();
+        var stringPatternDetector = new StringPatternDetector();
+        var reflectionDetector = new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
+        var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, config);
+        var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, config);
+        var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
+            stringPatternDetector, snippetBuilder, config, null);
+        var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
+            localVariableAnalyzer, exceptionHandlerAnalyzer, config);
+        var propertyEventScanner = new PropertyEventScanner(methodScanner, config);
+        var typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder,
+            propertyEventScanner, rules, config);
+
+        var type = CreateTypeWithReflectionAndSuspiciousDownloadMethods();
+
+        var findings = typeScanner.ScanType(type).ToList();
+
+        findings.Should().Contain(finding =>
+            finding.RuleId == "ReflectionRule" &&
+            finding.Severity == Severity.High &&
+            finding.Description.Contains("combined with other suspicious patterns detected in this type"));
+    }
+
+    [Fact]
     public void ScanType_RecursivelyScansNestedTypes()
     {
         var config = new ScanConfig { EnableMultiSignalDetection = true, AnalyzePropertyAccessors = false };
@@ -148,6 +208,77 @@ public class TypeScannerTests
         processMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, startRef));
         processMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
         type.Methods.Add(processMethod);
+
+        return type;
+    }
+
+    private static TypeDefinition CreateTypeWithReflectionAndSensitiveFolderMethods()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("SensitiveReflectionTypeScan", new Version(1, 0, 0, 0)),
+            "SensitiveReflectionTypeScan",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "SensitiveReflectionType", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var reflectMethod = new MethodDefinition("Reflect", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var methodInfoType = new TypeReference("System.Reflection", "MethodInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var invokeRef = new MethodReference("Invoke", module.TypeSystem.Object, methodInfoType);
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, invokeRef));
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Pop));
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(reflectMethod);
+
+        var pathMethod = new MethodDefinition("ResolveStartup", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var environmentType = new TypeReference("System", "Environment", module, module.TypeSystem.CoreLibrary);
+        var getFolderPath = new MethodReference("GetFolderPath", module.TypeSystem.String, environmentType);
+        getFolderPath.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        pathMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ldc_I4_7));
+        pathMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, getFolderPath));
+        pathMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Pop));
+        pathMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(pathMethod);
+
+        return type;
+    }
+
+    private static TypeDefinition CreateTypeWithReflectionAndSuspiciousDownloadMethods()
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("NetworkReflectionTypeScan", new Version(1, 0, 0, 0)),
+            "NetworkReflectionTypeScan",
+            ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test", "NetworkReflectionType", TypeAttributes.Public | TypeAttributes.Class,
+            module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var reflectMethod = new MethodDefinition("Reflect", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var methodInfoType = new TypeReference("System.Reflection", "MethodInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var invokeRef = new MethodReference("Invoke", module.TypeSystem.Object, methodInfoType);
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, invokeRef));
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Pop));
+        reflectMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(reflectMethod);
+
+        var downloadMethod = new MethodDefinition("Download", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var webClientType = new TypeReference("System.Net", "WebClient", module, module.TypeSystem.CoreLibrary);
+        var downloadString = new MethodReference("DownloadString", module.TypeSystem.String, webClientType);
+        downloadString.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        downloadMethod.Body.GetILProcessor().Append(
+            Instruction.Create(OpCodes.Ldstr, "https://pastebin.com/raw/example"));
+        downloadMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Call, downloadString));
+        downloadMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Pop));
+        downloadMethod.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(downloadMethod);
 
         return type;
     }

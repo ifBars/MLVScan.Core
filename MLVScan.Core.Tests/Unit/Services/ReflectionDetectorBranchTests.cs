@@ -44,7 +44,7 @@ public sealed class ReflectionDetectorBranchTests
     }
 
     [Fact]
-    public void ScanForReflectionInvocation_SensitiveFolderSignalAlone_DoesNotElevateReflectionFinding()
+    public void ScanForReflectionInvocation_SensitiveFolderSignal_ElevatesReflectionFinding()
     {
         var detector = CreateDetector(new ProcessStartRule());
         var methodDef = CreateMethodDefinition();
@@ -63,7 +63,34 @@ public sealed class ReflectionDetectorBranchTests
             instructions,
             new MethodSignals { UsesSensitiveFolder = true }).ToList();
 
-        findings.Should().BeEmpty();
+        findings.Should().ContainSingle();
+        findings[0].RuleId.Should().Be("ProcessStartRule");
+        findings[0].Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void ScanForReflectionInvocation_EnvironmentModificationSignal_ElevatesReflectionFinding()
+    {
+        var detector = CreateDetector(new ProcessStartRule());
+        var methodDef = CreateMethodDefinition();
+        var calledMethod = CreateMethodReference("System.Type", "InvokeMember");
+        var instructions = new Mono.Collections.Generic.Collection<Instruction>
+        {
+            Instruction.Create(OpCodes.Ldstr, "Start"),
+            Instruction.Create(OpCodes.Call, calledMethod)
+        };
+
+        var findings = detector.ScanForReflectionInvocation(
+            methodDef,
+            instructions[1],
+            calledMethod,
+            1,
+            instructions,
+            new MethodSignals { HasEnvironmentVariableModification = true }).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].RuleId.Should().Be("ProcessStartRule");
+        findings[0].Severity.Should().Be(Severity.Critical);
     }
 
     [Fact]

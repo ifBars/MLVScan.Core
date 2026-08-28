@@ -118,13 +118,17 @@ namespace MLVScan.Services
         /// <param name="instructions">The method instructions.</param>
         /// <param name="methodSignals">Optional signal state collected for the current method.</param>
         /// <param name="typeFullName">The declaring type's full name for type-level signal correlation.</param>
+        /// <param name="exceptionHandlers">Optional exception-handler context used by suppression analysis.</param>
         /// <returns>The findings and deferred reflection work collected for the method.</returns>
         public InstructionAnalysisResult AnalyzeInstructions(MethodDefinition method,
             Mono.Collections.Generic.Collection<Instruction> instructions,
-            MethodSignals? methodSignals, string typeFullName)
+            MethodSignals? methodSignals, string typeFullName,
+            IReadOnlyList<ExceptionHandler>? exceptionHandlers = null)
         {
             var result = new InstructionAnalysisResult();
             var effectiveMethodSignals = methodSignals ?? _signalTracker.CreateMethodSignals() ?? new MethodSignals();
+            if (exceptionHandlers != null)
+                effectiveMethodSignals.ExceptionHandlers = exceptionHandlers;
             var analysisStart = _telemetry.StartTimestamp();
             _telemetry.IncrementCounter("InstructionAnalyzer.MethodsAnalyzed");
             _telemetry.IncrementCounter("InstructionAnalyzer.InstructionsVisited", instructions.Count);
@@ -210,6 +214,14 @@ namespace MLVScan.Services
                                     contextualRuleStart);
                                 foreach (var finding in ruleFindings)
                                 {
+                                    if (methodSignals != null &&
+                                        rule.RuleId.Equals("DataInfiltrationRule", StringComparison.Ordinal) &&
+                                        finding.Severity is Severity.High or Severity.Critical)
+                                    {
+                                        _signalTracker.MarkSuspiciousNetworkDownload(methodSignals,
+                                            method.DeclaringType);
+                                    }
+
                                     // If rule requires companion finding, check if other rules have been triggered
                                     // Exception: Low severity findings are always allowed (e.g., legitimate update checkers)
                                     // Exception: Findings with BypassCompanionCheck are always allowed (high-confidence scored findings)
@@ -383,6 +395,11 @@ namespace MLVScan.Services
                             reflectionDetectorStart);
                         foreach (var finding in reflectionFindings)
                         {
+                            if (HasFindingForRuleAtLocation(result.Findings, finding))
+                            {
+                                continue;
+                            }
+
                             result.Findings.Add(finding);
                             _telemetry.IncrementCounter("InstructionAnalyzer.ReflectionBypassFindings");
                             if (methodSignals != null && _reflectionRule != null &&
@@ -427,6 +444,13 @@ namespace MLVScan.Services
                 existing.Severity == candidate.Severity);
         }
 
+        private static bool HasFindingForRuleAtLocation(IEnumerable<ScanFinding> findings, ScanFinding candidate)
+        {
+            return findings.Any(existing =>
+                string.Equals(existing.RuleId, candidate.RuleId, StringComparison.Ordinal) &&
+                string.Equals(existing.Location, candidate.Location, StringComparison.Ordinal));
+        }
+
         /// <summary>
         /// Builds a set of instruction offsets that are inside exception handler blocks.
         /// These are already analyzed by ExceptionHandlerAnalyzer with proper context.
@@ -463,6 +487,10 @@ namespace MLVScan.Services
         {
             if (signals == null)
                 return false;
+
+            if (signals.UsesSensitiveFolder || signals.HasEnvironmentVariableModification ||
+                signals.HasSuspiciousNetworkDownload)
+                return true;
 
             foreach (var triggeredRuleId in signals.GetTriggeredRuleIds())
             {

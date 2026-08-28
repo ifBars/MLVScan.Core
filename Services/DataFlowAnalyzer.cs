@@ -29,6 +29,16 @@ namespace MLVScan.Services
         /// Gets or sets a value indicating whether return values should be tracked through the flow graph.
         /// </summary>
         public bool EnableReturnValueTracking { get; set; } = true;
+
+        internal int MaxDataFlowOperationsPerMethod { get; set; } = 2048;
+
+        internal int MaxDataFlowChainsPerMethod { get; set; } = 256;
+
+        internal int MaxCrossMethodCallEdges { get; set; } = 100000;
+
+        internal int MaxDeepCallChainEdges { get; set; } = 10000;
+
+        internal int MaxCrossMethodChains { get; set; } = 512;
     }
 
     /// <summary>
@@ -82,6 +92,15 @@ namespace MLVScan.Services
         internal DataFlowAnalyzer(
             IEnumerable<IScanRule> rules,
             CodeSnippetBuilder snippetBuilder,
+            ScanConfig config,
+            ScanTelemetryHub telemetry)
+            : this(rules, snippetBuilder, CreateDataFlowConfig(config), telemetry)
+        {
+        }
+
+        internal DataFlowAnalyzer(
+            IEnumerable<IScanRule> rules,
+            CodeSnippetBuilder snippetBuilder,
             DataFlowAnalyzerConfig config,
             ScanTelemetryHub telemetry)
         {
@@ -105,8 +124,26 @@ namespace MLVScan.Services
             var nodeFactory = new DataFlowNodeFactory(snippetBuilder);
 
             _patternEvaluator = new DataFlowPatternEvaluator();
-            _methodAnalyzer = new DataFlowMethodAnalyzer(_patternEvaluator, nodeFactory);
+            _methodAnalyzer = new DataFlowMethodAnalyzer(_patternEvaluator, nodeFactory, config);
             _crossMethodAnalyzer = new CrossMethodDataFlowAnalyzer(_patternEvaluator, nodeFactory, config);
+        }
+
+        private static DataFlowAnalyzerConfig CreateDataFlowConfig(ScanConfig config)
+        {
+            if (config == null)
+                throw new ArgumentNullException(nameof(config));
+
+            return new DataFlowAnalyzerConfig
+            {
+                EnableCrossMethodAnalysis = config.EnableCrossMethodAnalysis,
+                MaxCallChainDepth = Math.Clamp(config.MaxCallChainDepth, 0, 32),
+                EnableReturnValueTracking = config.EnableReturnValueTracking,
+                MaxDataFlowOperationsPerMethod = Math.Max(0, config.MaxDataFlowOperationsPerMethod),
+                MaxDataFlowChainsPerMethod = Math.Max(0, config.MaxDataFlowChainsPerMethod),
+                MaxCrossMethodCallEdges = Math.Max(0, config.MaxCrossMethodCallEdges),
+                MaxDeepCallChainEdges = Math.Max(0, config.MaxDeepCallChainEdges),
+                MaxCrossMethodChains = Math.Max(0, config.MaxCrossMethodChains)
+            };
         }
 #pragma warning restore CS0618
 
@@ -149,7 +186,9 @@ namespace MLVScan.Services
         public void AnalyzeCrossMethodFlows()
         {
             var crossMethodStart = _telemetry.StartTimestamp();
-            var chains = _crossMethodAnalyzer.Analyze(_state);
+            var analysis = _crossMethodAnalyzer.Analyze(_state);
+            var chains = analysis.Chains;
+            _state.CrossMethodAnalysisComplete = analysis.IsComplete;
             _telemetry.AddPhaseElapsed("DataFlowAnalyzer.AnalyzeCrossMethodFlows", crossMethodStart);
             _telemetry.IncrementCounter("DataFlowAnalyzer.CrossMethodChainsBuilt", chains.Count);
 
@@ -195,7 +234,18 @@ namespace MLVScan.Services
                 findings.Add(new ScanFinding(
                     methodKey,
                     "Warning: Full IL analysis was skipped after the bounded data-flow work limit was reached. Manual review is required.",
-                    Severity.Low)
+                    Severity.Medium)
+                {
+                    RuleId = "DataFlowScanWarning"
+                });
+            }
+
+            if (!_state.CrossMethodAnalysisComplete)
+            {
+                findings.Add(new ScanFinding(
+                    "Cross-method data flow analysis",
+                    "Warning: Cross-method analysis reached its bounded work limit. Manual review is required.",
+                    Severity.Medium)
                 {
                     RuleId = "DataFlowScanWarning"
                 });

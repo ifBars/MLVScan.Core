@@ -12,7 +12,7 @@ namespace MLVScan.Core.Tests.Integration;
 public class SecurityRegressionEdgeCaseTests
 {
     [Fact]
-    public void Scan_InvalidManagedAssemblyStream_WithVirtualPath_ReturnsVisibleScannerWarning()
+    public void Scan_InvalidManagedAssemblyStream_WithVirtualPath_ReturnsBlockingScannerWarning()
     {
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         using var stream = new MemoryStream([0x4d, 0x5a, 0x90, 0x00, 0x00]);
@@ -22,7 +22,7 @@ public class SecurityRegressionEdgeCaseTests
         findings.Should().ContainSingle();
         findings[0].RuleId.Should().Be("AssemblyScanner");
         findings[0].Location.Should().Be("uploaded-malware.dll");
-        findings[0].Severity.Should().Be(Severity.Low);
+        findings[0].Severity.Should().Be(Severity.Medium);
         findings[0].Description.Should().Contain("could not be scanned");
     }
 

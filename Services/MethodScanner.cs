@@ -126,6 +126,7 @@ namespace MLVScan.Services
                 // Initialize signal tracking for this method
                 var methodSignals = _signalTracker.CreateMethodSignals();
                 var effectiveMethodSignals = methodSignals ?? new MethodSignals();
+                effectiveMethodSignals.ExceptionHandlers = method.Body.ExceptionHandlers.ToArray();
 
                 // Analyze local variables if present
                 if (method.Body.HasVariables)
@@ -256,7 +257,8 @@ namespace MLVScan.Services
                 // Analyze instructions for method calls and suspicious patterns
                 var instructionAnalyzerStart = _telemetry.StartTimestamp();
                 var instructionResult =
-                    _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName);
+                    _instructionAnalyzer.AnalyzeInstructions(method, instructions, methodSignals, typeFullName,
+                        effectiveMethodSignals.ExceptionHandlers);
                 _telemetry.AddPhaseElapsed("MethodScanner.InstructionAnalyzer", instructionAnalyzerStart);
                 result.Findings.AddRange(instructionResult.Findings);
                 result.PendingReflectionFindings.AddRange(instructionResult.PendingReflectionFindings);
@@ -290,7 +292,13 @@ namespace MLVScan.Services
             }
             catch (Exception)
             {
-                // Skip method if it can't be properly analyzed
+                result.Findings.Add(new ScanFinding(
+                    $"{method.DeclaringType?.FullName}.{method.Name}",
+                    "Warning: Could not complete full IL analysis for this method. Manual review is required.",
+                    Severity.Medium)
+                {
+                    RuleId = "MethodScanWarning"
+                });
             }
             finally
             {

@@ -129,6 +129,37 @@ public class DllImportScannerTests
         findings[0].Description.Should().Contain("diagnostic DllImport");
     }
 
+    [Theory]
+    [InlineData("MiniDumpWriteDump")]
+    [InlineData("MiniDumpWriteDumpA")]
+    [InlineData("MiniDumpWriteDumpW")]
+    public void ScanForDllImports_WithMiniDumpWriteDump_ReturnsHighSeverity(string entryPoint)
+    {
+        var rules = new List<IScanRule> { new DllImportRule() };
+        var scanner = new DllImportScanner(rules);
+
+        var assemblyBuilder = TestAssemblyBuilder.Create();
+        var assembly = assemblyBuilder.Build();
+
+        var type = new TypeDefinition("Test", "NativeMethods", TypeAttributes.Public | TypeAttributes.Class);
+        assembly.MainModule.Types.Add(type);
+
+        var method = new MethodDefinition("WriteDump",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PInvokeImpl,
+            assembly.MainModule.TypeSystem.Boolean);
+
+        var moduleRef = new ModuleReference("dbghelp.dll");
+        assembly.MainModule.ModuleReferences.Add(moduleRef);
+        method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi, entryPoint, moduleRef);
+        type.Methods.Add(method);
+
+        var findings = scanner.ScanForDllImports(assembly.MainModule).ToList();
+
+        findings.Should().ContainSingle();
+        findings[0].Severity.Should().Be(Severity.High);
+        findings[0].Description.Should().Contain("elevated-risk function");
+    }
+
     [Fact]
     public void ScanForDllImports_WithExtensionlessElevatedRiskDll_ReturnsHighSeverity()
     {
