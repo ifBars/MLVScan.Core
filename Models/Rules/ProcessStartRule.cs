@@ -120,7 +120,7 @@ namespace MLVScan.Models.Rules
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ResolverPlaceholderPattern = new Regex(
-            @"<(?:arg\s+\d+|dynamic[^>]*|unknown[^>]*)>",
+            @"<(?:arg\s+\d+|local\s+[^>]*|field\s+[^>]*|static-field\s+[^>]*|dynamic[^>]*|unknown[^>]*|null|boxed-value)>",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex TempPathPattern = new Regex(
@@ -1473,6 +1473,7 @@ namespace MLVScan.Models.Rules
             }
 
             string startInfoIdentity = string.Empty;
+            var matchingArgumentSetters = new HashSet<Instruction>();
             for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
             {
                 if (instructions[i].Operand is not MethodReference setter ||
@@ -1508,14 +1509,25 @@ namespace MLVScan.Models.Rules
                     continue;
                 }
 
+                matchingArgumentSetters.Add(instructions[i]);
                 if (!InstructionValueResolver.IsGuaranteedToExecuteBefore(
                         instructions, exceptionHandlers, i, processStartIndex))
                 {
-                    return false;
+                    continue;
                 }
 
                 return InstructionValueResolver.TryResolveCallArgumentDisplay(containingMethod, setter,
                     instructions, i, 0, exceptionHandlers, out argumentsDisplay);
+            }
+
+            if (matchingArgumentSetters.Count > 1 &&
+                InstructionValueResolver.TryResolveEquivalentCallArgumentReachingDefinitions(
+                    instructions, exceptionHandlers, processStartIndex,
+                    matchingArgumentSetters.Contains, 0, out var equivalentArgumentsIdentity) &&
+                InstructionValueResolver.TryResolveIdentityDisplay(containingMethod, instructions,
+                    equivalentArgumentsIdentity, out argumentsDisplay))
+            {
+                return true;
             }
 
             if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
