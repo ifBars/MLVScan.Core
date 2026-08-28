@@ -353,6 +353,43 @@ namespace MLVScan.Models.Rules.Helpers
                    TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
+        internal static bool TryResolveIdentityDisplay(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            string identity,
+            out string valueDisplay)
+        {
+            valueDisplay = "<unknown/non-literal>";
+            if (!identity.StartsWith("literal:", StringComparison.Ordinal) &&
+                !identity.StartsWith("call:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int separatorIndex = identity.IndexOf(':');
+            if (separatorIndex <= 0 ||
+                !int.TryParse(identity.AsSpan(separatorIndex + 1), out int producerIndex) ||
+                producerIndex < 0 || producerIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            var context = new ResolverContext(containingMethod?.Module);
+            if (!TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, null, 0,
+                    out var resolved))
+            {
+                return false;
+            }
+
+            valueDisplay = resolved.Display;
+            return true;
+        }
+
+        internal static string FormatProcessTargetDisplay(string valueDisplay)
+        {
+            return BuildTargetDisplay(ResolvedValue.FromLiteral(valueDisplay));
+        }
+
         public static bool IsGuaranteedToExecuteBefore(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             IReadOnlyList<ExceptionHandler> exceptionHandlers,

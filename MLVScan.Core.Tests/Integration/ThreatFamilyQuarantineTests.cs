@@ -243,8 +243,10 @@ public class ThreatFamilyQuarantineTests
                 string.Equals(classification, "Suspicious", StringComparison.Ordinal);
             if (!hasAcceptableDisposition || findings.Count == 0)
             {
+                var findingSummary = string.Join(", ", findings.Select(finding =>
+                    $"{finding.RuleId}:{finding.Severity}:{finding.Description}"));
                 failures.Add(
-                    $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
+                    $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count} [{findingSummary}]");
                 continue;
             }
 

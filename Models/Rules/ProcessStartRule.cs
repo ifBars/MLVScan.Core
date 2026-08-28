@@ -1456,6 +1456,82 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        private static bool TryResolveLaunchedArgumentsDisplay(
+            MethodDefinition? containingMethod,
+            MethodReference processStartMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string argumentsDisplay)
+        {
+            argumentsDisplay = "<unknown/no-arguments>";
+            if (processStartMethod.Parameters.Count != 0 || !processStartMethod.HasThis ||
+                !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, processStartIndex,
+                    exceptionHandlers, out var launchedProcessIdentity))
+            {
+                return false;
+            }
+
+            string startInfoIdentity = string.Empty;
+            for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    setter.Name != "set_StartInfo" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        exceptionHandlers, out var receiverIdentity) ||
+                    !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal) ||
+                    !InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
+                        exceptionHandlers, out var candidateStartInfoIdentity) ||
+                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex) ||
+                    HasLaterStartInfoWrite(
+                        launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                startInfoIdentity = candidateStartInfoIdentity;
+                break;
+            }
+
+            for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    setter.Name != "set_Arguments" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        exceptionHandlers, out var receiverIdentity) ||
+                    !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
+                        instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                if (!InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    return false;
+                }
+
+                return InstructionValueResolver.TryResolveCallArgumentDisplay(containingMethod, setter,
+                    instructions, i, 0, exceptionHandlers, out argumentsDisplay);
+            }
+
+            if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
+                instructions[constructorIndex].OpCode == OpCodes.Newobj &&
+                instructions[constructorIndex].Operand is MethodReference constructor &&
+                constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                constructor.Parameters.Count > 1 &&
+                constructor.Parameters[1].ParameterType.FullName == "System.String")
+            {
+                return InstructionValueResolver.TryResolveCallArgumentDisplay(containingMethod, constructor,
+                    instructions, constructorIndex, 1, exceptionHandlers, out argumentsDisplay);
+            }
+
+            return false;
+        }
+
         private static bool HasLaterStartInfoWrite(
             string launchedProcessIdentity,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
@@ -1762,6 +1838,17 @@ namespace MLVScan.Models.Rules
                 return target;
             }
 
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
+            if (TryResolveLaunchedTargetIdentity(method, instructions, processStartIndex, exceptionHandlers,
+                    out var targetIdentity) &&
+                InstructionValueResolver.TryResolveIdentityDisplay(containingMethod, instructions, targetIdentity,
+                    out var targetDisplay))
+            {
+                return InstructionValueResolver.FormatProcessTargetDisplay(targetDisplay);
+            }
+
             return "<unknown/non-literal>";
         }
 
@@ -1773,6 +1860,15 @@ namespace MLVScan.Models.Rules
         {
             if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, calledMethod, instructions,
                     processStartIndex, out string arguments))
+            {
+                return arguments;
+            }
+
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
+            if (TryResolveLaunchedArgumentsDisplay(containingMethod, calledMethod, instructions,
+                    processStartIndex, exceptionHandlers, out arguments))
             {
                 return arguments;
             }
