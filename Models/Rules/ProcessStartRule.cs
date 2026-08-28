@@ -107,8 +107,20 @@ namespace MLVScan.Models.Rules
             "dotnet"
         };
 
+        private static readonly HashSet<string> DownloaderExecutables = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "curl.exe",
+            "curl",
+            "wget.exe",
+            "wget"
+        };
+
         private static readonly Regex SuspiciousArgumentPattern = new Regex(
-            @"(?i)((-|/)ep\s+bypass|(-|/)executionpolicy\s+bypass|(-|/)enc(odedcommand)?\s+[A-Za-z0-9+/=]|(-|/)nop(rofile)?\b|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|(-|/)w\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|curl|wget|\bwget\b|\bcurl\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
+            @"(?i)((-|/)ep\s+bypass|(-|/)executionpolicy\s+bypass|(-|/)enc(odedcommand)?\s+[A-Za-z0-9+/=]|(-|/)nop(rofile)?\b|iex|invoke-(expression|webrequest|restmethod)|iwr\s+|irm\s+|\biwx\b|\biwe\b|downloadstring|downloadfile|start-bitstransfer|hidden|windowstyle\s+hidden|(-|/)w\s+hidden|createnowindow|net\.webclient|system\.net\.webclient|\b(?:curl|wget)\b|out-file|set-content|add-content|>\s*[\w\\]|out-string|base64|frombase64string)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ResolverPlaceholderPattern = new Regex(
+            @"<(?:arg\s+\d+|local\s+[^>]*|field\s+[^>]*|static-field\s+[^>]*|dynamic[^>]*|unknown[^>]*|null|boxed-value)>",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex TempPathPattern = new Regex(
@@ -213,7 +225,7 @@ namespace MLVScan.Models.Rules
             }
 
             var target = ExtractProcessTarget(null, method, instructions, instructionIndex);
-            var arguments = ExtractProcessArguments(null, instructions, instructionIndex);
+            var arguments = ExtractProcessArguments(null, method, instructions, instructionIndex);
 
             // Detect ProcessStartInfo evasion indicators
             var hasUseShell =
@@ -319,37 +331,31 @@ namespace MLVScan.Models.Rules
                                KnownSafeTools.Any(safe =>
                                    targetLower.EndsWith("\\" + safe) || targetLower.EndsWith("/" + safe));
 
-            bool hasSuspiciousArgs = !string.IsNullOrEmpty(argumentsLower) &&
-                                     argumentsLower != "<unknown/no-arguments>" &&
-                                     SuspiciousArgumentPattern.IsMatch(argumentsLower);
+            bool isDownloader = DownloaderExecutables.Contains(targetLower) ||
+                                DownloaderExecutables.Any(downloader =>
+                                    targetLower.EndsWith("\\" + downloader) ||
+                                    targetLower.EndsWith("/" + downloader));
 
-            bool hasResolverPlaceholderArgs = argumentsLower.Contains("<arg ") ||
-                                              argumentsLower.Contains("<dynamic") ||
-                                              argumentsLower.Contains("<unknown");
+            var literalArguments = ResolverPlaceholderPattern.Replace(argumentsLower, " ");
+            bool hasLiteralArguments = !string.IsNullOrWhiteSpace(literalArguments) &&
+                                       argumentsLower != "<unknown/no-arguments>";
+            bool hasSuspiciousArgs = hasLiteralArguments &&
+                                     SuspiciousArgumentPattern.IsMatch(literalArguments);
 
-            if (hasResolverPlaceholderArgs)
-            {
-                hasSuspiciousArgs = false;
-            }
+            bool hasDownloadUrl = hasLiteralArguments &&
+                                  DownloadPattern.IsMatch(literalArguments);
 
-            bool hasDownloadUrl = !string.IsNullOrEmpty(argumentsLower) &&
-                                  DownloadPattern.IsMatch(argumentsLower);
+            bool hasTempPath = hasLiteralArguments &&
+                               TempPathPattern.IsMatch(literalArguments);
 
-            bool hasTempPath = !string.IsNullOrEmpty(argumentsLower) &&
-                               argumentsLower != "<unknown/no-arguments>" &&
-                               TempPathPattern.IsMatch(argumentsLower);
+            bool hasScriptDropExtension = hasLiteralArguments &&
+                                          ScriptDropExtensionPattern.IsMatch(literalArguments);
 
-            bool hasScriptDropExtension = !string.IsNullOrEmpty(argumentsLower) &&
-                                          argumentsLower != "<unknown/no-arguments>" &&
-                                          ScriptDropExtensionPattern.IsMatch(argumentsLower);
+            bool hasStagedLoaderPivot = hasLiteralArguments &&
+                                        StagedLoaderPivotPattern.IsMatch(literalArguments);
 
-            bool hasStagedLoaderPivot = !string.IsNullOrEmpty(argumentsLower) &&
-                                        argumentsLower != "<unknown/no-arguments>" &&
-                                        StagedLoaderPivotPattern.IsMatch(argumentsLower);
-
-            bool hasStagedDownloadCommand = !string.IsNullOrEmpty(argumentsLower) &&
-                                            argumentsLower != "<unknown/no-arguments>" &&
-                                            StagedLoaderDownloadCommandPattern.IsMatch(argumentsLower);
+            bool hasStagedDownloadCommand = hasLiteralArguments &&
+                                            StagedLoaderDownloadCommandPattern.IsMatch(literalArguments);
 
             bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
 
@@ -399,6 +405,11 @@ namespace MLVScan.Models.Rules
                 }
 
                 return (Severity.High, "Potential staged loader chain (download -> temp drop -> execute)");
+            }
+
+            if (isDownloader && hasDownloadUrl)
+            {
+                return (Severity.Critical, "Downloader executable with URL arguments");
             }
 
             if (isKnownSafe)
@@ -582,7 +593,7 @@ namespace MLVScan.Models.Rules
             int instructionIndex)
         {
             string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex);
-            string arguments = ExtractProcessArguments(containingMethod, instructions, instructionIndex);
+            string arguments = ExtractProcessArguments(containingMethod, method, instructions, instructionIndex);
 
             // Detect ProcessStartInfo evasion indicators
             var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(containingMethod, instructions,
@@ -1445,6 +1456,85 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        private static bool TryResolveLaunchedArgumentsDisplay(
+            MethodDefinition? containingMethod,
+            MethodReference processStartMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            out string argumentsDisplay)
+        {
+            argumentsDisplay = "<unknown/no-arguments>";
+            if (processStartMethod.Parameters.Count != 0 || !processStartMethod.HasThis ||
+                !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, processStartIndex,
+                    exceptionHandlers, out var launchedProcessIdentity))
+            {
+                return false;
+            }
+
+            string startInfoIdentity = string.Empty;
+            var matchingArgumentSetters = new HashSet<Instruction>();
+            for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.Process" ||
+                    setter.Name != "set_StartInfo" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        exceptionHandlers, out var receiverIdentity) ||
+                    !receiverIdentity.Equals(launchedProcessIdentity, StringComparison.Ordinal) ||
+                    !InstructionValueResolver.TryResolveCallArgumentIdentity(setter, instructions, i, 0,
+                        exceptionHandlers, out var candidateStartInfoIdentity) ||
+                    !InstructionValueResolver.IsGuaranteedToExecuteBefore(
+                        instructions, exceptionHandlers, i, processStartIndex) ||
+                    HasLaterStartInfoWrite(
+                        launchedProcessIdentity, instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                startInfoIdentity = candidateStartInfoIdentity;
+                break;
+            }
+
+            for (int i = processStartIndex - 1; i >= Math.Max(0, processStartIndex - 80); i--)
+            {
+                if (instructions[i].Operand is not MethodReference setter ||
+                    setter.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                    setter.Name != "set_Arguments" ||
+                    !InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, i,
+                        exceptionHandlers, out var receiverIdentity) ||
+                    !IsMatchingStartInfoReceiver(receiverIdentity, startInfoIdentity, launchedProcessIdentity,
+                        instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
+                matchingArgumentSetters.Add(instructions[i]);
+            }
+
+            if (matchingArgumentSetters.Count > 0 &&
+                InstructionValueResolver.TryResolveCallArgumentReachingDefinitionDisplays(
+                    containingMethod, instructions, exceptionHandlers, processStartIndex,
+                    matchingArgumentSetters.Contains, 0, out var displays))
+            {
+                argumentsDisplay = string.Join(" | ", displays);
+                return true;
+            }
+
+            if (TryGetProducerIndex(startInfoIdentity, "new:", out int constructorIndex) &&
+                instructions[constructorIndex].OpCode == OpCodes.Newobj &&
+                instructions[constructorIndex].Operand is MethodReference constructor &&
+                constructor.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                constructor.Parameters.Count > 1 &&
+                constructor.Parameters[1].ParameterType.FullName == "System.String")
+            {
+                return InstructionValueResolver.TryResolveCallArgumentDisplay(containingMethod, constructor,
+                    instructions, constructorIndex, 1, exceptionHandlers, out argumentsDisplay);
+            }
+
+            return false;
+        }
+
         private static bool HasLaterStartInfoWrite(
             string launchedProcessIdentity,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
@@ -1751,16 +1841,37 @@ namespace MLVScan.Models.Rules
                 return target;
             }
 
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
+            if (TryResolveLaunchedTargetIdentity(method, instructions, processStartIndex, exceptionHandlers,
+                    out var targetIdentity) &&
+                InstructionValueResolver.TryResolveIdentityDisplay(containingMethod, instructions, targetIdentity,
+                    out var targetDisplay))
+            {
+                return InstructionValueResolver.FormatProcessTargetDisplay(targetDisplay);
+            }
+
             return "<unknown/non-literal>";
         }
 
         private static string ExtractProcessArguments(
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int processStartIndex)
         {
-            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, instructions, processStartIndex,
-                    out string arguments))
+            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, calledMethod, instructions,
+                    processStartIndex, out string arguments))
+            {
+                return arguments;
+            }
+
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
+            if (TryResolveLaunchedArgumentsDisplay(containingMethod, calledMethod, instructions,
+                    processStartIndex, exceptionHandlers, out arguments))
             {
                 return arguments;
             }

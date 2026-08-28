@@ -58,6 +58,13 @@ namespace MLVScan.Models.Rules.Helpers
             return allowDetachedReference && scope == null && method.Module == null;
         }
 
+        private static readonly HashSet<string> RecognizedBareProcessTargets =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "curl",
+                "wget"
+            };
+
         /// <summary>
         /// Tries to resolve the executable or command target passed to a process-launching call.
         /// </summary>
@@ -76,8 +83,12 @@ namespace MLVScan.Models.Rules.Helpers
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoSetter(context, containingMethod, instructions, processStartIndex,
-                    out var resolved) ||
+            if ((calledMethod.Parameters.Count > 0 &&
+                 calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                 TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions,
+                     processStartIndex, out var resolved)) ||
+                TryResolveFromStartInfoSetter(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved) ||
                 TryResolveFromProcessStartArguments(context, containingMethod, calledMethod, instructions,
                     processStartIndex, out resolved))
             {
@@ -93,20 +104,26 @@ namespace MLVScan.Models.Rules.Helpers
         /// Tries to resolve the argument string passed to a process-launching call.
         /// </summary>
         /// <param name="containingMethod">The method containing the call site.</param>
+        /// <param name="calledMethod">The process-launching method being invoked.</param>
         /// <param name="instructions">The method body instructions.</param>
         /// <param name="processStartIndex">The call instruction index.</param>
         /// <param name="arguments">Receives the resolved argument display string.</param>
         /// <returns><see langword="true"/> when the arguments could be reconstructed.</returns>
         public static bool TryResolveProcessArguments(
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out string arguments)
         {
             var context = new ResolverContext(containingMethod?.Module);
 
-            if (TryResolveFromStartInfoArgumentsSetter(context, containingMethod, instructions, processStartIndex,
-                    out var resolved))
+            if (TryResolveFromProcessArgumentOverload(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out var resolved) ||
+                TryResolveFromStartInfoArgumentsSetter(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved) ||
+                TryResolveFromStartInfoConstructor(context, containingMethod, calledMethod, instructions,
+                    processStartIndex, out resolved))
             {
                 arguments = resolved.Display;
                 return true;
@@ -114,6 +131,95 @@ namespace MLVScan.Models.Rules.Helpers
 
             arguments = "<unknown/no-arguments>";
             return false;
+        }
+
+        private static bool TryResolveFromProcessArgumentOverload(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                !HasCommandArgumentParameter(calledMethod))
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArguments(context, containingMethod, instructions, processStartIndex,
+                    calledMethod.Parameters.Count, null, 0, out var args) || args.Count <= 1)
+            {
+                return false;
+            }
+
+            value = args[1];
+            return true;
+        }
+
+        private static bool HasCommandArgumentParameter(MethodReference calledMethod)
+        {
+            if (calledMethod.Parameters.Count == 2)
+            {
+                return calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                       calledMethod.Parameters[1].ParameterType.FullName == "System.String";
+            }
+
+            if (calledMethod.Parameters.Count != 5)
+                return false;
+
+            return calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[1].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[2].ParameterType.FullName == "System.String" &&
+                   calledMethod.Parameters[3].ParameterType.FullName == "System.Security.SecureString" &&
+                   calledMethod.Parameters[4].ParameterType.FullName == "System.String";
+        }
+
+        private static bool TryResolveFromStartInfoConstructor(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            int processStartIndex,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                !string.Equals(calledMethod.Parameters[0].ParameterType.FullName,
+                    "System.Diagnostics.ProcessStartInfo", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var identity) ||
+                !identity.StartsWith("new:", StringComparison.Ordinal) ||
+                !int.TryParse(identity.AsSpan(4), out int constructorIndex) ||
+                constructorIndex < 0 || constructorIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            if (instructions[constructorIndex].OpCode != OpCodes.Newobj ||
+                instructions[constructorIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType?.FullName != "System.Diagnostics.ProcessStartInfo" ||
+                constructor.Name != ".ctor" ||
+                constructor.Parameters.Count < 2 ||
+                constructor.Parameters[1].ParameterType.FullName != "System.String")
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArguments(context, containingMethod, instructions, constructorIndex,
+                    constructor.Parameters.Count, null, 0, out var args) || args.Count <= 1)
+            {
+                return false;
+            }
+
+            value = args[1];
+            return true;
         }
 
         /// <summary>
@@ -245,6 +351,64 @@ namespace MLVScan.Models.Rules.Helpers
             return producerMap.TryGetProducer(callIndex, calledMethod.Parameters.Count, argumentIndex,
                        out int producerIndex) &&
                    TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
+        }
+
+        internal static bool TryResolveIdentityDisplay(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            string identity,
+            out string valueDisplay)
+        {
+            valueDisplay = "<unknown/non-literal>";
+            if (!identity.StartsWith("literal:", StringComparison.Ordinal) &&
+                !identity.StartsWith("call:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int separatorIndex = identity.IndexOf(':');
+            if (separatorIndex <= 0 ||
+                !int.TryParse(identity.AsSpan(separatorIndex + 1), out int producerIndex) ||
+                producerIndex < 0 || producerIndex >= instructions.Count)
+            {
+                return false;
+            }
+
+            var context = new ResolverContext(containingMethod?.Module);
+            if (!TryResolveIdentityValue(context, containingMethod, instructions, identity, out var resolved))
+            {
+                return false;
+            }
+
+            valueDisplay = resolved.Display;
+            return true;
+        }
+
+        private static bool TryResolveIdentityValue(
+            ResolverContext context,
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            string identity,
+            out ResolvedValue value)
+        {
+            value = default;
+            if (!identity.StartsWith("literal:", StringComparison.Ordinal) &&
+                !identity.StartsWith("call:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int separatorIndex = identity.IndexOf(':');
+            return separatorIndex > 0 &&
+                   int.TryParse(identity.AsSpan(separatorIndex + 1), out int producerIndex) &&
+                   producerIndex >= 0 && producerIndex < instructions.Count &&
+                   TryResolveValueFromProducer(context, containingMethod, instructions, producerIndex, null, 0,
+                       out value);
+        }
+
+        internal static string FormatProcessTargetDisplay(string valueDisplay)
+        {
+            return BuildTargetDisplay(ResolvedValue.FromLiteral(valueDisplay));
         }
 
         public static bool IsGuaranteedToExecuteBefore(
@@ -828,6 +992,119 @@ namespace MLVScan.Models.Rules.Helpers
                            TryResolveCallArgumentIdentity(method, instructions, definitionIndex, argumentIndex,
                                exceptionHandlers, out definitionIdentity);
                 });
+        }
+
+        public static bool TryResolveCallArgumentReachingDefinitionDisplays(
+            MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers,
+            int useIndex,
+            Func<Instruction, bool> isDefinition,
+            int argumentIndex,
+            out IReadOnlyList<string> displays)
+        {
+            displays = Array.Empty<string>();
+            if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
+                return false;
+
+            const int maxReachingDefinitions = 64;
+            const int maxWorkUnits = 65_536;
+            var instructionIndexes = InstructionIndexMaps.GetValue(instructions, BuildInstructionIndexMap);
+            var pending = new Queue<(int Index, int DefinitionIndex)>();
+            var visited = new HashSet<(int Index, int DefinitionIndex)>();
+            var reachingDefinitions = new HashSet<int>();
+            pending.Enqueue((0, -1));
+            foreach (var handler in exceptionHandlers)
+            {
+                int handlerEndIndex = instructions.Count;
+                if (handler.HandlerType == ExceptionHandlerType.Catch ||
+                    !instructionIndexes.TryGetValue(handler.HandlerStart, out int handlerStartIndex) ||
+                    (handler.HandlerEnd != null &&
+                     !instructionIndexes.TryGetValue(handler.HandlerEnd, out handlerEndIndex)))
+                {
+                    continue;
+                }
+
+                if (useIndex >= handlerStartIndex && useIndex < handlerEndIndex)
+                    pending.Enqueue((handlerStartIndex, -1));
+            }
+
+            int workUnits = 0;
+            while (pending.Count > 0)
+            {
+                if (++workUnits > maxWorkUnits)
+                    return false;
+
+                var current = pending.Dequeue();
+                if (current.Index < 0 || current.Index >= instructions.Count || !visited.Add(current))
+                    continue;
+
+                if (current.Index == useIndex)
+                {
+                    if (current.DefinitionIndex < 0 ||
+                        reachingDefinitions.Count >= maxReachingDefinitions &&
+                        !reachingDefinitions.Contains(current.DefinitionIndex))
+                    {
+                        return false;
+                    }
+
+                    reachingDefinitions.Add(current.DefinitionIndex);
+                    continue;
+                }
+
+                var instruction = instructions[current.Index];
+                int nextDefinition = isDefinition(instruction) ? current.Index : current.DefinitionIndex;
+
+                if (exceptionTargets.TryGetValue(current.Index, out var handlerTargets))
+                {
+                    foreach (var handlerTarget in handlerTargets)
+                        pending.Enqueue((handlerTarget, current.DefinitionIndex));
+                }
+
+                if (instruction.Operand is Instruction target)
+                {
+                    if (!instructionIndexes.TryGetValue(target, out int targetIndex))
+                        return false;
+
+                    pending.Enqueue((targetIndex, nextDefinition));
+                }
+                else if (instruction.Operand is Instruction[] targets)
+                {
+                    foreach (var switchTarget in targets)
+                    {
+                        if (!instructionIndexes.TryGetValue(switchTarget, out int targetIndex))
+                            return false;
+
+                        pending.Enqueue((targetIndex, nextDefinition));
+                    }
+                }
+
+                var flowControl = instruction.OpCode.FlowControl;
+                if (flowControl is not FlowControl.Branch and not FlowControl.Return and not FlowControl.Throw)
+                    pending.Enqueue((current.Index + 1, nextDefinition));
+            }
+
+            if (reachingDefinitions.Count == 0)
+                return false;
+
+            var resolvedDisplays = new List<string>(reachingDefinitions.Count);
+            foreach (int definitionIndex in reachingDefinitions.OrderBy(index => index))
+            {
+                if (HasRelevantUnsupportedHandler(instructions, exceptionHandlers, definitionIndex, useIndex) ||
+                    instructions[definitionIndex].Operand is not MethodReference method ||
+                    argumentIndex < 0 || argumentIndex >= method.Parameters.Count ||
+                    !TryResolveCallArgumentDisplay(containingMethod, method, instructions, definitionIndex,
+                        argumentIndex, exceptionHandlers, out var display))
+                {
+                    return false;
+                }
+
+                if (!resolvedDisplays.Contains(display, StringComparer.Ordinal))
+                    resolvedDisplays.Add(display);
+            }
+
+            displays = resolvedDisplays;
+            return displays.Count > 0;
         }
 
         private static bool TryResolveEquivalentReachingDefinitions(
@@ -1770,12 +2047,30 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryResolveFromStartInfoArgumentsSetter(
             ResolverContext context,
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out ResolvedValue value)
         {
             value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                calledMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var launchedStartInfoIdentity))
+            {
+                return false;
+            }
+
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
             int searchStart = Math.Max(0, processStartIndex - 400);
+            var matchingSetters = new HashSet<Instruction>();
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
             {
@@ -1792,8 +2087,25 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
-                    out _);
+                if (!TryResolveCallReceiverIdentity(instructions, i, exceptionHandlers,
+                        out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, exceptionHandlers,
+                        launchedStartInfoIdentity, setterReceiverIdentity))
+                {
+                    continue;
+                }
+
+                matchingSetters.Add(instructions[i]);
+            }
+
+            if (matchingSetters.Count > 0 &&
+                TryResolveCallArgumentReachingDefinitionDisplays(containingMethod, instructions,
+                    exceptionHandlers, processStartIndex, matchingSetters.Contains, 0, out var displays))
+            {
+                string combinedDisplay = string.Join(" | ", displays);
+                value = new ResolvedValue(combinedDisplay, ExtractExecutableName(combinedDisplay),
+                    displays.All(display => !display.StartsWith("<", StringComparison.Ordinal)));
+                return true;
             }
 
             return false;
@@ -1802,12 +2114,30 @@ namespace MLVScan.Models.Rules.Helpers
         private static bool TryResolveFromStartInfoSetter(
             ResolverContext context,
             MethodDefinition? containingMethod,
+            MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
             out ResolvedValue value)
         {
             value = default;
+            if (!string.Equals(calledMethod.Name, "Start", StringComparison.Ordinal) ||
+                calledMethod.Parameters.Count != 1 ||
+                calledMethod.Parameters[0].ParameterType.FullName != "System.Diagnostics.ProcessStartInfo")
+            {
+                return false;
+            }
+
+            if (!TryResolveCallArgumentIdentity(calledMethod, instructions, processStartIndex, 0,
+                    out var launchedStartInfoIdentity))
+            {
+                return false;
+            }
+
+            IReadOnlyList<ExceptionHandler> exceptionHandlers = containingMethod?.Body != null
+                ? containingMethod.Body.ExceptionHandlers.ToArray()
+                : Array.Empty<ExceptionHandler>();
             int searchStart = Math.Max(0, processStartIndex - 400);
+            var matchingSetters = new HashSet<Instruction>();
 
             for (int i = processStartIndex - 1; i >= searchStart; i--)
             {
@@ -1824,8 +2154,30 @@ namespace MLVScan.Models.Rules.Helpers
                     continue;
                 }
 
+                if (!TryResolveCallReceiverIdentity(instructions, i, exceptionHandlers,
+                        out var setterReceiverIdentity) ||
+                    !AreEquivalentProducerIdentities(instructions, exceptionHandlers,
+                        launchedStartInfoIdentity, setterReceiverIdentity))
+                {
+                    continue;
+                }
+
+                matchingSetters.Add(instructions[i]);
+                if (!IsGuaranteedToExecuteBefore(instructions, exceptionHandlers, i, processStartIndex))
+                {
+                    continue;
+                }
+
                 return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, 0, out value,
                     out _);
+            }
+
+            if (matchingSetters.Count > 1 &&
+                TryResolveEquivalentCallArgumentReachingDefinitions(instructions, exceptionHandlers,
+                    processStartIndex, matchingSetters.Contains, 0, out var equivalentIdentity) &&
+                TryResolveIdentityValue(context, containingMethod, instructions, equivalentIdentity, out value))
+            {
+                return true;
             }
 
             return false;
@@ -2460,7 +2812,8 @@ namespace MLVScan.Models.Rules.Helpers
                    normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                    normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
                    normalized.Contains("\\") ||
-                   normalized.Contains("/");
+                   normalized.Contains("/") ||
+                   RecognizedBareProcessTargets.Contains(normalized);
         }
 
         private sealed class ResolverContext
