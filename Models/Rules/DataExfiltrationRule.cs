@@ -45,6 +45,66 @@ namespace MLVScan.Models.Rules
         }
 
         /// <summary>
+        /// Detects outbound sends whose endpoint is computed at runtime when host or process data is
+        /// transformed before transmission. This avoids requiring a literal C2 URL beside SendAsync.
+        /// </summary>
+        public IEnumerable<ScanFinding> PostAnalysisRefine(
+            ModuleDefinition module,
+            IEnumerable<ScanFinding> existingFindings)
+        {
+            if (module == null)
+            {
+                return [];
+            }
+
+            var findings = new List<ScanFinding>();
+            foreach (var method in EnumerateTypes(module).SelectMany(static type => type.Methods))
+            {
+                if (!method.HasBody)
+                {
+                    continue;
+                }
+
+                var calls = method.Body.Instructions
+                    .Where(static instruction => instruction.Operand is MethodReference)
+                    .Select(static instruction => (MethodReference)instruction.Operand)
+                    .ToList();
+                bool hasNetworkSend = calls.Any(IsDataSendingCall);
+                bool hasHostData = calls.Any(called =>
+                    called.DeclaringType?.FullName == "System.Environment" &&
+                    called.Name == "get_MachineName") ||
+                    calls.Any(called =>
+                        called.DeclaringType?.FullName == "System.Diagnostics.Process" &&
+                        (called.Name.Contains("StandardOutput", StringComparison.OrdinalIgnoreCase) ||
+                         called.Name.Contains("StandardError", StringComparison.OrdinalIgnoreCase)));
+                bool hasTransform = method.Body.Instructions.Any(static instruction => instruction.OpCode == OpCodes.Xor) ||
+                                    calls.Any(called =>
+                                        called.Name.Contains("Xor", StringComparison.OrdinalIgnoreCase) ||
+                                        called.Name.Contains("Encrypt", StringComparison.OrdinalIgnoreCase) ||
+                                        called.Name.Contains("Encode", StringComparison.OrdinalIgnoreCase));
+
+                if (!hasNetworkSend || !hasHostData || !hasTransform)
+                {
+                    continue;
+                }
+
+                var send = calls.First(IsDataSendingCall);
+                findings.Add(new ScanFinding(
+                    method.FullName,
+                    "Detected host or process data transformed before transmission to a runtime-computed network endpoint.",
+                    Severity.High,
+                    $"source: host/process data{Environment.NewLine}transform: XOR/encryption/encoding helper{Environment.NewLine}sink: {send.DeclaringType?.FullName}.{send.Name}")
+                {
+                    RuleId = RuleId,
+                    RiskScore = 86,
+                    BypassCompanionCheck = true
+                });
+            }
+
+            return findings;
+        }
+
+        /// <summary>
         /// Analyzes network send operations for suspicious outbound destinations and nearby URL literals.
         /// </summary>
         /// <param name="method">The network-related method being analyzed.</param>
@@ -357,6 +417,49 @@ namespace MLVScan.Models.Rules
         {
             return host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
                    host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDataSendingCall(MethodReference called)
+        {
+            string type = called.DeclaringType?.FullName ?? string.Empty;
+            if (!type.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase) &&
+                !type.Contains("UnityWebRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string name = called.Name;
+            return name.Equals("Post", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("Put", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("PostAsync", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("PutAsync", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("SendAsync", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Upload", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("GetRequestStream", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static IEnumerable<TypeDefinition> EnumerateTypes(ModuleDefinition module)
+        {
+            foreach (var type in module.Types)
+            {
+                yield return type;
+                foreach (var nested in EnumerateNestedTypes(type))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        private static IEnumerable<TypeDefinition> EnumerateNestedTypes(TypeDefinition type)
+        {
+            foreach (var nested in type.NestedTypes)
+            {
+                yield return nested;
+                foreach (var descendant in EnumerateNestedTypes(nested))
+                {
+                    yield return descendant;
+                }
+            }
         }
     }
 }

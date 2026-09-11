@@ -2,6 +2,7 @@ using MLVScan.Abstractions;
 using MLVScan.Models;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using System.Text;
 
 namespace MLVScan.Models.Rules
 {
@@ -40,6 +41,95 @@ namespace MLVScan.Models.Rules
             // This rule doesn't check methods directly - it's used by AssemblyScanner
             // to analyze IL instruction patterns in methods
             return false;
+        }
+
+        /// <summary>
+        /// Correlates fixed-key byte-array XOR decoding with concealed network and process behavior.
+        /// This catches constants stored in compiler-generated RVA fields without treating ordinary
+        /// byte-array transformations as malicious on their own.
+        /// </summary>
+        public IEnumerable<ScanFinding> PostAnalysisRefine(
+            ModuleDefinition module,
+            IEnumerable<ScanFinding> existingFindings)
+        {
+            if (module == null)
+            {
+                return [];
+            }
+
+            var methods = EnumerateTypes(module)
+                .SelectMany(static type => type.Methods)
+                .Where(static method => method.HasBody)
+                .ToList();
+            var xorDecoders = methods
+                .Select(method => (Method: method, Keys: CollectFixedXorKeys(method)))
+                .Where(static item => item.Keys.Count > 0)
+                .ToList();
+            if (xorDecoders.Count == 0)
+            {
+                return [];
+            }
+
+            bool hasNetworkCall = methods.Any(method => method.Body.Instructions.Any(instruction =>
+                instruction.Operand is MethodReference called &&
+                (called.DeclaringType?.FullName?.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase) == true ||
+                 called.DeclaringType?.FullName?.Contains("UnityWebRequest", StringComparison.OrdinalIgnoreCase) == true)));
+            bool hasConcealedProcess = existingFindings?.Any(finding =>
+                string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+                (Contains(finding.Description, "WindowStyle=Hidden") ||
+                 Contains(finding.Description, "CreateNoWindow=true") ||
+                 Contains(finding.Description, "Redirected I/O"))) == true;
+            if (!hasNetworkCall || !hasConcealedProcess)
+            {
+                return [];
+            }
+
+            var decodedIndicators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var keys = xorDecoders.SelectMany(static item => item.Keys).Distinct().ToList();
+            int inspectedBytes = 0;
+
+            foreach (var field in EnumerateTypes(module).SelectMany(static type => type.Fields))
+            {
+                if (!field.HasFieldRVA || field.InitialValue is not { Length: >= 4 and <= 4096 } bytes)
+                {
+                    continue;
+                }
+
+                if (inspectedBytes > 256 * 1024 - bytes.Length)
+                {
+                    break;
+                }
+
+                inspectedBytes += bytes.Length;
+                foreach (int key in keys)
+                {
+                    if (TryDecodeFixedXor(bytes, key, out string decoded) && IsSecurityRelevantDecodedString(decoded))
+                    {
+                        decodedIndicators.Add(decoded);
+                    }
+                }
+            }
+
+            if (decodedIndicators.Count == 0)
+            {
+                return [];
+            }
+
+            string decoderLocations = string.Join(", ", xorDecoders.Select(static item => item.Method.FullName).Take(3));
+            string indicators = string.Join(", ", decodedIndicators.OrderBy(static value => value, StringComparer.Ordinal).Take(6));
+            return
+            [
+                new ScanFinding(
+                    xorDecoders[0].Method.FullName,
+                    "Detected fixed-key byte-array XOR string reconstruction concealing network, runtime, or payload indicators in an assembly with concealed process execution.",
+                    Severity.High,
+                    $"decoder(s): {decoderLocations}{Environment.NewLine}decoded indicator(s): {indicators}")
+                {
+                    RuleId = RuleId,
+                    RiskScore = 84,
+                    BypassCompanionCheck = true
+                }
+            ];
         }
 
         /// <summary>
@@ -382,6 +472,102 @@ namespace MLVScan.Models.Rules
 
             value = 0;
             return false;
+        }
+
+        private static IReadOnlyList<int> CollectFixedXorKeys(MethodDefinition method)
+        {
+            var instructions = method.Body.Instructions;
+            bool callsEncodingGetString = instructions.Any(instruction =>
+                instruction.Operand is MethodReference called &&
+                called.DeclaringType?.FullName == "System.Text.Encoding" &&
+                called.Name == "GetString");
+            if (!callsEncodingGetString)
+            {
+                return [];
+            }
+
+            var keys = new HashSet<int>();
+            for (int index = 0; index < instructions.Count; index++)
+            {
+                if (instructions[index].OpCode != OpCodes.Xor)
+                {
+                    continue;
+                }
+
+                for (int previous = index - 1; previous >= Math.Max(0, index - 8); previous--)
+                {
+                    if (TryResolveInt32Literal(instructions[previous], out int value) && value is > 0 and <= 255)
+                    {
+                        keys.Add(value);
+                        break;
+                    }
+                }
+            }
+
+            return keys.ToList();
+        }
+
+        private static bool TryDecodeFixedXor(byte[] bytes, int key, out string decoded)
+        {
+            decoded = string.Empty;
+            var transformed = new byte[bytes.Length];
+            for (int index = 0; index < bytes.Length; index++)
+            {
+                transformed[index] = (byte)(bytes[index] ^ key);
+            }
+
+            string candidate = Encoding.UTF8.GetString(transformed).TrimEnd('\0');
+            if (candidate.Length < 4 || candidate.Contains('\uFFFD'))
+            {
+                return false;
+            }
+
+            int printable = candidate.Count(static character =>
+                character is >= ' ' and <= '~' || character is '\t' or '\r' or '\n');
+            if ((double)printable / candidate.Length < 0.9)
+            {
+                return false;
+            }
+
+            decoded = candidate;
+            return true;
+        }
+
+        private static bool IsSecurityRelevantDecodedString(string value)
+        {
+            return value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                   value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains(".jar", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains("javaw", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains("--cookie", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains("/api/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool Contains(string? value, string needle) =>
+            value?.Contains(needle, StringComparison.OrdinalIgnoreCase) == true;
+
+        private static IEnumerable<TypeDefinition> EnumerateTypes(ModuleDefinition module)
+        {
+            foreach (var type in module.Types)
+            {
+                yield return type;
+                foreach (var nested in EnumerateNestedTypes(type))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        private static IEnumerable<TypeDefinition> EnumerateNestedTypes(TypeDefinition type)
+        {
+            foreach (var nested in type.NestedTypes)
+            {
+                yield return nested;
+                foreach (var descendant in EnumerateNestedTypes(nested))
+                {
+                    yield return descendant;
+                }
+            }
         }
     }
 }
