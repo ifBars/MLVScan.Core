@@ -2,7 +2,6 @@ using FluentAssertions;
 using MLVScan.Services;
 using MLVScan.Services.ThreatIntel;
 using Xunit;
-using Xunit.Sdk;
 
 namespace MLVScan.Core.Tests.Integration;
 
@@ -82,6 +81,7 @@ public class NewSampleThreatFamilyTests
             current = Directory.GetParent(current)?.FullName;
         }
 
-        throw new SkipException($"Static sample not found in TO_ANALYZE: {relativePath}");
+        Skip.If(true, $"Static sample not found in TO_ANALYZE: {relativePath}");
+        return string.Empty;
     }
 }
