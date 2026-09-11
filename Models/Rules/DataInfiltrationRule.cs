@@ -40,7 +40,7 @@ namespace MLVScan.Models.Rules
 
         private static readonly HashSet<string> SuspiciousPayloadExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com"
+            ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".com", ".zip", ".jar"
         };
 
         private static readonly HashSet<string> CommonHostingPayloadExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -86,6 +86,83 @@ namespace MLVScan.Models.Rules
         {
             // This rule analyzes contextual patterns around method calls
             return false;
+        }
+
+        /// <summary>
+        /// Finds suspicious URL constants passed one hop into a local download helper. Malware commonly
+        /// separates URL selection from the method that calls <c>GetResponse</c> or <c>DownloadFile</c>,
+        /// which defeats a purely local literal window.
+        /// </summary>
+        public IEnumerable<ScanFinding> PostAnalysisRefine(
+            ModuleDefinition module,
+            IEnumerable<ScanFinding> existingFindings)
+        {
+            if (module == null)
+            {
+                return [];
+            }
+
+            var methods = EnumerateTypes(module)
+                .SelectMany(static type => type.Methods)
+                .Where(static method => method.HasBody)
+                .ToList();
+            var downloadHelpers = methods
+                .Where(ContainsNetworkRead)
+                .Select(static method => method.FullName)
+                .ToHashSet(StringComparer.Ordinal);
+            if (downloadHelpers.Count == 0)
+            {
+                return [];
+            }
+
+            var priorText = existingFindings?
+                .SelectMany(static finding => new[] { finding.Description, finding.CodeSnippet })
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .Cast<string>()
+                .ToList() ?? [];
+            var findings = new List<ScanFinding>();
+
+            foreach (var caller in methods)
+            {
+                var instructions = caller.Body.Instructions;
+                for (int index = 0; index < instructions.Count; index++)
+                {
+                    if (instructions[index].Operand is not MethodReference called ||
+                        !downloadHelpers.Contains(called.FullName))
+                    {
+                        continue;
+                    }
+
+                    int start = Math.Max(0, index - 30);
+                    int end = Math.Min(instructions.Count, index + 6);
+                    var urls = UrlLiteralCollector.CollectCandidates(instructions, start, end)
+                        .SelectMany(ExtractUrls)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Where(url =>
+                            IsDirectPayloadUrl(url) ||
+                            IsKnownMaliciousDomain(url) ||
+                            IsUrlShortenerDomain(url) ||
+                            Regex.IsMatch(url, @"^https?://\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:/|$)", RegexOptions.IgnoreCase))
+                        .ToList();
+                    if (urls.Count == 0 || urls.All(url => priorText.Any(text => text.Contains(url, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        continue;
+                    }
+
+                    findings.Add(new ScanFinding(
+                        $"{caller.DeclaringType.FullName}.{caller.Name}:{instructions[index].Offset}",
+                        $"Suspicious payload URL is passed to a local download helper (one-hop argument flow). URL(s): {string.Join(", ", urls)}",
+                        Severity.High,
+                        $"caller: {caller.FullName}{Environment.NewLine}download helper: {called.FullName}")
+                    {
+                        RuleId = RuleId,
+                        RiskScore = 82,
+                        BypassCompanionCheck = true
+                    });
+                }
+            }
+
+            return findings;
         }
 
         /// <summary>
@@ -403,6 +480,53 @@ namespace MLVScan.Models.Rules
             string path = uri.AbsolutePath;
             return CommonHostingPayloadExtensions.Any(ext =>
                 path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool ContainsNetworkRead(MethodDefinition method)
+        {
+            return method.Body.Instructions.Any(instruction =>
+            {
+                if (instruction.Operand is not MethodReference called)
+                {
+                    return false;
+                }
+
+                string type = called.DeclaringType?.FullName ?? string.Empty;
+                string name = called.Name;
+                bool networkType = type.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase) ||
+                                   type.Contains("UnityWebRequest", StringComparison.OrdinalIgnoreCase);
+                return networkType &&
+                       (name.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("GetByteArray", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("GetStream", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Download", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Get", StringComparison.OrdinalIgnoreCase));
+            });
+        }
+
+        private static IEnumerable<TypeDefinition> EnumerateTypes(ModuleDefinition module)
+        {
+            foreach (var type in module.Types)
+            {
+                yield return type;
+                foreach (var nested in EnumerateNestedTypes(type))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        private static IEnumerable<TypeDefinition> EnumerateNestedTypes(TypeDefinition type)
+        {
+            foreach (var nested in type.NestedTypes)
+            {
+                yield return nested;
+                foreach (var descendant in EnumerateNestedTypes(nested))
+                {
+                    yield return descendant;
+                }
+            }
         }
     }
 }

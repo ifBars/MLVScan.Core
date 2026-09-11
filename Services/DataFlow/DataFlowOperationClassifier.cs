@@ -1046,6 +1046,8 @@ namespace MLVScan.Services.DataFlow
             return (declaringType == "System.IO.Compression.GZipStream" && methodName == ".ctor") ||
                    (declaringType == "System.IO.Compression.DeflateStream" && methodName == ".ctor") ||
                    (declaringType == "System.IO.Compression.BrotliStream" && methodName == ".ctor") ||
+                   (declaringType == "System.IO.Compression.ZipFile" &&
+                    methodName == "ExtractToDirectory") ||
                    (declaringType.Contains("System.IO.Compression", StringComparison.Ordinal) && methodName == "CopyTo");
         }
 
