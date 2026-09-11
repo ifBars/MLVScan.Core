@@ -71,6 +71,8 @@ namespace MLVScan
                 new SuspiciousLocalVariableRule(),
                 new ObfuscatedReflectiveExecutionRule(),
                 new EmbeddedResourceScriptRule(),
+                new EmbeddedArchivePayloadRule(),
+                new CoordinatedPayloadDeliveryRule(),
                 new SuspiciousAssemblyNameRule()
             };
         }

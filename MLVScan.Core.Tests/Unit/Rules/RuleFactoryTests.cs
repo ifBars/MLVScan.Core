@@ -22,8 +22,8 @@ public class RuleFactoryTests
     {
         var rules = RuleFactory.CreateDefaultRules();
 
-        // Based on RuleFactory.cs, there are 19 rules.
-        rules.Should().HaveCount(19);
+        // Based on RuleFactory.cs, there are 21 rules.
+        rules.Should().HaveCount(21);
     }
 
     [Fact]
@@ -49,6 +49,8 @@ public class RuleFactoryTests
         rules.Should().ContainSingle(r => r is SuspiciousLocalVariableRule);
         rules.Should().ContainSingle(r => r is ObfuscatedReflectiveExecutionRule);
         rules.Should().ContainSingle(r => r is EmbeddedResourceScriptRule);
+        rules.Should().ContainSingle(r => r is EmbeddedArchivePayloadRule);
+        rules.Should().ContainSingle(r => r is CoordinatedPayloadDeliveryRule);
         rules.Should().ContainSingle(r => r is SuspiciousAssemblyNameRule);
     }
 
@@ -111,8 +113,8 @@ public class RuleFactoryTests
 
         var rules = RuleFactory.CreateDefaultRulesWith(customRule);
 
-        rules.Should().HaveCount(20);
-        rules.Take(19).Should().ContainSingle(r => r is Base64Rule);
+        rules.Should().HaveCount(22);
+        rules.Take(21).Should().ContainSingle(r => r is Base64Rule);
         rules[^1].Should().BeSameAs(customRule);
         rules.Should().BeAssignableTo<IReadOnlyList<IScanRule>>();
     }

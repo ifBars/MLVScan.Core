@@ -10,6 +10,32 @@ namespace MLVScan.Core.Tests.Unit.Services;
 public class DataFlowOperationClassifierTests
 {
     [Fact]
+    public void IdentifyInterestingOperations_ZipExtraction_IsArchiveTransform()
+    {
+        var method = CreateCallerMethod(out var module);
+        var il = method.Body.GetILProcessor();
+        var zipFileType = CreateTypeReference(module, "System.IO.Compression", "ZipFile");
+        var extract = CreateMethodReference(
+            zipFileType,
+            "ExtractToDirectory",
+            module.TypeSystem.Void,
+            hasThis: false,
+            module.TypeSystem.String,
+            module.TypeSystem.String);
+        il.Emit(OpCodes.Ldstr, "payload.zip");
+        il.Emit(OpCodes.Ldstr, "staging");
+        il.Emit(OpCodes.Call, extract);
+        il.Emit(OpCodes.Ret);
+
+        var operations = new DataFlowOperationClassifier(method.Body.Instructions)
+            .IdentifyInterestingOperations(method, method.Body.Instructions);
+
+        operations.Should().ContainSingle(operation =>
+            operation.NodeType == MLVScan.Models.DataFlowNodeType.Transform &&
+            operation.Operation.Contains("ExtractToDirectory", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_ProcessStartInfoOverload_UsesFileNameIdentity()
     {
         var method = CreateCallerMethod(out var module);

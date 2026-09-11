@@ -13,6 +13,8 @@ internal static partial class ThreatFamilyCatalog
     /// </summary>
     public static IReadOnlyList<ThreatFamilyDefinition> Families { get; } =
     [
+        CreatePawnsAppDropperFamily(),
+        CreateBlockchainJavaStagerFamily(),
         new ThreatFamilyDefinition
         {
             FamilyId = "family-resource-shell32-tempcmd-v2",
