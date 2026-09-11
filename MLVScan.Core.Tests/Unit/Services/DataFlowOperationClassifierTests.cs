@@ -27,7 +27,8 @@ public class DataFlowOperationClassifierTests
         il.Emit(OpCodes.Call, extract);
         il.Emit(OpCodes.Ret);
 
-        var operations = new DataFlowOperationClassifier().IdentifyInterestingOperations(method, method.Body.Instructions);
+        var operations = new DataFlowOperationClassifier(method.Body.Instructions)
+            .IdentifyInterestingOperations(method, method.Body.Instructions);
 
         operations.Should().ContainSingle(operation =>
             operation.NodeType == MLVScan.Models.DataFlowNodeType.Transform &&

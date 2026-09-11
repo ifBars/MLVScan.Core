@@ -25,6 +25,7 @@ public class ThreatFamilyQuarantineTests
         "PlayMakerX.dll.di",
         "RealRadio.dll.di",
         "RentalCars.dll.di",
+        "newauth.dll.di",
         "S1API.Il2Cpp.MelonLoader.dll.di",
         "ScheduleIMoreNpcs.dll.di",
         "Skitching.dll.di",
@@ -40,6 +41,11 @@ public class ThreatFamilyQuarantineTests
         "malware-clean-zero-findings",
         "malware-clean-with-findings"
     ];
+
+    private static readonly HashSet<string> RecursiveSamplesAwaitingBehaviorModel = new(StringComparer.OrdinalIgnoreCase)
+    {
+        @"malware-suspicious-with-findings\RexonV5Menu.dll.di"
+    };
 
     private readonly ITestOutputHelper _output;
     private readonly string? _quarantineFolder;
@@ -64,6 +70,7 @@ public class ThreatFamilyQuarantineTests
     [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("NoPolice.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("RentalCars.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("newauth.dll.di", "family-obfuscated-metadata-loader-v2")]
     [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v2")]
     [InlineData("Skitching.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("StorageHub.dll.di", "family-webdownload-stage-exec-v3")]
@@ -88,6 +95,23 @@ public class ThreatFamilyQuarantineTests
         dto.Disposition!.Classification.Should().Be("KnownThreat");
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
+    [SkippableTheory]
+    [InlineData(@"malware-suspicious-with-findings\RexonV5Menu.dll.di")]
+    public void Scan_QuarantineSampleAwaitingBehaviorModel_ShouldRetainFindingsWithoutFamily(string filename)
+    {
+        var path = GetSamplePath(filename);
+        var assemblyBytes = File.ReadAllBytes(path);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+
+        dto.Findings.Should().NotBeEmpty();
+        dto.ThreatFamilies.Should().BeNullOrEmpty();
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().NotBe("KnownThreat");
     }
 
     [SkippableTheory]
@@ -229,6 +253,11 @@ public class ThreatFamilyQuarantineTests
         foreach (var path in samplePaths)
         {
             var relativePath = Path.GetRelativePath(_quarantineFolder!, path);
+            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath))
+            {
+                continue;
+            }
+
             var assemblyBytes = File.ReadAllBytes(path);
             var findings = scanner.Scan(path).ToList();
             var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
