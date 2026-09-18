@@ -47,6 +47,21 @@ public class ThreatFamilyQuarantineTests
         @"malware-suspicious-with-findings\RexonV5Menu.dll.di"
     };
 
+    private static readonly HashSet<string> RecursiveNonMaliciousPackageCompanions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        @"BetterPatrols1\bin\Win64_Shipping_Client\0Harmony.dll.di",
+        @"BetterPatrols1\bin\Win64_Shipping_Client\MCMv5.dll.di",
+        @"BetterPatrols1\bin\Win64_Shipping_Client\Newtonsoft.Json.dll.di",
+        @"BetterPatrols1\bin\Win64_Shipping_Client\System.Management.dll.di",
+        @"BetterPatrols1\bin\Win64_Shipping_Client\System.Numerics.Vectors.dll.di",
+        @"BetterPatrols2\bin\Win64_Shipping_Client\0Harmony.dll.di",
+        @"BetterPatrols2\bin\Win64_Shipping_Client\MCMv5.dll.di",
+        @"BetterPatrols2\bin\Win64_Shipping_Client\Newtonsoft.Json.dll.di",
+        @"BetterPatrols2\bin\Win64_Shipping_Client\System.Management.dll.di",
+        @"BetterPatrols2\bin\Win64_Shipping_Client\System.Numerics.Vectors.dll.di",
+        @"BloodAndBanners\bin\Win64_Shipping_Client\BloodAndBanners.dll.di"
+    };
+
     private readonly ITestOutputHelper _output;
     private readonly string? _quarantineFolder;
 
@@ -253,7 +268,8 @@ public class ThreatFamilyQuarantineTests
         foreach (var path in samplePaths)
         {
             var relativePath = Path.GetRelativePath(_quarantineFolder!, path);
-            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath))
+            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath) ||
+                RecursiveNonMaliciousPackageCompanions.Contains(relativePath))
             {
                 continue;
             }
