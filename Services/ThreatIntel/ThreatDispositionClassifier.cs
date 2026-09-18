@@ -11,6 +11,7 @@ public sealed class ThreatDispositionClassifier
     private static readonly HashSet<string> StrongStandaloneRuleIds = new(StringComparer.Ordinal)
     {
         "DataFlowAnalysis",
+        "CoordinatedPayloadDeliveryRule",
         "EmbeddedResourceScriptRule",
         "ObfuscatedReflectiveExecutionRule"
     };

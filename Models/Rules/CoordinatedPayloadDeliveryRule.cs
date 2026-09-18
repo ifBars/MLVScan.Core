@@ -94,6 +94,22 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                         "execution: hidden or elevated Java child process"
                     ]));
             }
+
+            if (TryFindRemoteTextHiddenShellExecution(
+                    calls,
+                    scopedProcessFindings,
+                    out var remoteTextCall,
+                    out var shellFinding))
+            {
+                findings.Add(CreateFinding(
+                    namespaceGroup.Key,
+                    "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method.",
+                    [
+                        $"source: {remoteTextCall.Called.DeclaringType?.FullName}.{remoteTextCall.Called.Name} in {remoteTextCall.Method.FullName}",
+                        "transform: remote text parsed or rewritten before execution",
+                        $"execution: {shellFinding.Description}"
+                    ]));
+            }
         }
 
         return findings;
@@ -157,6 +173,87 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                calls.Any(call => IsProcessStart(call.Called));
     }
 
+    private static bool TryFindRemoteTextHiddenShellExecution(
+        IReadOnlyList<(MethodDefinition Method, MethodReference Called)> calls,
+        IReadOnlyList<ScanFinding> processFindings,
+        out (MethodDefinition Method, MethodReference Called) remoteTextCall,
+        out ScanFinding shellFinding)
+    {
+        foreach (var finding in processFindings)
+        {
+            if (!IsHiddenDynamicShellFinding(finding))
+            {
+                continue;
+            }
+
+            foreach (var methodGroup in calls.GroupBy(static call => call.Method))
+            {
+                if (!FindingBelongsToMethod(finding, methodGroup.Key) ||
+                    !methodGroup.Any(call => IsProcessStart(call.Called)) ||
+                    !methodGroup.Any(call => IsRemoteTextTransform(call.Called)))
+                {
+                    continue;
+                }
+
+                var source = methodGroup.FirstOrDefault(call => IsNetworkTextRead(call.Called));
+                if (source.Called == null)
+                {
+                    continue;
+                }
+
+                remoteTextCall = source;
+                shellFinding = finding;
+                return true;
+            }
+        }
+
+        remoteTextCall = default;
+        shellFinding = null!;
+        return false;
+    }
+
+    private static bool IsHiddenDynamicShellFinding(ScanFinding finding)
+    {
+        bool targetsShell = Contains(finding.Description, "powershell.exe") ||
+                            Contains(finding.Description, "cmd.exe") ||
+                            Contains(finding.Description, "wscript.exe") ||
+                            Contains(finding.Description, "cscript.exe") ||
+                            Contains(finding.Description, "mshta.exe");
+        bool hidesExecution = Contains(finding.Description, "CreateNoWindow=true") ||
+                              Contains(finding.Description, "WindowStyle=Hidden") ||
+                              Contains(finding.Description, "UseShellExecute=true");
+        bool hasDynamicArguments = Contains(finding.Description, "Arguments: <dynamic") ||
+                                   Contains(finding.Description, "Arguments: <arg") ||
+                                   Contains(finding.Description, "<dynamic via");
+
+        return targetsShell && hidesExecution && hasDynamicArguments;
+    }
+
+    private static bool FindingBelongsToMethod(ScanFinding finding, MethodDefinition method)
+    {
+        string locationPrefix = $"{method.DeclaringType.FullName}.{method.Name}";
+        return finding.Location.Equals(locationPrefix, StringComparison.Ordinal) ||
+               finding.Location.StartsWith(locationPrefix + ":", StringComparison.Ordinal);
+    }
+
+    private static bool IsNetworkTextRead(MethodReference method)
+    {
+        string type = method.DeclaringType?.FullName ?? string.Empty;
+        string name = method.Name;
+        return IsNetworkType(type) &&
+               (name.Contains("GetString", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("DownloadString", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsRemoteTextTransform(MethodReference method)
+    {
+        string type = method.DeclaringType?.FullName ?? string.Empty;
+        return (type == "System.Text.RegularExpressions.Regex" && method.Name == "Match") ||
+               (type == "System.Net.WebUtility" && method.Name == "HtmlDecode") ||
+               (type == "System.String" &&
+                (method.Name == "Replace" || method.Name == "Trim" || method.Name == "Substring"));
+    }
+
     private static bool IsNetworkRead(MethodReference method)
     {
         string type = method.DeclaringType?.FullName ?? string.Empty;
@@ -164,6 +261,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
         return IsNetworkType(type) &&
                (name.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("GetString", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetByteArray", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetStream", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("Download", StringComparison.OrdinalIgnoreCase) ||

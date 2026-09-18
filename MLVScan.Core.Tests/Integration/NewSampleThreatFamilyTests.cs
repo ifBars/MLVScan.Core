@@ -9,6 +9,7 @@ namespace MLVScan.Core.Tests.Integration;
 public class NewSampleThreatFamilyTests
 {
     [SkippableTheory]
+    [InlineData(@"AutoBarnCoopDoor\AutoBarnCoopDoor.dll.di", "family-remote-text-shell-exec-v1", "remote-text-hidden-shell-command")]
     [InlineData(@"BetterPatrols1\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
     [InlineData(@"BetterPatrols2\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
     [InlineData(@"BloodAndBanners\bin\Win64_Shipping_Client\BloodAndBanners.Core.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
@@ -45,6 +46,7 @@ public class NewSampleThreatFamilyTests
     }
 
     [SkippableTheory]
+    [InlineData(@"AutoBarnCoopDoor\AutoBarnCoopDoor.dll.di", "family-remote-text-shell-exec-v1")]
     [InlineData(@"BetterPatrols1\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1")]
     [InlineData(@"BetterPatrols2\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1")]
     [InlineData(@"BloodAndBanners\bin\Win64_Shipping_Client\BloodAndBanners.Core.dll.di", "family-pawns-app-dropper-v1")]
@@ -73,7 +75,7 @@ public class NewSampleThreatFamilyTests
 
         while (current != null)
         {
-            string candidate = Path.Combine(current, "TO_ANALYZE", relativePath);
+            string candidate = Path.Combine(current, "QUARANTINE", relativePath);
             if (File.Exists(candidate))
             {
                 return candidate;
@@ -82,6 +84,6 @@ public class NewSampleThreatFamilyTests
             current = Directory.GetParent(current)?.FullName;
         }
 
-        throw new SkipException($"Static sample not found in TO_ANALYZE: {relativePath}");
+        throw new SkipException($"Static sample not found in QUARANTINE: {relativePath}");
     }
 }

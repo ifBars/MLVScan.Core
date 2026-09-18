@@ -15,6 +15,7 @@ internal static partial class ThreatFamilyCatalog
     [
         CreatePawnsAppDropperFamily(),
         CreateBlockchainJavaStagerFamily(),
+        CreateRemoteTextShellExecutionFamily(),
         new ThreatFamilyDefinition
         {
             FamilyId = "family-resource-shell32-tempcmd-v2",
