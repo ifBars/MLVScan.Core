@@ -81,7 +81,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                     ]));
             }
 
-            if (IsBlockchainResolvedJavaStager(methods, calls, literals, scopedProcessFindings))
+            if (IsBlockchainResolvedJavaStager(methods, calls, literals, priorFindings, scopedProcessFindings))
             {
                 findings.Add(CreateFinding(
                     namespaceGroup.Key,
@@ -140,6 +140,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
         IReadOnlyList<MethodDefinition> methods,
         IReadOnlyList<(MethodDefinition Method, MethodReference Called)> calls,
         IReadOnlyList<string> literals,
+        IReadOnlyList<ScanFinding> priorFindings,
         IReadOnlyList<ScanFinding> processFindings)
     {
         bool hasFixedKeyXorDecoder = methods.Any(method =>
@@ -148,17 +149,31 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                 instruction.Operand is MethodReference called &&
                 called.DeclaringType?.FullName == "System.Text.Encoding" &&
                 called.Name == "GetString"));
-        bool hasEvmLookup = literals.Any(static literal =>
-                                literal.Equals("eth_call", StringComparison.OrdinalIgnoreCase)) &&
-                            literals.Any(static literal =>
-                                literal.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
-                                literal.Length >= 10);
-        bool hasJavaArchiveMarkers = literals.Any(static literal =>
-                                         literal.Contains(".jar", StringComparison.OrdinalIgnoreCase)) &&
-                                     literals.Any(static literal =>
-                                         literal.Contains("-cp ", StringComparison.OrdinalIgnoreCase) ||
-                                         literal.Contains("MemJarBootstrap", StringComparison.OrdinalIgnoreCase) ||
-                                         literal.Contains("com.renderassist.Main", StringComparison.OrdinalIgnoreCase));
+        var decodedEvidence = priorFindings
+            .Where(static finding => string.Equals(
+                finding.RuleId,
+                "EncodedStringPipelineRule",
+                StringComparison.Ordinal))
+            .Select(static finding => $"{finding.Description}{Environment.NewLine}{finding.CodeSnippet}")
+            .ToList();
+        bool hasEvmLookup =
+            (literals.Any(static literal => literal.Equals("eth_call", StringComparison.OrdinalIgnoreCase)) &&
+             literals.Any(static literal =>
+                 literal.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && literal.Length >= 10)) ||
+            decodedEvidence.Any(static evidence =>
+                evidence.Contains("eth_call", StringComparison.OrdinalIgnoreCase) &&
+                evidence.Contains("0x", StringComparison.OrdinalIgnoreCase));
+        bool hasJavaPayloadMarkers =
+            (literals.Any(static literal => literal.Contains(".jar", StringComparison.OrdinalIgnoreCase)) &&
+             literals.Any(static literal =>
+                 literal.Contains("-cp ", StringComparison.OrdinalIgnoreCase) ||
+                 literal.Contains("MemJarBootstrap", StringComparison.OrdinalIgnoreCase) ||
+                 literal.Contains("com.renderassist.Main", StringComparison.OrdinalIgnoreCase))) ||
+            decodedEvidence.Any(static evidence =>
+                evidence.Contains("-cp ", StringComparison.OrdinalIgnoreCase) &&
+                (evidence.Contains("com.renderassist.", StringComparison.OrdinalIgnoreCase) ||
+                 evidence.Contains(".jar", StringComparison.OrdinalIgnoreCase) ||
+                 evidence.Contains("javaw", StringComparison.OrdinalIgnoreCase)));
         bool hasConcealedJavaLaunch = processFindings.Any(finding =>
             Contains(finding.Description, "WindowStyle=Hidden") ||
             Contains(finding.Description, "Redirected I/O") ||
@@ -166,7 +181,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
 
         return hasFixedKeyXorDecoder &&
                hasEvmLookup &&
-               hasJavaArchiveMarkers &&
+               hasJavaPayloadMarkers &&
                hasConcealedJavaLaunch &&
                calls.Any(call => IsNetworkSend(call.Called)) &&
                calls.Any(call => IsFileWrite(call.Called)) &&

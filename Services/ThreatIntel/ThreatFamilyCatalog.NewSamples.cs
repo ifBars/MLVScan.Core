@@ -39,10 +39,15 @@ internal static partial class ThreatFamilyCatalog
             FamilyId = "family-blockchain-java-stager-v1",
             DisplayName = "Blockchain-resolved Java payload stager",
             Summary = "Uses blockchain RPC service discovery and fixed-key decoding to retrieve or embed a Java archive, then executes it through a concealed Java child process.",
-            AdvisorySlugs = ["2026-09-malware-blockchain-java-stager"],
+            AdvisorySlugs =
+            [
+                "2026-09-malware-blockchain-java-stager",
+                "2026-09-malware-sunrise-furrow-coach"
+            ],
             ExactSampleHashes =
             [
-                "3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144"
+                "3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144",
+                "df609f3702aa60149ad93a342f52069f70f160ffb4cd2f96818f3022e650c4f8"
             ],
             Variants =
             [

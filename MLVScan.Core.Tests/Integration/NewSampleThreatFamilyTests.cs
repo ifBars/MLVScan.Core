@@ -12,7 +12,9 @@ public class NewSampleThreatFamilyTests
     [InlineData(@"BetterPatrols1\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
     [InlineData(@"BetterPatrols2\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
     [InlineData(@"BloodAndBanners\bin\Win64_Shipping_Client\BloodAndBanners.Core.dll.di", "family-pawns-app-dropper-v1", "archive-userprofile-runkey-hidden-launch")]
+    [InlineData(@"Meowtopia\Meowtopia.dll.di", "family-webdownload-stage-exec-v3", "webdownload-temp-hidden-launch-generic")]
     [InlineData(@"Polygamy\ValleyPolygamy.dll.di", "family-blockchain-java-stager-v1", "evm-resolved-jar-runas")]
+    [InlineData(@"SunriseFurrowCoach\SunriseFurrowCoach.dll.di", "family-blockchain-java-stager-v1", "evm-resolved-jar-runas")]
     public void Scan_NewMaliciousSample_WithoutHashEvidence_ShouldMatchBehaviorFamily(
         string relativePath,
         string expectedFamilyId,
@@ -49,7 +51,9 @@ public class NewSampleThreatFamilyTests
     [InlineData(@"BetterPatrols1\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1")]
     [InlineData(@"BetterPatrols2\bin\Win64_Shipping_Client\BetterPatrols.dll.di", "family-pawns-app-dropper-v1")]
     [InlineData(@"BloodAndBanners\bin\Win64_Shipping_Client\BloodAndBanners.Core.dll.di", "family-pawns-app-dropper-v1")]
+    [InlineData(@"Meowtopia\Meowtopia.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData(@"Polygamy\ValleyPolygamy.dll.di", "family-blockchain-java-stager-v1")]
+    [InlineData(@"SunriseFurrowCoach\SunriseFurrowCoach.dll.di", "family-blockchain-java-stager-v1")]
     public void Scan_NewMaliciousSample_WithHashEvidence_ShouldBeExactKnownThreat(
         string relativePath,
         string expectedFamilyId)
