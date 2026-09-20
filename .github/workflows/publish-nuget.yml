@@ -92,7 +92,8 @@ jobs:
   publish:
     needs: build-package
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      id-token: write
 
     steps:
     - name: Download package artifact
@@ -106,7 +107,14 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
+    - name: Log in to NuGet with trusted publishing
+      id: nuget-login
+      uses: nuget/login@v1
+      with:
+        user: ifBars
+        source: https://api.nuget.org/v3/index.json
+
     - name: Publish to NuGet
       env:
-        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
       run: dotnet nuget push ./nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
