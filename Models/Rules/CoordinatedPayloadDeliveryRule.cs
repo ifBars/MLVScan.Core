@@ -81,7 +81,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                     ]));
             }
 
-            if (IsBlockchainResolvedJavaStager(methods, calls, literals, scopedProcessFindings))
+            if (IsBlockchainResolvedJavaStager(methods, calls, literals, priorFindings, scopedProcessFindings))
             {
                 findings.Add(CreateFinding(
                     namespaceGroup.Key,
@@ -92,6 +92,22 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                         "transform: fixed-key XOR string reconstruction",
                         "staging: .jar classpath payload",
                         "execution: hidden or elevated Java child process"
+                    ]));
+            }
+
+            if (TryFindRemoteTextHiddenShellExecution(
+                    calls,
+                    scopedProcessFindings,
+                    out var remoteTextCall,
+                    out var shellFinding))
+            {
+                findings.Add(CreateFinding(
+                    namespaceGroup.Key,
+                    "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method.",
+                    [
+                        $"source: {remoteTextCall.Called.DeclaringType?.FullName}.{remoteTextCall.Called.Name} in {remoteTextCall.Method.FullName}",
+                        "transform: remote text parsed or rewritten before execution",
+                        $"execution: {shellFinding.Description}"
                     ]));
             }
         }
@@ -124,6 +140,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
         IReadOnlyList<MethodDefinition> methods,
         IReadOnlyList<(MethodDefinition Method, MethodReference Called)> calls,
         IReadOnlyList<string> literals,
+        IReadOnlyList<ScanFinding> priorFindings,
         IReadOnlyList<ScanFinding> processFindings)
     {
         bool hasFixedKeyXorDecoder = methods.Any(method =>
@@ -132,17 +149,31 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                 instruction.Operand is MethodReference called &&
                 called.DeclaringType?.FullName == "System.Text.Encoding" &&
                 called.Name == "GetString"));
-        bool hasEvmLookup = literals.Any(static literal =>
-                                literal.Equals("eth_call", StringComparison.OrdinalIgnoreCase)) &&
-                            literals.Any(static literal =>
-                                literal.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
-                                literal.Length >= 10);
-        bool hasJavaArchiveMarkers = literals.Any(static literal =>
-                                         literal.Contains(".jar", StringComparison.OrdinalIgnoreCase)) &&
-                                     literals.Any(static literal =>
-                                         literal.Contains("-cp ", StringComparison.OrdinalIgnoreCase) ||
-                                         literal.Contains("MemJarBootstrap", StringComparison.OrdinalIgnoreCase) ||
-                                         literal.Contains("com.renderassist.Main", StringComparison.OrdinalIgnoreCase));
+        var decodedEvidence = priorFindings
+            .Where(static finding => string.Equals(
+                finding.RuleId,
+                "EncodedStringPipelineRule",
+                StringComparison.Ordinal))
+            .Select(static finding => $"{finding.Description}{Environment.NewLine}{finding.CodeSnippet}")
+            .ToList();
+        bool hasEvmLookup =
+            (literals.Any(static literal => literal.Equals("eth_call", StringComparison.OrdinalIgnoreCase)) &&
+             literals.Any(static literal =>
+                 literal.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && literal.Length >= 10)) ||
+            decodedEvidence.Any(static evidence =>
+                evidence.Contains("eth_call", StringComparison.OrdinalIgnoreCase) &&
+                evidence.Contains("0x", StringComparison.OrdinalIgnoreCase));
+        bool hasJavaPayloadMarkers =
+            (literals.Any(static literal => literal.Contains(".jar", StringComparison.OrdinalIgnoreCase)) &&
+             literals.Any(static literal =>
+                 literal.Contains("-cp ", StringComparison.OrdinalIgnoreCase) ||
+                 literal.Contains("MemJarBootstrap", StringComparison.OrdinalIgnoreCase) ||
+                 literal.Contains("com.renderassist.Main", StringComparison.OrdinalIgnoreCase))) ||
+            decodedEvidence.Any(static evidence =>
+                evidence.Contains("-cp ", StringComparison.OrdinalIgnoreCase) &&
+                (evidence.Contains("com.renderassist.", StringComparison.OrdinalIgnoreCase) ||
+                 evidence.Contains(".jar", StringComparison.OrdinalIgnoreCase) ||
+                 evidence.Contains("javaw", StringComparison.OrdinalIgnoreCase)));
         bool hasConcealedJavaLaunch = processFindings.Any(finding =>
             Contains(finding.Description, "WindowStyle=Hidden") ||
             Contains(finding.Description, "Redirected I/O") ||
@@ -150,11 +181,145 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
 
         return hasFixedKeyXorDecoder &&
                hasEvmLookup &&
-               hasJavaArchiveMarkers &&
+               hasJavaPayloadMarkers &&
                hasConcealedJavaLaunch &&
                calls.Any(call => IsNetworkSend(call.Called)) &&
                calls.Any(call => IsFileWrite(call.Called)) &&
                calls.Any(call => IsProcessStart(call.Called));
+    }
+
+    private static bool TryFindRemoteTextHiddenShellExecution(
+        IReadOnlyList<(MethodDefinition Method, MethodReference Called)> calls,
+        IReadOnlyList<ScanFinding> processFindings,
+        out (MethodDefinition Method, MethodReference Called) remoteTextCall,
+        out ScanFinding shellFinding)
+    {
+        foreach (var finding in processFindings)
+        {
+            foreach (var methodGroup in calls.GroupBy(static call => call.Method))
+            {
+                if (!FindingBelongsToMethod(finding, methodGroup.Key) ||
+                    !methodGroup.Any(call => IsProcessStart(call.Called)) ||
+                    !methodGroup.Any(call => IsRemoteTextTransform(call.Called)) ||
+                    (!IsHiddenDynamicShellFinding(finding) &&
+                     !IsFragmentedHiddenShellLauncher(methodGroup.Key, methodGroup)))
+                {
+                    continue;
+                }
+
+                var source = methodGroup.FirstOrDefault(call => IsNetworkTextRead(call.Called));
+                if (source.Called == null)
+                {
+                    continue;
+                }
+
+                remoteTextCall = source;
+                shellFinding = finding;
+                return true;
+            }
+        }
+
+        // Compiler-generated async state machines can make a retained ProcessStart location
+        // diverge from Cecil's method identity. Keep the correlation namespace-scoped, but
+        // still require the complete remote-text, transform, fragmented-shell, and hidden-launch chain.
+        var structuralLauncher = calls
+            .GroupBy(static call => call.Method)
+            .FirstOrDefault(group =>
+                group.Any(call => IsProcessStart(call.Called)) &&
+                IsFragmentedHiddenShellLauncher(group.Key, group));
+        var namespaceSource = calls.FirstOrDefault(call => IsNetworkTextRead(call.Called));
+        var namespaceFinding = processFindings.FirstOrDefault(finding =>
+            Contains(finding.Description, "CreateNoWindow=true") ||
+            Contains(finding.Description, "WindowStyle=Hidden"));
+        if (structuralLauncher != null &&
+            namespaceSource.Called != null &&
+            namespaceFinding != null &&
+            calls.Any(call => IsRemoteTextTransform(call.Called)))
+        {
+            remoteTextCall = namespaceSource;
+            shellFinding = namespaceFinding;
+            return true;
+        }
+
+        remoteTextCall = default;
+        shellFinding = null!;
+        return false;
+    }
+
+    private static bool IsFragmentedHiddenShellLauncher(
+        MethodDefinition method,
+        IEnumerable<(MethodDefinition Method, MethodReference Called)> calls)
+    {
+        var methodCalls = calls.Select(static call => call.Called).ToList();
+        bool configuresHiddenDynamicLaunch =
+            methodCalls.Any(static call =>
+                call.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                call.Name == "set_CreateNoWindow") &&
+            methodCalls.Any(static call =>
+                call.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                call.Name == "set_Arguments");
+        if (!configuresHiddenDynamicLaunch)
+        {
+            return false;
+        }
+
+        var literals = method.Body.Instructions
+            .Where(static instruction => instruction.OpCode == OpCodes.Ldstr)
+            .Select(static instruction => instruction.Operand as string)
+            .Where(static literal => !string.IsNullOrEmpty(literal))
+            .Cast<string>()
+            .ToList();
+        bool ContainsShellName(string candidate) =>
+            candidate.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("cmd.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("wscript.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("cscript.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("mshta.exe", StringComparison.OrdinalIgnoreCase);
+
+        return literals.Any(ContainsShellName) ||
+               literals.Any(first => literals.Any(second => ContainsShellName(first + second)));
+    }
+
+    private static bool IsHiddenDynamicShellFinding(ScanFinding finding)
+    {
+        bool targetsShell = Contains(finding.Description, "powershell.exe") ||
+                            Contains(finding.Description, "cmd.exe") ||
+                            Contains(finding.Description, "wscript.exe") ||
+                            Contains(finding.Description, "cscript.exe") ||
+                            Contains(finding.Description, "mshta.exe");
+        bool hidesExecution = Contains(finding.Description, "CreateNoWindow=true") ||
+                              Contains(finding.Description, "WindowStyle=Hidden") ||
+                              Contains(finding.Description, "UseShellExecute=true");
+        bool hasDynamicArguments = Contains(finding.Description, "Arguments: <dynamic") ||
+                                   Contains(finding.Description, "Arguments: <arg") ||
+                                   Contains(finding.Description, "<dynamic via");
+
+        return targetsShell && hidesExecution && hasDynamicArguments;
+    }
+
+    private static bool FindingBelongsToMethod(ScanFinding finding, MethodDefinition method)
+    {
+        string locationPrefix = $"{method.DeclaringType.FullName}.{method.Name}";
+        return finding.Location.Equals(locationPrefix, StringComparison.Ordinal) ||
+               finding.Location.StartsWith(locationPrefix + ":", StringComparison.Ordinal);
+    }
+
+    private static bool IsNetworkTextRead(MethodReference method)
+    {
+        string type = method.DeclaringType?.FullName ?? string.Empty;
+        string name = method.Name;
+        return IsNetworkType(type) &&
+               (name.Contains("GetString", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("DownloadString", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsRemoteTextTransform(MethodReference method)
+    {
+        string type = method.DeclaringType?.FullName ?? string.Empty;
+        return (type == "System.Text.RegularExpressions.Regex" && method.Name == "Match") ||
+               (type == "System.Net.WebUtility" && method.Name == "HtmlDecode") ||
+               (type == "System.String" &&
+                (method.Name == "Replace" || method.Name == "Trim" || method.Name == "Substring"));
     }
 
     private static bool IsNetworkRead(MethodReference method)
@@ -164,6 +329,7 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
         return IsNetworkType(type) &&
                (name.Contains("GetResponse", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetAsync", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("GetString", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetByteArray", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("GetStream", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("Download", StringComparison.OrdinalIgnoreCase) ||

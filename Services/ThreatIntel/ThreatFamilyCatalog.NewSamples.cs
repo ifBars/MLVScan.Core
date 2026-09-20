@@ -11,7 +11,7 @@ internal static partial class ThreatFamilyCatalog
             FamilyId = "family-pawns-app-dropper-v1",
             DisplayName = "Pawns.app credential-seeded autorun dropper",
             Summary = "Downloads and extracts a per-user archive payload, seeds application state, installs Windows autorun persistence, and launches the payload hidden.",
-            AdvisorySlugs = [],
+            AdvisorySlugs = ["2026-09-malware-pawns-app-dropper"],
             ExactSampleHashes =
             [
                 "4f1f3bc0028d9059939c9218dc6d975974b656f4c540ee83a51a7a39278c9c8b",
@@ -39,10 +39,15 @@ internal static partial class ThreatFamilyCatalog
             FamilyId = "family-blockchain-java-stager-v1",
             DisplayName = "Blockchain-resolved Java payload stager",
             Summary = "Uses blockchain RPC service discovery and fixed-key decoding to retrieve or embed a Java archive, then executes it through a concealed Java child process.",
-            AdvisorySlugs = [],
+            AdvisorySlugs =
+            [
+                "2026-09-malware-blockchain-java-stager",
+                "2026-09-malware-sunrise-furrow-coach"
+            ],
             ExactSampleHashes =
             [
-                "3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144"
+                "3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144",
+                "df609f3702aa60149ad93a342f52069f70f160ffb4cd2f96818f3022e650c4f8"
             ],
             Variants =
             [
@@ -61,6 +66,32 @@ internal static partial class ThreatFamilyCatalog
                     Summary = "Materializes an embedded JAR bootstrap and transfers a second payload to a concealed Java process through redirected standard input.",
                     Confidence = 0.97,
                     Matcher = MatchEmbeddedJarStdinBootstrap
+                }
+            ]
+        };
+    }
+
+    private static ThreatFamilyDefinition CreateRemoteTextShellExecutionFamily()
+    {
+        return new ThreatFamilyDefinition
+        {
+            FamilyId = "family-remote-text-shell-exec-v1",
+            DisplayName = "Remote text hidden shell executor",
+            Summary = "Retrieves remote text, parses or rewrites it into runtime-computed command arguments, and executes the result through a concealed system shell.",
+            AdvisorySlugs = ["2026-09-malware-autobarncoopdoor"],
+            ExactSampleHashes =
+            [
+                "fe8c78fe1bde7e5edf114f22d554d2786058e0dbf8d697123714da0484cded64"
+            ],
+            Variants =
+            [
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "remote-text-hidden-shell-command",
+                    DisplayName = "Remote text -> hidden shell command",
+                    Summary = "Downloads text and transforms it into dynamic arguments for a hidden PowerShell, CMD, Windows Script Host, or MSHTA process in the same method.",
+                    Confidence = 0.98,
+                    Matcher = MatchRemoteTextHiddenShellCommand
                 }
             ]
         };
@@ -95,6 +126,37 @@ internal static partial class ThreatFamilyCatalog
                 context.CreateRuleEvidence("download", "remote archive acquisition", download),
                 context.CreateRuleEvidence("persistence", "CurrentVersion Run registry write", registry),
                 context.CreateRuleEvidence("execution", "concealed executable launch with --hidden", process)
+            ]
+        };
+    }
+
+    private static ThreatFamilyVariantMatch? MatchRemoteTextHiddenShellCommand(
+        ThreatFamilyAnalysisContext context)
+    {
+        var coordinator = context.FindFinding(
+            "CoordinatedPayloadDeliveryRule",
+            "remote text retrieval",
+            "hidden shell command");
+        var process = context.Findings.FirstOrDefault(finding =>
+            string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
+            FindingContainsAny(finding, "CreateNoWindow=true", "WindowStyle=Hidden", "UseShellExecute=true") &&
+            (FindingContainsAll(finding, "Target: <dynamic") ||
+             (FindingContainsAny(finding, "powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe") &&
+              FindingContainsAny(finding, "<dynamic", "<arg"))));
+        if (coordinator == null || process == null)
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules(
+                "CoordinatedPayloadDeliveryRule",
+                "ProcessStartRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("behavior-chain", "remote text transformed into a runtime-computed shell command", coordinator),
+                context.CreateRuleEvidence("execution", "concealed system shell with dynamic arguments", process)
             ]
         };
     }

@@ -85,12 +85,60 @@ public class NewThreatFamilyClassifierTests
         matches.Should().NotContain(match => match.FamilyId == "family-blockchain-java-stager-v1");
     }
 
+    [Fact]
+    public void Classify_RemoteTextHiddenShellExecution_ReturnsBehaviorFamily()
+    {
+        var findings = new[]
+        {
+            Finding(
+                "CoordinatedPayloadDeliveryRule",
+                "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method."),
+            Finding(
+                "ProcessStartRule",
+                "Target: \"powershell.exe\". Arguments: <dynamic via Replace> [Evasion: CreateNoWindow=true]")
+        };
+
+        var matches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-remote-text-shell-exec-v1" &&
+            match.VariantId == "remote-text-hidden-shell-command" &&
+            match.MatchKind == ThreatMatchKind.BehaviorVariant &&
+            !match.ExactHashMatch);
+    }
+
+    [Fact]
+    public void Classify_RemoteTextFragmentedDynamicShellTarget_ReturnsBehaviorFamily()
+    {
+        var findings = new[]
+        {
+            Finding(
+                "CoordinatedPayloadDeliveryRule",
+                "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method."),
+            Finding(
+                "ProcessStartRule",
+                "Target: <dynamic via Dup>. Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true]")
+        };
+
+        var matches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-remote-text-shell-exec-v1" &&
+            match.VariantId == "remote-text-hidden-shell-command" &&
+            match.MatchKind == ThreatMatchKind.BehaviorVariant &&
+            !match.ExactHashMatch);
+    }
+
     [Theory]
-    [InlineData("4f1f3bc0028d9059939c9218dc6d975974b656f4c540ee83a51a7a39278c9c8b", "family-pawns-app-dropper-v1")]
-    [InlineData("9dcc2c192b1b5e8bb9e9db99e03f58a385c4aff0bd117c8b60d93ff482d67516", "family-pawns-app-dropper-v1")]
-    [InlineData("7b96c506a062bc7a8deb99fb8429c7b72db5a7fbe86f85b46584fc7f4e3d48f7", "family-pawns-app-dropper-v1")]
-    [InlineData("3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144", "family-blockchain-java-stager-v1")]
-    public void Classify_ConfirmedHash_ReturnsExactKnownThreat(string hash, string expectedFamily)
+    [InlineData("4f1f3bc0028d9059939c9218dc6d975974b656f4c540ee83a51a7a39278c9c8b", "family-pawns-app-dropper-v1", "2026-09-malware-pawns-app-dropper")]
+    [InlineData("9dcc2c192b1b5e8bb9e9db99e03f58a385c4aff0bd117c8b60d93ff482d67516", "family-pawns-app-dropper-v1", "2026-09-malware-pawns-app-dropper")]
+    [InlineData("7b96c506a062bc7a8deb99fb8429c7b72db5a7fbe86f85b46584fc7f4e3d48f7", "family-pawns-app-dropper-v1", "2026-09-malware-pawns-app-dropper")]
+    [InlineData("3a6a9292767af6c4df205c766cda0e811b8ac12a61a7e2aa5c88d08a7a8de144", "family-blockchain-java-stager-v1", "2026-09-malware-blockchain-java-stager")]
+    [InlineData("fe8c78fe1bde7e5edf114f22d554d2786058e0dbf8d697123714da0484cded64", "family-remote-text-shell-exec-v1", "2026-09-malware-autobarncoopdoor")]
+    public void Classify_ConfirmedHash_ReturnsExactKnownThreat(
+        string hash,
+        string expectedFamily,
+        string expectedAdvisorySlug)
     {
         var classifier = new ThreatFamilyClassifier();
 
@@ -100,7 +148,8 @@ public class NewThreatFamilyClassifierTests
         matches.Should().ContainSingle(match =>
             match.FamilyId == expectedFamily &&
             match.MatchKind == ThreatMatchKind.ExactSampleHash &&
-            match.ExactHashMatch);
+            match.ExactHashMatch &&
+            match.AdvisorySlugs.Contains(expectedAdvisorySlug));
         disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
     }
 

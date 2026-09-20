@@ -116,7 +116,7 @@ namespace MLVScan.Models.Rules
             }
 
             string decoderLocations = string.Join(", ", xorDecoders.Select(static item => item.Method.FullName).Take(3));
-            string indicators = string.Join(", ", decodedIndicators.OrderBy(static value => value, StringComparer.Ordinal).Take(6));
+            string indicators = string.Join(", ", decodedIndicators.OrderBy(static value => value, StringComparer.Ordinal).Take(16));
             return
             [
                 new ScanFinding(
@@ -537,8 +537,13 @@ namespace MLVScan.Models.Rules
         {
             return value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                    value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("eth_call", StringComparison.OrdinalIgnoreCase) ||
+                   (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && value.Length >= 10) ||
                    value.Contains(".jar", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains(".cache", StringComparison.OrdinalIgnoreCase) ||
                    value.Contains("javaw", StringComparison.OrdinalIgnoreCase) ||
+                   value.Contains("com.renderassist.", StringComparison.OrdinalIgnoreCase) ||
+                   value.StartsWith("-cp ", StringComparison.OrdinalIgnoreCase) ||
                    value.Contains("--cookie", StringComparison.OrdinalIgnoreCase) ||
                    value.Contains("/api/", StringComparison.OrdinalIgnoreCase);
         }

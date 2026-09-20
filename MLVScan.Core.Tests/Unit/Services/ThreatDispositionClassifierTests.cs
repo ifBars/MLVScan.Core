@@ -444,6 +444,25 @@ public class ThreatDispositionClassifierTests
         result.BlockingRecommended.Should().BeTrue();
     }
 
+    [Fact]
+    public void Classify_WithCoordinatedRemoteTextShellExecution_ReturnsSuspicious()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var finding = new ScanFinding(
+            "Suspicious.RemoteLauncher",
+            "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method.",
+            Severity.Critical)
+        {
+            RuleId = "CoordinatedPayloadDeliveryRule"
+        };
+
+        var result = classifier.Classify(new[] { finding }, threatFamilies: null);
+
+        result.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        result.RelatedFindings.Should().ContainSingle().Which.Should().BeSameAs(finding);
+        result.BlockingRecommended.Should().BeTrue();
+    }
+
     private static ScanFinding CreateEmbeddedUpdaterFinding()
     {
         var dataFlow = new DataFlowChain(
