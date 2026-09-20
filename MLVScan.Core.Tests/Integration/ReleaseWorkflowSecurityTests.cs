@@ -22,7 +22,6 @@ public sealed class ReleaseWorkflowSecurityTests
     }
 
     [Theory]
-    [InlineData("publish-nuget.yml", "NUGET_API_KEY")]
     [InlineData("publish-npm.yml", "NPM_TOKEN")]
     public void PublishWorkflow_ExposesRegistryCredentialOnlyInIsolatedPublishJob(
         string workflowName,
@@ -37,6 +36,20 @@ public sealed class ReleaseWorkflowSecurityTests
             .Should().BeGreaterThan(publishJob);
         workflow[..publishJob].Should().NotContain(secretReference);
         workflow[publishJob..].Should().Contain(secretReference);
+    }
+
+    [Fact]
+    public void NuGetPublishWorkflow_UsesTrustedPublishingOnlyInIsolatedPublishJob()
+    {
+        var workflow = ReadWorkflow("publish-nuget.yml");
+        int publishJob = workflow.IndexOf("\n  publish:\n", StringComparison.Ordinal);
+
+        publishJob.Should().BeGreaterThan(0);
+        workflow[..publishJob].Should().NotContain("id-token: write");
+        workflow[publishJob..].Should().Contain("id-token: write");
+        workflow.Should().NotContain("secrets.NUGET_API_KEY");
+        workflow[publishJob..].Should().Contain("uses: nuget/login@v1");
+        workflow[publishJob..].Should().Contain("steps.nuget-login.outputs.NUGET_API_KEY");
     }
 
     private static string ReadWorkflow(string workflowName)
