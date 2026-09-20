@@ -107,6 +107,28 @@ public class NewThreatFamilyClassifierTests
             !match.ExactHashMatch);
     }
 
+    [Fact]
+    public void Classify_RemoteTextFragmentedDynamicShellTarget_ReturnsBehaviorFamily()
+    {
+        var findings = new[]
+        {
+            Finding(
+                "CoordinatedPayloadDeliveryRule",
+                "Detected remote text retrieval transformed into a runtime-computed hidden shell command in the same method."),
+            Finding(
+                "ProcessStartRule",
+                "Target: <dynamic via Dup>. Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true]")
+        };
+
+        var matches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+
+        matches.Should().ContainSingle(match =>
+            match.FamilyId == "family-remote-text-shell-exec-v1" &&
+            match.VariantId == "remote-text-hidden-shell-command" &&
+            match.MatchKind == ThreatMatchKind.BehaviorVariant &&
+            !match.ExactHashMatch);
+    }
+
     [Theory]
     [InlineData("4f1f3bc0028d9059939c9218dc6d975974b656f4c540ee83a51a7a39278c9c8b", "family-pawns-app-dropper-v1", "2026-09-malware-pawns-app-dropper")]
     [InlineData("9dcc2c192b1b5e8bb9e9db99e03f58a385c4aff0bd117c8b60d93ff482d67516", "family-pawns-app-dropper-v1", "2026-09-malware-pawns-app-dropper")]

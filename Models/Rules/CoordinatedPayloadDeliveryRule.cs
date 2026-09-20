@@ -196,16 +196,13 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
     {
         foreach (var finding in processFindings)
         {
-            if (!IsHiddenDynamicShellFinding(finding))
-            {
-                continue;
-            }
-
             foreach (var methodGroup in calls.GroupBy(static call => call.Method))
             {
                 if (!FindingBelongsToMethod(finding, methodGroup.Key) ||
                     !methodGroup.Any(call => IsProcessStart(call.Called)) ||
-                    !methodGroup.Any(call => IsRemoteTextTransform(call.Called)))
+                    !methodGroup.Any(call => IsRemoteTextTransform(call.Called)) ||
+                    (!IsHiddenDynamicShellFinding(finding) &&
+                     !IsFragmentedHiddenShellLauncher(methodGroup.Key, methodGroup)))
                 {
                     continue;
                 }
@@ -222,9 +219,65 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
             }
         }
 
+        // Compiler-generated async state machines can make a retained ProcessStart location
+        // diverge from Cecil's method identity. Keep the correlation namespace-scoped, but
+        // still require the complete remote-text, transform, fragmented-shell, and hidden-launch chain.
+        var structuralLauncher = calls
+            .GroupBy(static call => call.Method)
+            .FirstOrDefault(group =>
+                group.Any(call => IsProcessStart(call.Called)) &&
+                IsFragmentedHiddenShellLauncher(group.Key, group));
+        var namespaceSource = calls.FirstOrDefault(call => IsNetworkTextRead(call.Called));
+        var namespaceFinding = processFindings.FirstOrDefault(finding =>
+            Contains(finding.Description, "CreateNoWindow=true") ||
+            Contains(finding.Description, "WindowStyle=Hidden"));
+        if (structuralLauncher != null &&
+            namespaceSource.Called != null &&
+            namespaceFinding != null &&
+            calls.Any(call => IsRemoteTextTransform(call.Called)))
+        {
+            remoteTextCall = namespaceSource;
+            shellFinding = namespaceFinding;
+            return true;
+        }
+
         remoteTextCall = default;
         shellFinding = null!;
         return false;
+    }
+
+    private static bool IsFragmentedHiddenShellLauncher(
+        MethodDefinition method,
+        IEnumerable<(MethodDefinition Method, MethodReference Called)> calls)
+    {
+        var methodCalls = calls.Select(static call => call.Called).ToList();
+        bool configuresHiddenDynamicLaunch =
+            methodCalls.Any(static call =>
+                call.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                call.Name == "set_CreateNoWindow") &&
+            methodCalls.Any(static call =>
+                call.DeclaringType?.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                call.Name == "set_Arguments");
+        if (!configuresHiddenDynamicLaunch)
+        {
+            return false;
+        }
+
+        var literals = method.Body.Instructions
+            .Where(static instruction => instruction.OpCode == OpCodes.Ldstr)
+            .Select(static instruction => instruction.Operand as string)
+            .Where(static literal => !string.IsNullOrEmpty(literal))
+            .Cast<string>()
+            .ToList();
+        bool ContainsShellName(string candidate) =>
+            candidate.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("cmd.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("wscript.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("cscript.exe", StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains("mshta.exe", StringComparison.OrdinalIgnoreCase);
+
+        return literals.Any(ContainsShellName) ||
+               literals.Any(first => literals.Any(second => ContainsShellName(first + second)));
     }
 
     private static bool IsHiddenDynamicShellFinding(ScanFinding finding)

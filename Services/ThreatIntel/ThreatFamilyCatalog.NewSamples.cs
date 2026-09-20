@@ -139,9 +139,10 @@ internal static partial class ThreatFamilyCatalog
             "hidden shell command");
         var process = context.Findings.FirstOrDefault(finding =>
             string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
-            FindingContainsAny(finding, "powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe") &&
             FindingContainsAny(finding, "CreateNoWindow=true", "WindowStyle=Hidden", "UseShellExecute=true") &&
-            FindingContainsAny(finding, "<dynamic", "<arg"));
+            (FindingContainsAll(finding, "Target: <dynamic") ||
+             (FindingContainsAny(finding, "powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe") &&
+              FindingContainsAny(finding, "<dynamic", "<arg"))));
         if (coordinator == null || process == null)
         {
             return null;

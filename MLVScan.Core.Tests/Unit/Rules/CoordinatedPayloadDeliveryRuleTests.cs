@@ -89,6 +89,25 @@ public class CoordinatedPayloadDeliveryRuleTests
     }
 
     [Fact]
+    public void PostAnalysisRefine_FragmentedHiddenShellTarget_ReturnsFinding()
+    {
+        using var assembly = CreateRemoteTextShellLauncher(fragmentShellTarget: true);
+        var existing = new[]
+        {
+            ProcessFinding(
+                "Target: <dynamic via Dup>. Arguments: <unknown/no-arguments> " +
+                "[Evasion: UseShellExecute set, CreateNoWindow=true]",
+                "Test.Sample.RemoteLauncher.Run:42")
+        };
+
+        var findings = _rule.PostAnalysisRefine(assembly.MainModule, existing).ToList();
+
+        findings.Should().ContainSingle(finding =>
+            finding.RuleId == "CoordinatedPayloadDeliveryRule" &&
+            finding.Description.Contains("remote text", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void PostAnalysisRefine_EncodedEvmJavaPayloadMarkers_ReturnsFinding()
     {
         using var assembly = CreateEncodedEvmJavaStager();
@@ -149,7 +168,7 @@ public class CoordinatedPayloadDeliveryRuleTests
         return assembly;
     }
 
-    private static AssemblyDefinition CreateRemoteTextShellLauncher()
+    private static AssemblyDefinition CreateRemoteTextShellLauncher(bool fragmentShellTarget = false)
     {
         var assembly = AssemblyDefinition.CreateAssembly(
             new AssemblyNameDefinition("RemoteTextShellLauncher", new Version(1, 0)),
@@ -166,6 +185,12 @@ public class CoordinatedPayloadDeliveryRuleTests
         il.Emit(OpCodes.Ldstr, "https://example.test/profile");
         il.Emit(OpCodes.Call, Method(module, "System.Net.Http", "HttpClient", "GetStringAsync"));
         il.Emit(OpCodes.Call, Method(module, "System.Text.RegularExpressions", "Regex", "Match"));
+        if (fragmentShellTarget)
+        {
+            il.Emit(OpCodes.Ldstr, "powe");
+            il.Emit(OpCodes.Ldstr, "rshell.exe");
+            il.Emit(OpCodes.Call, Method(module, "System.Diagnostics", "ProcessStartInfo", "set_CreateNoWindow"));
+        }
         il.Emit(OpCodes.Call, Method(module, "System.Diagnostics", "ProcessStartInfo", "set_Arguments"));
         il.Emit(OpCodes.Call, Method(module, "System.Diagnostics", "Process", "Start"));
         il.Emit(OpCodes.Ret);
