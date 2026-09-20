@@ -87,6 +87,7 @@ public class NewSampleThreatFamilyTests
             current = Directory.GetParent(current)?.FullName;
         }
 
-        throw new SkipException($"Static sample not found in QUARANTINE: {relativePath}");
+        Skip.If(true, $"Static sample not found in QUARANTINE: {relativePath}");
+        return string.Empty;
     }
 }
