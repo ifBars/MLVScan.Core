@@ -22,6 +22,7 @@ public class FalsePositiveScanTests
         "BoneLibUpdater.dll",
         "BungalowPlus.dll",
         "CustomTV.dll",
+        "DaffysHills.dll",
         "DeliveryCartPlus_v.1.0.dll",
         "eMployee.dll",
         "ExIni.dll",
@@ -301,6 +302,21 @@ public class FalsePositiveScanTests
         dto.ThreatFamilies.Should().BeNull();
     }
 
+    [SkippableFact]
+    public void Scan_DaffysHills_ExactReviewedSample_ShouldBeCleanWithFindingsVisible()
+    {
+        var path = GetSamplePath("DaffysHills.dll");
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
+        dto.ThreatFamilies.Should().BeNull();
+        dto.Findings.Should().Contain(finding => finding.RuleId == "DataFlowAnalysis");
+    }
+
     [SkippableTheory]
     [InlineData(@"Harvest And Production for BL 1.4.5\HarvestAndProduction\bin\Win64_Shipping_Client\HarvestAndProduction.dll")]
     [InlineData(@"ModReady V1.0.1\Modules\Bannerlord.ButterLib\bin\Win64_Shipping_Client\BetaDeps.Foundation.dll")]
@@ -571,6 +587,7 @@ public class FalsePositiveScanTests
             // receive a Clean disposition.
             "BoneLibUpdater.dll",
             "CustomTV.dll",
+            "DaffysHills.dll",
             "IllegalRave.dll",
             "LabFusion.dll",
             "Muse_Dash.dll",

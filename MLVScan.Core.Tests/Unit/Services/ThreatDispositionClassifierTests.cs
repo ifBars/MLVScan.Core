@@ -10,6 +10,8 @@ public class ThreatDispositionClassifierTests
 {
     private const string ReviewedBoneLibUpdaterSha256 =
         "BAE327FACB187856E98F4A7997630762BAF0FE73962AAA0EEDB19F8235A9EA81";
+    private const string ReviewedDaffysHillsSha256 =
+        "FC3E473DA2E2DBD9BB91F4794FCAC04C85316C0BD8B446AE75CFEBB45F35381B";
 
     [Fact]
     public void Classify_WithFamilyMatch_ReturnsKnownThreat()
@@ -256,6 +258,49 @@ public class ThreatDispositionClassifierTests
         result.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
         result.PrimaryThreatFamilyId.Should().Be("known-malware");
         result.BlockingRecommended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Classify_WithReviewedDaffysHillsHash_OnlyReviewedFindingsAreClean()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        var flow = new DataFlowChain(
+            "ClifftopAccess.Core.RunDev:30-35",
+            DataFlowPattern.DynamicCodeLoading,
+            Severity.Critical,
+            "Loads local dev worker",
+            "ClifftopAccess.Core.RunDev");
+        var findings = new List<ScanFinding>
+        {
+            new("ClifftopAccess.Core.RunDev:35", "Dynamic assembly load", Severity.High)
+                { RuleId = "AssemblyDynamicLoadRule" },
+            new("ClifftopAccess.Core.RunDev:137", "Reflected invocation", Severity.High)
+                { RuleId = "ReflectionRule" },
+            new("ClifftopAccess.Core.RunDev", "Dynamic code loading", Severity.Critical)
+                { RuleId = "DataFlowAnalysis", DataFlowChain = flow }
+        };
+
+        classifier.Classify(findings, null, null, ReviewedDaffysHillsSha256)
+            .Classification.Should().Be(ThreatDispositionClassification.Clean);
+        classifier.Classify(findings, null, null, "0000000000000000000000000000000000000000000000000000000000000000")
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+
+        findings.Add(new ScanFinding("Other.Loader", "Additional execution", Severity.High)
+            { RuleId = "EmbeddedResourceScriptRule" });
+        classifier.Classify(findings, null, null, ReviewedDaffysHillsSha256)
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+
+        findings.RemoveAt(findings.Count - 1);
+        var knownFamily = new ThreatFamilyMatch
+        {
+            FamilyId = "known-malware",
+            DisplayName = "Known Malware",
+            MatchKind = ThreatMatchKind.ExactSampleHash,
+            ExactHashMatch = true,
+            Confidence = 1.0
+        };
+        classifier.Classify(findings, new[] { knownFamily }, null, ReviewedDaffysHillsSha256)
+            .Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
     }
 
     [Fact]
