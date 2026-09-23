@@ -92,13 +92,15 @@ internal static partial class ThreatFamilyCatalog
                 "2026-03-malware-unlimitedgraffiti",
                 "2026-03-malware-vortex-backuprtilizer",
                 "2026-04-malware-dynamicorders",
-                "2026-09-malware-meowtopia"
+                "2026-09-malware-meowtopia",
+                "2026-09-malware-krobus-courier"
             ],
             ExactSampleHashes =
             [
                 "6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e",
                 "b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4",
-                "5b0e8fee2066284729b02a0252abeea3b5b00b0958c386f746535d7812f2f632"
+                "5b0e8fee2066284729b02a0252abeea3b5b00b0958c386f746535d7812f2f632",
+                "45788a5b0008f42109fb409b0ca8dfc4484feb75ef39f9f65461111301307ff7"
             ],
             Variants =
             [

@@ -26,6 +26,7 @@ public class ThreatFamilyClassifierTests
     [Theory]
     [InlineData("6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e")]
     [InlineData("b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4")]
+    [InlineData("45788a5b0008f42109fb409b0ca8dfc4484feb75ef39f9f65461111301307ff7")]
     public void Classify_WithKnownWebDownloadHashAndNoFindings_ReturnsExactHashMatch(string sha256Hash)
     {
         var classifier = new ThreatFamilyClassifier();
