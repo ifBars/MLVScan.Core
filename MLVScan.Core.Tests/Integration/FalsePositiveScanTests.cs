@@ -17,6 +17,7 @@ public class FalsePositiveScanTests
     {
         "AngleSharp.dll",
         "AudioImportLib.dll",
+        "BackpackInventoryQoL.dll",
         "Bannerlord.ButterLib.dll",
         "BankApp.dll",
         "BoneLibUpdater.dll",
@@ -47,6 +48,9 @@ public class FalsePositiveScanTests
         "NAudio.Core.dll",
         "OverTheCounter-Loader.dll",
         "Personify.dll",
+        "Polyfill.Boot.dll",
+        "Polyfill.dll",
+        "RumbleParty.dll",
         "S1APILoader.MelonLoader.dll",
         "S1MAPI_Mono.dll",
         "SideHustle.dll",
@@ -306,6 +310,21 @@ public class FalsePositiveScanTests
     public void Scan_DaffysHills_ExactReviewedSample_ShouldBeCleanWithFindingsVisible()
     {
         var path = GetSamplePath("DaffysHills.dll");
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
+        dto.ThreatFamilies.Should().BeNull();
+        dto.Findings.Should().Contain(finding => finding.RuleId == "DataFlowAnalysis");
+    }
+
+    [SkippableFact]
+    public void Scan_RumbleParty_ExactReviewedSample_ShouldBeCleanWithFindingsVisible()
+    {
+        var path = GetSamplePath("RumbleParty.dll");
         var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
         var findings = scanner.Scan(path).ToList();
         var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
@@ -592,6 +611,7 @@ public class FalsePositiveScanTests
             "LabFusion.dll",
             "Muse_Dash.dll",
             "Personify.dll",
+            "RumbleParty.dll",
             "SideHustle.dll",
             "Sideload.dll",
             "SimpleSingleplayerRespawn.dll",

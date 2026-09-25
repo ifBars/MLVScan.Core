@@ -12,6 +12,8 @@ public class ThreatDispositionClassifierTests
         "BAE327FACB187856E98F4A7997630762BAF0FE73962AAA0EEDB19F8235A9EA81";
     private const string ReviewedDaffysHillsSha256 =
         "FC3E473DA2E2DBD9BB91F4794FCAC04C85316C0BD8B446AE75CFEBB45F35381B";
+    private const string ReviewedRumblePartySha256 =
+        "E82ECAE0C9149EDC0169ACD9A0C5FB063A861D926E3B765781390A6E51E55F30";
 
     [Fact]
     public void Classify_WithFamilyMatch_ReturnsKnownThreat()
@@ -301,6 +303,40 @@ public class ThreatDispositionClassifierTests
         };
         classifier.Classify(findings, new[] { knownFamily }, null, ReviewedDaffysHillsSha256)
             .Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+    }
+
+    [Fact]
+    public void Classify_WithReviewedRumblePartyHash_OnlyReviewedDependencyLoadIsClean()
+    {
+        var classifier = new ThreatDispositionClassifier();
+        const string method = "RumbleParty.RumbleParty.AssemblyResolveEventListener";
+        var findings = new List<ScanFinding>
+        {
+            new(method + ":217", "Loads a bundled dependency", Severity.High)
+                { RuleId = "AssemblyDynamicLoadRule" },
+            new(method, "Loads a bundled dependency", Severity.Critical)
+            {
+                RuleId = "DataFlowAnalysis",
+                DataFlowChain = new DataFlowChain(method + ":202-217", DataFlowPattern.DynamicCodeLoading,
+                    Severity.Critical, "Loads a bundled dependency", method)
+            },
+            new(method, "Loads a bundled dependency", Severity.Critical)
+            {
+                RuleId = "DataFlowAnalysis",
+                DataFlowChain = new DataFlowChain(method + ":208-217", DataFlowPattern.DynamicCodeLoading,
+                    Severity.Critical, "Loads a bundled dependency", method)
+            }
+        };
+
+        classifier.Classify(findings, null, null, ReviewedRumblePartySha256)
+            .Classification.Should().Be(ThreatDispositionClassification.Clean);
+        classifier.Classify(findings, null, null, new string('0', 64))
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+
+        findings.Add(new ScanFinding("Other.Loader", "Additional execution", Severity.High)
+            { RuleId = "EmbeddedResourceScriptRule" });
+        classifier.Classify(findings, null, null, ReviewedRumblePartySha256)
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
     }
 
     [Fact]
