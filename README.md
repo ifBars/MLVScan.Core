@@ -67,7 +67,7 @@ The scanner emits rule findings as the foundational evidence, but the primary ve
 
 ## Documentation
 
-Complete documentation is available in the [MLVScan.Core docs](https://mlvscan.com/docs/libraries/core).
+Complete documentation is available in the [MLVScan.Core docs](https://mlvscan.com/docs/reference/core/).
 
 ## Features
 
