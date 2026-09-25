@@ -435,7 +435,7 @@ export async function getScannerVersion(): Promise<string> {
 }
 
 /**
- * Returns the scan result schema version (e.g. `"1.3.0"`). In mock mode returns
+ * Returns the scan result schema version (e.g. `"1.4.0"`). In mock mode returns
  * the generated schema version constant. Initializes the scanner if not yet initialized.
  *
  * @throws When the real WASM is loaded but the schema version call fails.

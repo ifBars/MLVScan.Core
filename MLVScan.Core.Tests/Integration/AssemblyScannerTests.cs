@@ -193,6 +193,72 @@ public class AssemblyScannerTests
     }
 
     [Fact]
+    public void Scan_DeepModes_RetryOrStartWithLargerBudgets()
+    {
+        var assembly = TestAssemblyBuilder.Create("DeepModeMod")
+            .AddType("Caller")
+                .AddMethod("Run")
+                    .EmitString("calc.exe")
+                    .EmitCall("System.Diagnostics.Process", "Start")
+                .EndMethod()
+            .EndType()
+            .Build();
+
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        var bytes = stream.ToArray();
+
+        List<ScanFinding> Scan(DeepScanMode mode, out bool usedDeep)
+        {
+            var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules(), new ScanConfig
+            {
+                DeepScanMode = mode,
+                MaxCrossMethodCallEdges = 0
+            });
+            using var input = new MemoryStream(bytes, writable: false);
+            var findings = scanner.Scan(input, "DeepModeMod.dll").ToList();
+            usedDeep = scanner.LastScanUsedDeepAnalysis;
+            return findings;
+        }
+
+        var standard = Scan(DeepScanMode.Disabled, out var standardUsedDeep);
+        var retry = Scan(DeepScanMode.RetryOnIncomplete, out var retryUsedDeep);
+        var always = Scan(DeepScanMode.Always, out var alwaysUsedDeep);
+
+        standard.Should().Contain(finding => finding.RuleId == "DataFlowScanWarning");
+        standardUsedDeep.Should().BeFalse();
+        retry.Should().NotContain(finding => finding.RuleId == "DataFlowScanWarning");
+        retry.Should().Contain(finding => finding.Description.Contains("Process.Start", StringComparison.Ordinal));
+        retryUsedDeep.Should().BeTrue();
+        always.Should().NotContain(finding => finding.RuleId == "DataFlowScanWarning");
+        always.Should().Contain(finding => finding.Description.Contains("Process.Start", StringComparison.Ordinal));
+        alwaysUsedDeep.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Scan_RetryMode_DoesNotRunDeepWhenStandardAnalysisCompletes()
+    {
+        var assembly = TestAssemblyBuilder.Create("CompleteMod")
+            .AddType("EmptyType")
+                .AddMethod("EmptyMethod")
+                .EndMethod()
+            .EndType()
+            .Build();
+        using var stream = new MemoryStream();
+        assembly.Write(stream);
+        stream.Position = 0;
+
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules(), new ScanConfig
+        {
+            DeepScanMode = DeepScanMode.RetryOnIncomplete,
+            MaxCrossMethodCallEdges = 0
+        });
+
+        scanner.Scan(stream, "CompleteMod.dll").Should().BeEmpty();
+        scanner.LastScanUsedDeepAnalysis.Should().BeFalse();
+    }
+
+    [Fact]
     public void Scan_WithDeveloperMode_IncludesGuidance()
     {
         var assembly = TestAssemblyBuilder.Create("DevMod")

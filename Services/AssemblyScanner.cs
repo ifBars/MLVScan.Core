@@ -26,9 +26,14 @@ namespace MLVScan.Services
         private readonly CallGraphBuilder _callGraphBuilder;
         private readonly DataFlowAnalyzer _dataFlowAnalyzer;
         private readonly IAssemblyResolverProvider _resolverProvider;
+        private readonly IEntryPointProvider? _entryPointProvider;
         private readonly ScanConfig _config;
+        private readonly DeepScanMode _deepScanMode;
         private readonly ScanTelemetryHub _telemetry;
         private readonly IProgress<ScanProgress>? _progressReporter;
+
+        /// <summary>Whether the most recent scan used deep budgets, including an automatic retry.</summary>
+        public bool LastScanUsedDeepAnalysis { get; private set; }
 
         /// <summary>
         /// Creates a new AssemblyScanner with the specified rules and configuration.
@@ -45,8 +50,13 @@ namespace MLVScan.Services
             IEntryPointProvider? entryPointProvider = null,
             IProgress<ScanProgress>? progressReporter = null)
         {
-            _config = config ?? new ScanConfig();
+            var requestedConfig = config ?? new ScanConfig();
+            _deepScanMode = requestedConfig.DeepScanMode;
+            _config = _deepScanMode == DeepScanMode.Always
+                ? ScanConfig.CreateDeepAnalysis(requestedConfig)
+                : requestedConfig;
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
+            _entryPointProvider = entryPointProvider;
             _rules = rules as IReadOnlyCollection<IScanRule> ?? rules.ToList();
             foreach (var rule in _rules)
             {
@@ -99,6 +109,8 @@ namespace MLVScan.Services
 
             if (!File.Exists(assemblyPath))
                 throw new FileNotFoundException("Assembly file not found", assemblyPath);
+
+            LastScanUsedDeepAnalysis = _deepScanMode == DeepScanMode.Always;
 
             var assemblyId = CreateAssemblyTelemetryId(assemblyPath);
             _telemetry.BeginAssembly(assemblyId);
@@ -167,7 +179,7 @@ namespace MLVScan.Services
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
             var filteredFindings = FilterEmptyFindings(findings).ToList();
             _telemetry.CompleteAssembly(findings.Count, filteredFindings.Count);
-            return filteredFindings;
+            return RetryWithDeepIfNeeded(filteredFindings, scanner => scanner.Scan(assemblyPath));
         }
 
         /// <summary>
@@ -182,6 +194,16 @@ namespace MLVScan.Services
         {
             if (assemblyStream == null || !assemblyStream.CanRead)
                 throw new ArgumentException("Assembly stream must be readable", nameof(assemblyStream));
+
+            if (_deepScanMode == DeepScanMode.RetryOnIncomplete && !assemblyStream.CanSeek)
+            {
+                using var bufferedStream = new MemoryStream();
+                assemblyStream.CopyTo(bufferedStream);
+                bufferedStream.Position = 0;
+                return Scan(bufferedStream, virtualPath);
+            }
+
+            LastScanUsedDeepAnalysis = _deepScanMode == DeepScanMode.Always;
 
             // Ensure stream is at the beginning
             if (assemblyStream.CanSeek)
@@ -254,7 +276,39 @@ namespace MLVScan.Services
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
             var filteredFindings = FilterEmptyFindings(findings).ToList();
             _telemetry.CompleteAssembly(findings.Count, filteredFindings.Count);
-            return filteredFindings;
+            return RetryWithDeepIfNeeded(filteredFindings, scanner =>
+            {
+                assemblyStream.Position = 0;
+                return scanner.Scan(assemblyStream, virtualPath);
+            });
+        }
+
+        private IReadOnlyList<ScanFinding> RetryWithDeepIfNeeded(
+            IReadOnlyList<ScanFinding> standardFindings,
+            Func<AssemblyScanner, IEnumerable<ScanFinding>> scanDeep)
+        {
+            if (_deepScanMode != DeepScanMode.RetryOnIncomplete ||
+                !standardFindings.Any(static finding => finding.RuleId == "DataFlowScanWarning"))
+            {
+                return standardFindings;
+            }
+
+            LastScanUsedDeepAnalysis = true;
+            var deepScanner = new AssemblyScanner(
+                _rules,
+                ScanConfig.CreateDeepAnalysis(_config),
+                _resolverProvider,
+                _entryPointProvider,
+                _progressReporter);
+            var deepFindings = scanDeep(deepScanner).ToList();
+
+            // Keep the first pass's evidence if the retry itself cannot scan the assembly.
+            if (deepFindings.Any(static finding => finding.RuleId == "AssemblyScanner"))
+            {
+                return standardFindings.Concat(deepFindings.Where(static finding => finding.RuleId == "AssemblyScanner")).ToList();
+            }
+
+            return deepFindings;
         }
 
         private void ScanAssembly(

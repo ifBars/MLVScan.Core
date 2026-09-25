@@ -21,7 +21,8 @@ public class ScanMetadataDto
     public string Timestamp { get; set; } = DateTime.UtcNow.ToString("o");
 
     /// <summary>
-    /// Scan mode used to generate the result, such as <c>summary</c>, <c>detailed</c>, or <c>developer</c>.
+    /// Scan mode used to generate the result. <c>deep</c> indicates that larger analysis
+    /// budgets were used; it has the same report sections as a detailed result.
     /// </summary>
     public string ScanMode { get; set; } = "detailed";
 

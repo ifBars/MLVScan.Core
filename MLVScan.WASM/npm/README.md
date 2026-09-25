@@ -109,7 +109,7 @@ const result = await scanAssemblyWithConfig(bytes, 'MyMod.dll', {
 | `isMockScanner()` | `boolean` | True when running in mock mode. |
 | `getScannerStatus()` | `ScannerStatus` | Full status snapshot: ready, mock, explicit mock, and init error. |
 | `getScannerVersion()` | `Promise<string>` | Scanner engine version, such as `"1.7.1"`. Returns `"1.0.0-mock"` in mock mode. |
-| `getSchemaVersion()` | `Promise<string>` | Result schema version, currently `"1.3.0"`. |
+| `getSchemaVersion()` | `Promise<string>` | Result schema version, currently `"1.4.0"`. |
 | `getInitError()` | `Error \| null` | The error that caused WASM fallback, or null if healthy. |
 
 ## Configuration And Result Detail
@@ -153,7 +153,7 @@ await initScanner({ baseUrl: '/', throwOnInitFailure: true })
 
 ```ts
 interface ScanResult {
-  schemaVersion: '1.3.0'
+  schemaVersion: '1.4.0'
   metadata: ScanMetadata
   input: ScanInput
   assembly?: AssemblyMetadata | null

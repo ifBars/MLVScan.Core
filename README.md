@@ -65,6 +65,21 @@ foreach (var finding in result.Findings)
 
 The scanner emits rule findings as the foundational evidence, but the primary verdict comes from the threat-intel layer: matched `threatFamilies` and the final `disposition` built on top of those findings.
 
+### Deep analysis modes
+
+`ScanConfig.DeepScanMode` controls when larger, still finite analysis budgets are used:
+
+```csharp
+using MLVScan.Models;
+
+var config = new ScanConfig { DeepScanMode = DeepScanMode.RetryOnIncomplete };
+var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules(), config);
+var findings = scanner.Scan(assemblyPath).ToList();
+var modeUsed = scanner.LastScanUsedDeepAnalysis ? "deep" : "standard";
+```
+
+`Disabled` is the default single pass. `RetryOnIncomplete` runs a second pass only when data-flow analysis reaches a work limit. `Always` uses deep budgets from the start. Deep analysis increases call depth and data-flow budgets; it can take longer and can still report incomplete analysis if a higher limit is reached. Hosts should report `deep` as the result scan mode when `LastScanUsedDeepAnalysis` is true.
+
 ## Documentation
 
 Complete documentation is available in the [MLVScan.Core docs](https://mlvscan.com/docs/reference/core/).

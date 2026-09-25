@@ -15,7 +15,7 @@ internal static class SchemaTypeConventions
             [new(typeof(ScanResultDto), nameof(ScanResultDto.SchemaVersion))] =
                 StringUnionSpec.CreateConst("SchemaVersion", MLVScanVersions.SchemaVersion),
             [new(typeof(ScanMetadataDto), nameof(ScanMetadataDto.ScanMode))] =
-                StringUnionSpec.CreateUnion("ScanMode", "summary", "detailed", "developer"),
+                StringUnionSpec.CreateUnion("ScanMode", "summary", "detailed", "developer", "deep"),
             [new(typeof(ScanMetadataDto), nameof(ScanMetadataDto.Platform))] =
                 StringUnionSpec.CreateUnion("ScanPlatform", "core", "wasm", "cli", "server", "desktop", "mcp"),
             [new(typeof(FindingDto), nameof(FindingDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),

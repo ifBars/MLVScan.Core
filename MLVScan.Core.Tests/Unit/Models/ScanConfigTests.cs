@@ -27,6 +27,7 @@ public class ScanConfigTests
         config.MaxCrossMethodCallEdges.Should().Be(100000);
         config.MaxDeepCallChainEdges.Should().Be(10000);
         config.MaxCrossMethodChains.Should().Be(512);
+        config.DeepScanMode.Should().Be(DeepScanMode.Disabled);
         config.DeveloperMode.Should().BeFalse();
     }
 
@@ -71,5 +72,43 @@ public class ScanConfigTests
         config.MaxDeepCallChainEdges.Should().Be(64);
         config.MaxCrossMethodChains.Should().Be(16);
         config.DeveloperMode.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DeepAnalysis_RaisesDataFlowBudgetsWithoutChangingDetectionOptions()
+    {
+        var standard = new ScanConfig();
+        var deep = ScanConfig.CreateDeepAnalysis();
+
+        deep.MaxCallChainDepth.Should().BeGreaterThan(standard.MaxCallChainDepth);
+        deep.MaxDataFlowOperationsPerMethod.Should().BeGreaterThan(standard.MaxDataFlowOperationsPerMethod);
+        deep.MaxDataFlowChainsPerMethod.Should().BeGreaterThan(standard.MaxDataFlowChainsPerMethod);
+        deep.MaxCrossMethodCallEdges.Should().BeGreaterThan(standard.MaxCrossMethodCallEdges);
+        deep.MaxDeepCallChainEdges.Should().BeGreaterThan(standard.MaxDeepCallChainEdges);
+        deep.MaxCrossMethodChains.Should().BeGreaterThan(standard.MaxCrossMethodChains);
+        deep.EnableCrossMethodAnalysis.Should().Be(standard.EnableCrossMethodAnalysis);
+        deep.EnableMultiSignalDetection.Should().Be(standard.EnableMultiSignalDetection);
+        deep.DeepScanMode.Should().Be(DeepScanMode.Disabled);
+    }
+
+    [Fact]
+    public void DeepAnalysis_PreservesHostSettingsAndDoesNotMutateSource()
+    {
+        var source = new ScanConfig
+        {
+            AnalyzeLocalVariables = false,
+            DeveloperMode = true,
+            MaxCrossMethodCallEdges = 2000000,
+            DeepScanMode = DeepScanMode.RetryOnIncomplete
+        };
+
+        var deep = ScanConfig.CreateDeepAnalysis(source);
+
+        deep.Should().NotBeSameAs(source);
+        deep.AnalyzeLocalVariables.Should().BeFalse();
+        deep.DeveloperMode.Should().BeTrue();
+        deep.MaxCrossMethodCallEdges.Should().Be(2000000);
+        deep.DeepScanMode.Should().Be(DeepScanMode.Disabled);
+        source.DeepScanMode.Should().Be(DeepScanMode.RetryOnIncomplete);
     }
 }

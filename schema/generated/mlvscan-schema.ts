@@ -11,11 +11,11 @@ export type DataFlowPattern = 'Legitimate' | 'DownloadAndExecute' | 'DataExfiltr
 
 export type FindingVisibility = 'Default' | 'Advanced'
 
-export type ScanMode = 'summary' | 'detailed' | 'developer'
+export type ScanMode = 'summary' | 'detailed' | 'developer' | 'deep'
 
 export type ScanPlatform = 'core' | 'wasm' | 'cli' | 'server' | 'desktop' | 'mcp'
 
-export const MLVSCAN_SCHEMA_VERSION = '1.3.0' as const
+export const MLVSCAN_SCHEMA_VERSION = '1.4.0' as const
 export type SchemaVersion = typeof MLVSCAN_SCHEMA_VERSION
 
 export type Severity = 'Low' | 'Medium' | 'High' | 'Critical'

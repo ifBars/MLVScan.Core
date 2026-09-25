@@ -7,6 +7,26 @@ namespace MLVScan.Models
     public class ScanConfig
     {
         /// <summary>
+        /// Creates an opt-in scan configuration with larger, still finite data-flow budgets.
+        /// A scan that exhausts these budgets must continue to report incomplete analysis.
+        /// </summary>
+        public static ScanConfig CreateDeepAnalysis(ScanConfig? baseline = null)
+        {
+            var deep = baseline is null ? new ScanConfig() : (ScanConfig)baseline.MemberwiseClone();
+            deep.DeepScanMode = DeepScanMode.Disabled;
+            deep.MaxCallChainDepth = Math.Max(deep.MaxCallChainDepth, 8);
+            deep.MaxDataFlowOperationsPerMethod = Math.Max(deep.MaxDataFlowOperationsPerMethod, 8192);
+            deep.MaxDataFlowChainsPerMethod = Math.Max(deep.MaxDataFlowChainsPerMethod, 1024);
+            deep.MaxCrossMethodCallEdges = Math.Max(deep.MaxCrossMethodCallEdges, 1000000);
+            deep.MaxDeepCallChainEdges = Math.Max(deep.MaxDeepCallChainEdges, 100000);
+            deep.MaxCrossMethodChains = Math.Max(deep.MaxCrossMethodChains, 4096);
+            return deep;
+        }
+
+        /// <summary>Controls whether deep analysis is disabled, retried on bounded work, or always used.</summary>
+        public DeepScanMode DeepScanMode { get; set; } = DeepScanMode.Disabled;
+
+        /// <summary>
         /// Enables multi-signal correlation so the scanner can combine related primitive findings.
         /// </summary>
         public bool EnableMultiSignalDetection { get; set; } = true;
