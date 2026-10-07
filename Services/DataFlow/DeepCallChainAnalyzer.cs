@@ -103,6 +103,14 @@ namespace MLVScan.Services.DataFlow
 
             foreach (var callSite in currentInfo.OutgoingCalls)
             {
+                // A no-argument helper cannot transport caller data into a later sink.
+                // Keep paths that forward a separate staging path after writing the bytes.
+                if (callSite.ParameterMapping.Count == 0 &&
+                    callSite.ForwardedParameterMapping.Count == 0)
+                {
+                    continue;
+                }
+
                 if (currentNode.VisitedMethods.Contains(callSite.TargetMethodKey) ||
                     !state.MethodFlowInfos.TryGetValue(callSite.TargetMethodKey, out var nextInfo))
                 {

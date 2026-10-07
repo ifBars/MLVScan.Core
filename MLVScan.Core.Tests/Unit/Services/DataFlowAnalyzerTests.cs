@@ -543,6 +543,49 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeCrossMethodFlows_NoArgumentHelperDoesNotCarryImageBytesIntoAssemblyLoad()
+    {
+        var builder = TestAssemblyBuilder.Create("ImageLoaderNoArgumentHelper");
+        var module = builder.Module;
+        var typeBuilder = builder.AddType("TestNamespace.ImageLoader");
+
+        typeBuilder.AddMethod("ResolveImageApi", MethodAttributes.Public | MethodAttributes.Static)
+            .EmitString("UnityEngine.ImageConversionModule")
+            .EmitCall("System.Reflection.Assembly", "Load", module.TypeSystem.Object)
+            .EmitPop()
+            .EndMethod();
+        var resolve = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "ResolveImageApi");
+
+        typeBuilder.AddMethod("Render", MethodAttributes.Public | MethodAttributes.Static)
+            .AddParameter("imageBytes", new ArrayType(module.TypeSystem.Byte))
+            .EmitCallInternal(resolve)
+            .EndMethod();
+        var render = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "Render");
+
+        typeBuilder.AddMethod("LoadImage", MethodAttributes.Public | MethodAttributes.Static)
+            .AddLocal(new ArrayType(module.TypeSystem.Byte), out var imageLocal)
+            .EmitString("thumbnail.png")
+            .EmitCall("System.IO.File", "ReadAllBytes", new ArrayType(module.TypeSystem.Byte))
+            .EmitStloc(imageLocal)
+            .EmitLdloc(imageLocal)
+            .EmitCallInternal(render)
+            .EndMethod();
+
+        var assembly = builder.Build();
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+        foreach (var method in assembly.MainModule.Types.First(type => type.Name == "ImageLoader").Methods)
+        {
+            analyzer.AnalyzeMethod(method);
+        }
+
+        analyzer.AnalyzeCrossMethodFlows();
+
+        analyzer.BuildDataFlowFindings().Should().NotContain(finding =>
+            finding.DataFlowChain != null &&
+            finding.DataFlowChain.Pattern == DataFlowPattern.DynamicCodeLoading);
+    }
+
+    [Fact]
     public void BuildDataFlowFindings_IncludesCrossMethodFindings()
     {
         // Arrange

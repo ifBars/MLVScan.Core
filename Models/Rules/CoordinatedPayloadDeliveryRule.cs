@@ -2,6 +2,8 @@ using System.Text;
 using MLVScan.Abstractions;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using MLVScan.Services.DataFlow;
+using MLVScan.Services.Helpers;
 
 namespace MLVScan.Models.Rules;
 
@@ -110,9 +112,280 @@ public sealed class CoordinatedPayloadDeliveryRule : IScanRule
                         $"execution: {shellFinding.Description}"
                     ]));
             }
+
+            foreach (var rootType in namespaceGroup)
+            {
+                var relatedMethods = EnumerateTypeAndNested(rootType)
+                    .SelectMany(EnumerateMethods)
+                    .Where(static method => method.HasBody)
+                    .ToList();
+                if (TryFindDownloadedExecutableLaunch(rootType, relatedMethods, out var evidence))
+                {
+                    findings.Add(CreateFinding(
+                        rootType.FullName,
+                        "Detected downloaded executable written to disk and launched from the same staged path across helper methods.",
+                        evidence));
+                }
+            }
         }
 
         return findings;
+    }
+
+    private static bool TryFindDownloadedExecutableLaunch(
+        TypeDefinition rootType,
+        IReadOnlyList<MethodDefinition> methods,
+        out IReadOnlyList<string> evidence)
+    {
+        evidence = [];
+        var downloadHelpers = methods
+            .Where(HasLinkedNetworkByteWrite)
+            .Select(method => GetOuterHelperName(rootType, method))
+            .Where(static name => name != null)
+            .ToHashSet(StringComparer.Ordinal);
+        var launchHelpers = rootType.Methods
+            .Where(static method => method.HasBody && LaunchesPathParameter(method))
+            .Select(static method => method.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        if (downloadHelpers.Count == 0 || launchHelpers.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var caller in methods)
+        {
+            var instructions = caller.Body.Instructions;
+            if (!instructions.Any(instruction =>
+                    instruction.Operand is MethodReference called &&
+                    called.DeclaringType.FullName == rootType.FullName &&
+                    downloadHelpers.Contains(called.Name)))
+            {
+                continue;
+            }
+
+            var helper = new DataFlowInstructionHelper(instructions);
+            for (var downloadIndex = 0; downloadIndex < instructions.Count; downloadIndex++)
+            {
+                if (instructions[downloadIndex].Operand is not MethodReference download ||
+                    download.DeclaringType.FullName != rootType.FullName ||
+                    !downloadHelpers.Contains(download.Name) ||
+                    download.Parameters.Count < 2 ||
+                    !TryGetExecutablePayloadUrlArgument(caller, helper, downloadIndex, download,
+                        out var payloadUrl) ||
+                    !TryGetArgumentIdentity(caller, helper, downloadIndex, download, 1, out var stagedPath))
+                {
+                    continue;
+                }
+
+                for (var launchIndex = downloadIndex + 1; launchIndex < instructions.Count; launchIndex++)
+                {
+                    if (instructions[launchIndex].Operand is not MethodReference launch ||
+                        launch.DeclaringType.FullName != rootType.FullName ||
+                        !launchHelpers.Contains(launch.Name) ||
+                        launch.Parameters.Count == 0 ||
+                        !TryGetArgumentIdentity(caller, helper, launchIndex, launch, 0, out var launchedPath) ||
+                        !string.Equals(stagedPath, launchedPath, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    evidence =
+                    [
+                        $"download: {download.FullName} called from {caller.FullName}",
+                        "source: network bytes are passed to File.WriteAllBytes in the download helper",
+                        $"payload URL: {payloadUrl}",
+                        $"execution: {launch.FullName} receives the same staged path"
+                    ];
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasLinkedNetworkByteWrite(MethodDefinition method)
+    {
+        var instructions = method.Body.Instructions;
+        if (!instructions.Any(instruction =>
+                instruction.Operand is MethodReference called && IsNetworkRead(called)) ||
+            !instructions.Any(instruction =>
+                instruction.Operand is MethodReference called &&
+                called.DeclaringType.FullName == "System.IO.File" &&
+                called.Name == "WriteAllBytes"))
+        {
+            return false;
+        }
+
+        var helper = new DataFlowInstructionHelper(instructions);
+        for (var sourceIndex = 0; sourceIndex < instructions.Count; sourceIndex++)
+        {
+            if (instructions[sourceIndex].Operand is not MethodReference source ||
+                !IsNetworkRead(source) ||
+                source.ReturnType.FullName != "System.Byte[]" ||
+                helper.TryGetTargetLocalVariable(instructions, sourceIndex) is not int downloadedBytesLocal)
+            {
+                continue;
+            }
+
+            for (var writeIndex = sourceIndex + 1; writeIndex < instructions.Count; writeIndex++)
+            {
+                if (instructions[writeIndex].Operand is MethodReference write &&
+                    write.DeclaringType.FullName == "System.IO.File" &&
+                    write.Name == "WriteAllBytes" &&
+                    helper.TryGetCallArgumentLocalVariable(
+                        instructions, writeIndex, write, 1, out var writtenBytesLocal,
+                        out var byteLoadIndex) &&
+                    writtenBytesLocal == downloadedBytesLocal &&
+                    helper.GetReachingLocalStoreIndexes(instructions, byteLoadIndex, writtenBytesLocal)
+                        .SequenceEqual([sourceIndex + 1]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static string? GetOuterHelperName(TypeDefinition rootType, MethodDefinition method)
+    {
+        if (method.DeclaringType == rootType)
+        {
+            return method.Name;
+        }
+
+        if (method.Name != "MoveNext" || method.DeclaringType.DeclaringType != rootType)
+        {
+            return null;
+        }
+
+        var nestedName = method.DeclaringType.Name;
+        var closingBracket = nestedName.IndexOf('>');
+        return nestedName.StartsWith("<", StringComparison.Ordinal) && closingBracket > 1
+            ? nestedName.Substring(1, closingBracket - 1)
+            : null;
+    }
+
+    private static bool LaunchesPathParameter(MethodDefinition method)
+    {
+        var instructions = method.Body.Instructions;
+        if (!instructions.Any(instruction =>
+                instruction.Operand is MethodReference called && IsProcessStart(called)))
+        {
+            return false;
+        }
+
+        var helper = new DataFlowInstructionHelper(instructions);
+        for (var index = 0; index < instructions.Count; index++)
+        {
+            if (instructions[index].Operand is not MethodReference called ||
+                !((called.DeclaringType.FullName == "System.Diagnostics.ProcessStartInfo" &&
+                   called.Name == "set_FileName") || IsProcessStart(called)) ||
+                called.Parameters.Count == 0 ||
+                !helper.TryGetCallArgumentProducerIndex(instructions, index, called, 0, out var producerIndex) ||
+                !helper.TryGetMethodParameterIndex(method, instructions[producerIndex], out var parameterIndex) ||
+                parameterIndex != 0)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetArgumentIdentity(
+        MethodDefinition caller,
+        DataFlowInstructionHelper helper,
+        int callIndex,
+        MethodReference called,
+        int argumentIndex,
+        out string identity)
+    {
+        identity = string.Empty;
+        var instructions = caller.Body.Instructions;
+        if (!helper.TryGetCallArgumentProducerIndex(instructions, callIndex, called, argumentIndex,
+                out var producerIndex))
+        {
+            return false;
+        }
+
+        var producer = instructions[producerIndex];
+        if (producer.OpCode == OpCodes.Ldstr && producer.Operand is string literal)
+        {
+            identity = "literal:" + literal;
+        }
+        else if (producer.OpCode == OpCodes.Ldfld && producer.Operand is FieldReference field)
+        {
+            identity = "field:" + field.FullName;
+        }
+        else if (producer.TryGetLocalIndex(out var localIndex))
+        {
+            var stores = helper.GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex);
+            if (stores.Count == 0)
+            {
+                return false;
+            }
+
+            identity = "local:" + localIndex + ":" +
+                string.Join(",", stores.OrderBy(static index => index));
+        }
+        else if (helper.TryGetMethodParameterIndex(caller, producer, out var parameterIndex))
+        {
+            identity = "argument:" + parameterIndex;
+        }
+
+        return identity.Length > 0;
+    }
+
+    private static bool TryGetExecutablePayloadUrlArgument(
+        MethodDefinition caller,
+        DataFlowInstructionHelper helper,
+        int callIndex,
+        MethodReference called,
+        out string payloadUrl)
+    {
+        payloadUrl = string.Empty;
+        var instructions = caller.Body.Instructions;
+        if (!helper.TryGetCallArgumentProducerIndex(instructions, callIndex, called, 0,
+                out var producerIndex))
+        {
+            return false;
+        }
+
+        var producer = instructions[producerIndex];
+        if (producer.OpCode == OpCodes.Ldstr && producer.Operand is string literal)
+        {
+            payloadUrl = literal;
+        }
+        else if (producer.TryGetLocalIndex(out var localIndex))
+        {
+            var stores = helper.GetReachingLocalStoreIndexes(instructions, producerIndex, localIndex);
+            if (stores.Count != 1)
+            {
+                return false;
+            }
+
+            var storeIndex = stores.Single();
+            if (storeIndex == 0 || instructions[storeIndex - 1].OpCode != OpCodes.Ldstr ||
+                instructions[storeIndex - 1].Operand is not string storedLiteral)
+            {
+                return false;
+            }
+
+            payloadUrl = storedLiteral;
+        }
+
+        return IsExecutablePayloadUrl(payloadUrl);
+    }
+
+    private static bool IsExecutablePayloadUrl(string? literal)
+    {
+        return Uri.TryCreate(literal, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+               uri.AbsolutePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsArchiveAutorunHiddenLaunch(

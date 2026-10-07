@@ -189,6 +189,24 @@ public class ThreatDispositionClassifierTests
     }
 
     [Fact]
+    public void Classify_WithReviewedRuntimeHash_OnlyFrameworkRuleFamiliesAreClean()
+    {
+        const string runtimeHash = "066A409F9228C9478D506D769978F0065FA42F9CCC97BFA266EE4451F4CBAFAD";
+        var classifier = new ThreatDispositionClassifier();
+        var registryFinding = new ScanFinding("Microsoft.Win32.Registry.SetValue:4",
+            "Registry write", Severity.Critical) { RuleId = "RegistryRule" };
+        var unexpectedFinding = new ScanFinding("System.Runtime.Load:4",
+            "Downloads and launches code", Severity.Critical) { RuleId = "CoordinatedPayloadDeliveryRule" };
+
+        classifier.Classify([registryFinding], null, null, runtimeHash)
+            .Classification.Should().Be(ThreatDispositionClassification.Clean);
+        classifier.Classify([registryFinding, unexpectedFinding], null, null, runtimeHash)
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        classifier.Classify([registryFinding], null, null, "00" + runtimeHash[2..])
+            .Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+    }
+
+    [Fact]
     public void Classify_WithReviewedBoneLibUpdaterHashAndUnexpectedHighEvidence_ReturnsSuspicious()
     {
         var classifier = new ThreatDispositionClassifier();

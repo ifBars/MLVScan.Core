@@ -36,6 +36,7 @@ public class FalsePositiveScanTests
         "HUB.TheVeil.dll",
         "HylandHelper.BridgeMod.dll",
         "IllegalRave.dll",
+        "Inkubator.dll",
         "KeepWateringCanFull.dll",
         "LabFusion.dll",
         "LecPowerTranslator15.dll",
@@ -44,6 +45,7 @@ public class FalsePositiveScanTests
         "ModsApp.dll",
         "Muse_Dash.dll",
         "Musicfy.dll",
+        "mscorlib.dll.di",
         "NAudio.Asio.dll",
         "NAudio.Core.dll",
         "OverTheCounter-Loader.dll",
@@ -64,6 +66,7 @@ public class FalsePositiveScanTests
         "UnlimitedLaundering.dll",
         "UpdateTraduccionScheduleI.dll",
         "WhatsDab.dll",
+        "WorkshopMono.dll.di",
         "ZeroBrowser.dll",
         "XUnity.AutoTranslator.Plugin.Core.dll"
     };
@@ -132,7 +135,10 @@ public class FalsePositiveScanTests
         var extension = Path.GetExtension(path);
         return extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".winmd", StringComparison.OrdinalIgnoreCase);
+            || extension.Equals(".winmd", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".dll.di", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".exe.di", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".winmd.di", StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyList<string> GetTopLevelFalsePositiveSampleNames()
@@ -163,6 +169,26 @@ public class FalsePositiveScanTests
     }
 
     #region False Positive Sample Tests
+
+    [SkippableTheory]
+    [InlineData("WorkshopMono.dll.di")]
+    [InlineData("mscorlib.dll.di")]
+    public void Scan_ReviewedNewFalsePositiveSamples_ShouldRemainClean(string filename)
+    {
+        var path = GetSamplePath(filename);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition.Should().NotBeNull();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.ThreatFamilies.Should().BeNullOrEmpty();
+        if (filename == "WorkshopMono.dll.di")
+        {
+            findings.Should().NotContain(finding =>
+                finding.RuleId == "DataFlowAnalysis" && finding.Severity == Severity.Critical);
+        }
+    }
 
     [SkippableTheory]
     [InlineData("BankApp.dll")]
@@ -610,6 +636,7 @@ public class FalsePositiveScanTests
             "IllegalRave.dll",
             "LabFusion.dll",
             "Muse_Dash.dll",
+            "mscorlib.dll.di",
             "Personify.dll",
             "RumbleParty.dll",
             "SideHustle.dll",
@@ -617,7 +644,8 @@ public class FalsePositiveScanTests
             "SimpleSingleplayerRespawn.dll",
             "UnityExplorer.ML.IL2CPP.CoreCLR.dll",
             "UnityExplorer.ML.Mono.dll",
-            "UniverseLib.ML.IL2CPP.Interop.dll"
+            "UniverseLib.ML.IL2CPP.Interop.dll",
+            "WorkshopMono.dll.di"
         };
 
         // Samples not currently in allow-list should have no High severity (or higher) findings

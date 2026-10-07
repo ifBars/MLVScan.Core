@@ -1,6 +1,8 @@
 using FluentAssertions;
 using System.Text;
+using MLVScan.Models;
 using MLVScan.Models.Dto;
+using MLVScan.Models.ThreatIntel;
 using MLVScan.Services;
 using MLVScan.Services.ThreatIntel;
 using Xunit;
@@ -23,6 +25,7 @@ public class ThreatFamilyQuarantineTests
         "NoMoreTrash.dll.di",
         "NoPolice.dll.di",
         "PlayMakerX.dll.di",
+        "RandomSkins.dll.di",
         "RealRadio.dll.di",
         "RentalCars.dll.di",
         "newauth.dll.di",
@@ -85,6 +88,7 @@ public class ThreatFamilyQuarantineTests
     [InlineData("MelonLoaderMod55.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("NoPolice.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("RentalCars.dll.di", "family-webdownload-stage-exec-v3")]
+    [InlineData("RandomSkins.dll.di", "family-webdownload-stage-exec-v3")]
     [InlineData("newauth.dll.di", "family-obfuscated-metadata-loader-v2")]
     [InlineData("ScheduleIMoreNpcs.dll.di", "family-obfuscated-metadata-loader-v2")]
     [InlineData("Skitching.dll.di", "family-webdownload-stage-exec-v3")]
@@ -110,6 +114,28 @@ public class ThreatFamilyQuarantineTests
         dto.Disposition!.Classification.Should().Be("KnownThreat");
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
+    [SkippableFact]
+    public void Scan_RandomSkins_ShouldRetainBehaviorEvidenceWithoutItsKnownHash()
+    {
+        var path = GetSamplePath("RandomSkins.dll.di");
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        var familyMatches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+        var variantDisposition = new ThreatDispositionClassifier().Classify(findings, familyMatches);
+        var behaviorOnly = new ThreatDispositionClassifier().Classify(findings, threatFamilies: null);
+
+        findings.Should().Contain(finding =>
+            finding.RuleId == "CoordinatedPayloadDeliveryRule" &&
+            finding.Description.Contains("same staged path", StringComparison.Ordinal));
+        familyMatches.Should().ContainSingle(match =>
+            match.FamilyId == "family-webdownload-stage-exec-v3" &&
+            match.VariantId == "webdownload-staged-exe-direct-launch" &&
+            !match.ExactHashMatch);
+        variantDisposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
+        behaviorOnly.Classification.Should().Be(ThreatDispositionClassification.Suspicious);
+        behaviorOnly.BlockingRecommended.Should().BeTrue();
     }
 
     [SkippableTheory]

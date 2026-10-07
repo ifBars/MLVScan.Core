@@ -27,6 +27,7 @@ public class ThreatFamilyClassifierTests
     [InlineData("6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e")]
     [InlineData("b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4")]
     [InlineData("45788a5b0008f42109fb409b0ca8dfc4484feb75ef39f9f65461111301307ff7")]
+    [InlineData("d4c7c8d744e7fe59f5aad28d7d12965704f1725758872ba08a0e190a20f0b52c")]
     public void Classify_WithKnownWebDownloadHashAndNoFindings_ReturnsExactHashMatch(string sha256Hash)
     {
         var classifier = new ThreatFamilyClassifier();
@@ -41,6 +42,39 @@ public class ThreatFamilyClassifierTests
         var disposition = new ThreatDispositionClassifier().Classify(Array.Empty<ScanFinding>(), matches);
         disposition.Classification.Should().Be(ThreatDispositionClassification.KnownThreat);
         disposition.PrimaryThreatFamilyId.Should().Be("family-webdownload-stage-exec-v3");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Classify_WithStagedExecutableEvidence_RequiresProcessLaunch(bool includeLaunch)
+    {
+        var findings = new List<ScanFinding>
+        {
+            new("Test.Plugin", "Detected downloaded executable written to disk and launched from the same staged path across helper methods.", Severity.Critical)
+            {
+                RuleId = "CoordinatedPayloadDeliveryRule"
+            }
+        };
+        if (includeLaunch)
+        {
+            findings.Add(new ScanFinding("Test.Plugin.Launch", "Process.Start on staged executable", Severity.High)
+            {
+                RuleId = "ProcessStartRule"
+            });
+        }
+
+        var matches = new ThreatFamilyClassifier().Classify(findings, sha256Hash: null);
+        if (includeLaunch)
+        {
+            matches.Should().ContainSingle(match =>
+                match.FamilyId == "family-webdownload-stage-exec-v3" &&
+                match.VariantId == "webdownload-staged-exe-direct-launch");
+        }
+        else
+        {
+            matches.Should().BeEmpty();
+        }
     }
 
     [Fact]

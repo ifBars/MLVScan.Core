@@ -109,6 +109,28 @@ internal static partial class ThreatFamilyCatalog
         };
     }
 
+    private static ThreatFamilyVariantMatch? MatchWebDownloadStagedExecutable(ThreatFamilyAnalysisContext context)
+    {
+        var coordinatedFinding = context.FindFinding(
+            "CoordinatedPayloadDeliveryRule", "downloaded executable", "same staged path");
+        var executionFinding = context.FindFinding("ProcessStartRule");
+        if (coordinatedFinding == null || executionFinding == null)
+        {
+            return null;
+        }
+
+        return new ThreatFamilyVariantMatch
+        {
+            MatchedRules = context.BuildMatchedRules("CoordinatedPayloadDeliveryRule", "ProcessStartRule"),
+            Evidence =
+            [
+                context.CreateRuleEvidence("rule", "Correlated network bytes, file write, and staged path launch",
+                    coordinatedFinding),
+                context.CreateRuleEvidence("rule", "Process.Start on the staged executable", executionFinding)
+            ]
+        };
+    }
+
     private static ThreatFamilyVariantMatch? MatchWebDownloadStageExecute(ThreatFamilyAnalysisContext context)
     {
         var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);

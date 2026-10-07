@@ -79,7 +79,7 @@ internal static partial class ThreatFamilyCatalog
         {
             FamilyId = "family-webdownload-stage-exec-v3",
             DisplayName = "Web download staged payload executor",
-            Summary = "Downloads a payload to TEMP through WebClient, HttpClient, or a similar network API and then executes it via hidden or shell-assisted process launch.",
+            Summary = "Downloads a payload through WebClient, HttpClient, or a similar network API, stages it on disk, and then launches it as a process or through a command shell.",
             AdvisorySlugs =
             [
                 "2026-02-malware-moretrees",
@@ -100,7 +100,8 @@ internal static partial class ThreatFamilyCatalog
                 "6cb8afc1bf0e504d6b95bc05a36142f81f42b200c178e0ce6988bdf1a2c6ec0e",
                 "b5133362b4327a1bfecd45fe651b841372a1394fcbb6f8906a6724990b50e8a4",
                 "5b0e8fee2066284729b02a0252abeea3b5b00b0958c386f746535d7812f2f632",
-                "45788a5b0008f42109fb409b0ca8dfc4484feb75ef39f9f65461111301307ff7"
+                "45788a5b0008f42109fb409b0ca8dfc4484feb75ef39f9f65461111301307ff7",
+                "d4c7c8d744e7fe59f5aad28d7d12965704f1725758872ba08a0e190a20f0b52c"
             ],
             Variants =
             [
@@ -127,6 +128,14 @@ internal static partial class ThreatFamilyCatalog
                     Summary = "Downloads an executable payload and launches it directly from a temporary working directory, distinguishing direct binary droppers from script-based stagers.",
                     Confidence = 0.97,
                     Matcher = MatchWebDownloadTempExecutable
+                },
+                new ThreatFamilyVariantDefinition
+                {
+                    VariantId = "webdownload-staged-exe-direct-launch",
+                    DisplayName = "Web download -> staged executable -> direct launch",
+                    Summary = "Writes downloaded executable bytes to disk and launches the same staged path, regardless of the staging directory.",
+                    Confidence = 0.97,
+                    Matcher = MatchWebDownloadStagedExecutable
                 },
                 new ThreatFamilyVariantDefinition
                 {

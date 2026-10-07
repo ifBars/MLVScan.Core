@@ -13,12 +13,24 @@ internal static class KnownBenignSampleCatalog
         "FC3E473DA2E2DBD9BB91F4794FCAC04C85316C0BD8B446AE75CFEBB45F35381B";
     private const string RumblePartySha256 =
         "E82ECAE0C9149EDC0169ACD9A0C5FB063A861D926E3B765781390A6E51E55F30";
+    private const string MonoBleedingEdgeMscorlibSha256 =
+        "066A409F9228C9478D506D769978F0065FA42F9CCC97BFA266EE4451F4CBAFAD";
 
     /// <summary>
     /// Returns whether the exact sample and all of its retained High+ evidence match a reviewed benign profile.
     /// </summary>
     public static bool MatchesReviewedBehavior(string? sha256Hash, IReadOnlyList<ScanFinding> findings)
     {
+        if (string.Equals(sha256Hash, MonoBleedingEdgeMscorlibSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            // These exact bytes match MelonLoader's MonoBleedingEdgePatches mscorlib. Its framework
+            // internals expose registry, native interop, reflection and load APIs to every mod.
+            // Re-review the sample if a future scanner adds a different high-risk rule family.
+            return findings.All(finding => finding.RuleId is
+                "RegistryRule" or "DllImportRule" or "AssemblyDynamicLoadRule" or
+                "ReflectionRule" or "ByteArrayManipulationRule");
+        }
+
         if (string.Equals(sha256Hash, DaffysHillsSha256, StringComparison.OrdinalIgnoreCase))
         {
             // The reviewed release includes a developer hot-reload path. Keep its findings visible,

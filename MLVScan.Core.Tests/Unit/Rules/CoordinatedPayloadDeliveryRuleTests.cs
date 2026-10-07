@@ -139,6 +139,113 @@ public class CoordinatedPayloadDeliveryRuleTests
         findings.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("Mods/payload.exe", true)]
+    [InlineData("Mods/unrelated.exe", false)]
+    public void PostAnalysisRefine_DownloadedExecutableLaunch_RequiresSameStagedPath(
+        string launchPath, bool shouldDetect)
+    {
+        using var assembly = CreateDownloadAndLaunch(launchPath);
+        var findings = _rule.PostAnalysisRefine(assembly.MainModule,
+            [ProcessFinding("Target: <arg 1>. [Evasion: UseShellExecute=true]", "Test.Sample.Dropper.Launch:5")])
+            .Where(finding => finding.Description.Contains("downloaded executable", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (shouldDetect)
+        {
+            findings.Should().ContainSingle();
+        }
+        else
+        {
+            findings.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public void PostAnalysisRefine_DownloadedExecutableLaunch_IgnoresUnrelatedExecutableUrl()
+    {
+        using var assembly = CreateDownloadAndLaunch("Mods/payload.exe", "https://example.test/image.png",
+            includeUnrelatedExecutableUrl: true);
+
+        _rule.PostAnalysisRefine(assembly.MainModule, [])
+            .Should().NotContain(finding =>
+                finding.Description.Contains("downloaded executable", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static AssemblyDefinition CreateDownloadAndLaunch(
+        string launchPath,
+        string downloadUrl = "https://example.test/release/payload.exe",
+        bool includeUnrelatedExecutableUrl = false)
+    {
+        var assembly = AssemblyDefinition.CreateAssembly(
+            new AssemblyNameDefinition("DownloadAndLaunch", new Version(1, 0)),
+            "DownloadAndLaunch", ModuleKind.Dll);
+        var module = assembly.MainModule;
+        var type = new TypeDefinition("Test.Sample", "Dropper", TypeAttributes.Public, module.TypeSystem.Object);
+        module.Types.Add(type);
+
+        var download = new MethodDefinition("Download", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        download.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        download.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        download.Body.Variables.Add(new VariableDefinition(new ArrayType(module.TypeSystem.Byte)));
+        type.Methods.Add(download);
+        var downloadData = MethodWithParameters(module, "System.Net", "WebClient", "DownloadData",
+            new ArrayType(module.TypeSystem.Byte), module.TypeSystem.String);
+        var writeBytes = MethodWithParameters(module, "System.IO", "File", "WriteAllBytes",
+            module.TypeSystem.Void, module.TypeSystem.String, new ArrayType(module.TypeSystem.Byte));
+        var downloadIl = download.Body.GetILProcessor();
+        downloadIl.Emit(OpCodes.Ldarg_0);
+        downloadIl.Emit(OpCodes.Call, downloadData);
+        downloadIl.Emit(OpCodes.Stloc_0);
+        downloadIl.Emit(OpCodes.Ldarg_1);
+        downloadIl.Emit(OpCodes.Ldloc_0);
+        downloadIl.Emit(OpCodes.Call, writeBytes);
+        downloadIl.Emit(OpCodes.Ret);
+
+        var launch = new MethodDefinition("Launch", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        launch.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        type.Methods.Add(launch);
+        var start = MethodWithParameters(module, "System.Diagnostics", "Process", "Start",
+            module.TypeSystem.Object, module.TypeSystem.String);
+        var launchIl = launch.Body.GetILProcessor();
+        launchIl.Emit(OpCodes.Ldarg_0);
+        launchIl.Emit(OpCodes.Call, start);
+        launchIl.Emit(OpCodes.Pop);
+        launchIl.Emit(OpCodes.Ret);
+
+        var run = new MethodDefinition("Run", MethodAttributes.Public | MethodAttributes.Static,
+            module.TypeSystem.Void);
+        type.Methods.Add(run);
+        var runIl = run.Body.GetILProcessor();
+        if (includeUnrelatedExecutableUrl)
+        {
+            runIl.Emit(OpCodes.Ldstr, "https://example.test/unrelated.exe");
+            runIl.Emit(OpCodes.Pop);
+        }
+
+        runIl.Emit(OpCodes.Ldstr, downloadUrl);
+        runIl.Emit(OpCodes.Ldstr, "Mods/payload.exe");
+        runIl.Emit(OpCodes.Call, download);
+        runIl.Emit(OpCodes.Ldstr, launchPath);
+        runIl.Emit(OpCodes.Call, launch);
+        runIl.Emit(OpCodes.Ret);
+        return assembly;
+    }
+
+    private static MethodReference MethodWithParameters(ModuleDefinition module, string ns, string type,
+        string name, TypeReference returnType, params TypeReference[] parameters)
+    {
+        var method = new MethodReference(name, returnType,
+            new TypeReference(ns, type, module, module.TypeSystem.CoreLibrary));
+        foreach (var parameter in parameters)
+        {
+            method.Parameters.Add(new ParameterDefinition(parameter));
+        }
+        return method;
+    }
+
     private static AssemblyDefinition CreateArchiveInstaller(bool includeRegistryPersistence)
     {
         var assembly = AssemblyDefinition.CreateAssembly(
