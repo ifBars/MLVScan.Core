@@ -77,7 +77,7 @@ public class PersistenceRuleTests
         var context = CreateContext("System.IO.File", "WriteAllText", builder =>
         {
             builder.EmitInt(26); // Environment.SpecialFolder.ApplicationData
-            builder.EmitCall("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String);
+            builder.EmitCallWithParams("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String, builder.Module.TypeSystem.Int32);
             builder.EmitString("payload.cmd");
             builder.EmitCallWithParams(
                 "System.IO.Path",
@@ -101,7 +101,7 @@ public class PersistenceRuleTests
         var context = CreateContext("System.IO.File", "WriteAllText", builder =>
         {
             builder.EmitInt(26); // Environment.SpecialFolder.ApplicationData
-            builder.EmitCall("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String);
+            builder.EmitCallWithParams("System.Environment", "GetFolderPath", builder.Module.TypeSystem.String, builder.Module.TypeSystem.Int32);
             builder.EmitString("settings.json");
             builder.EmitCallWithParams(
                 "System.IO.Path",
@@ -319,7 +319,6 @@ public class PersistenceRuleTests
     }
 
     [Theory]
-    [InlineData(@"C:\Users\Test\AppData\Startup\config.txt", false)]
     [InlineData(@"C:\Temp\output.exe", false)]
     [InlineData("", false)]
     [InlineData(@"C:\Users\Test\Documents\malware.exe", false)]
@@ -345,6 +344,16 @@ public class PersistenceRuleTests
 
         var callIndex = context.Method.Body.Instructions.Count - 2;
         Analyze(context, callIndex).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeContextualPattern_StartupTextWrite_IsDiagnosticOnly()
+    {
+        var context = CreateContext("System.IO.File", "Create", builder =>
+            builder.EmitString(@"C:\Users\Test\AppData\Startup\config.txt"));
+        var findings = Analyze(context, 1);
+        findings.Should().ContainSingle().Which.Severity.Should().Be(Severity.Medium);
+        findings[0].BypassCompanionCheck.Should().BeFalse();
     }
 
     [Fact]

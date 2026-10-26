@@ -66,7 +66,14 @@ namespace MLVScan.Services.Helpers
                 StackBehaviour.Popi_popi8 => 2,
                 StackBehaviour.Popi_popr4 => 2,
                 StackBehaviour.Popi_popr8 => 2,
+                StackBehaviour.Popref_pop1 => 2,
+                StackBehaviour.Popref_popi => 2,
                 StackBehaviour.Popi_popi_popi => 3,
+                StackBehaviour.Popref_popi_popi => 3,
+                StackBehaviour.Popref_popi_popi8 => 3,
+                StackBehaviour.Popref_popi_popr4 => 3,
+                StackBehaviour.Popref_popi_popr8 => 3,
+                StackBehaviour.Popref_popi_popref => 3,
                 _ => 0
             };
         }

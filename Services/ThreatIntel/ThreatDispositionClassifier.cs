@@ -280,6 +280,13 @@ public sealed class ThreatDispositionClassifier
             return true;
         }
 
+        // These rules only bypass companion checks when their own evidence establishes the full risky operation.
+        if (finding.BypassCompanionCheck &&
+            finding.RuleId is "ProcessStartRule" or "PersistenceRule" or "EmbeddedArchivePayloadRule")
+        {
+            return true;
+        }
+
         if (IsHiddenLolbinDownloadExecuteSeed(finding))
         {
             return true;

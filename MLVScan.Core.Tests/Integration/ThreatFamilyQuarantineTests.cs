@@ -33,6 +33,7 @@ public class ThreatFamilyQuarantineTests
         "ScheduleIMoreNpcs.dll.di",
         "Skitching.dll.di",
         "StorageHub.dll.di",
+        "UniverseLib.Mono.dll.di",
         "UnlimitedGraffiti.dll.di",
         "vortex_backuprtilizer.dll.di"
     };
@@ -114,6 +115,23 @@ public class ThreatFamilyQuarantineTests
         dto.Disposition!.Classification.Should().Be("KnownThreat");
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
+    [SkippableFact]
+    public void Scan_UniverseLibDisguisedDownloader_ShouldRetainStagedExecutionEvidence()
+    {
+        var path = GetSamplePath("UniverseLib.Mono.dll.di");
+        var findings = new AssemblyScanner(RuleFactory.CreateDefaultRules()).Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Input.Sha256Hash.Should().Be("2c754bcd9532ea2d2b75a37d456cb36e97ae341eb388dd29805a081174de83cb");
+        findings.Should().Contain(finding => finding.RuleId == "ProcessStartRule" &&
+            finding.Severity == Severity.Critical && finding.Location == "ByteArrayTypeInfoMembership.Awake:62" &&
+            finding.Description.Contains("Staged loader chain", StringComparison.Ordinal));
+        dto.Disposition!.Classification.Should().Be("Suspicious");
+        dto.Disposition.BlockingRecommended.Should().BeTrue();
+        dto.AnalysisCompleteness.IsComplete.Should().BeTrue();
+        dto.ThreatFamilies.Should().BeNullOrEmpty("this downloader has no confirmed family attribution yet");
     }
 
     [SkippableFact]

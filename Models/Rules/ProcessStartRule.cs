@@ -9,7 +9,8 @@ using Mono.Cecil.Cil;
 namespace MLVScan.Models.Rules
 {
     /// <summary>
-    /// Detects Process.Start calls with severity scaling based on target and arguments.
+    /// Detects direct, reflected, emitted, and WMI process launches.
+    /// Direct Process.Start calls scale severity based on target, arguments, and supporting behavior.
     ///
     /// Severity levels:
     /// - Critical: Staged loader execution chain (download -> temp drop -> execute), or LOLBin with suspicious/evasive args
@@ -192,6 +193,59 @@ namespace MLVScan.Models.Rules
 
             return (typeName.Contains("System.Diagnostics.Process") && methodName == "Start") ||
                    (typeName.Contains("Process") && methodName == "Start");
+        }
+
+        /// <inheritdoc />
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        {
+            for (int index = 0; index < instructions.Count; index++)
+            {
+                if (instructions[index].Operand is not MethodReference called ||
+                    instructions[index].OpCode.Code is not (Code.Call or Code.Callvirt))
+                {
+                    continue;
+                }
+
+                bool invoke = ObfuscatedSinkMatcher.IsReflectionInvokeSink(called.DeclaringType.FullName, called.Name);
+                bool emit = called.DeclaringType.FullName == "System.Reflection.Emit.ILGenerator" && called.Name == "Emit" &&
+                            called.Parameters.Count == 2 && called.Parameters[1].ParameterType.FullName == "System.Reflection.MethodInfo";
+                bool reflectedStart = (invoke || emit) && ExecutionTargetMatcher.IsReflectedProcessStart(method, index, emit);
+                bool wmiCreate = called.DeclaringType.FullName is "System.Management.ManagementClass" or "System.Management.ManagementObject" &&
+                                 called.Name == "InvokeMethod" &&
+                                 InstructionValueResolver.TryResolveCallArgumentDisplay(method, called, instructions, index, 0, out string member) &&
+                                 member == "Create" && IsWmiProcessReceiver(method, index);
+                if (reflectedStart || wmiCreate)
+                {
+                    yield return new ScanFinding($"{method.DeclaringType.FullName}.{method.Name}:{instructions[index].Offset}",
+                        wmiCreate ? "Detected WMI Win32_Process.Create execution." :
+                        emit ? "Detected Process.Start emitted into runtime-generated IL." : "Detected Process.Start execution through reflection.",
+                        Severity.High, called.FullName)
+                    {
+                        RuleId = RuleId,
+                        RiskScore = 85,
+                        BypassCompanionCheck = true
+                    };
+                }
+            }
+        }
+
+        private static bool IsWmiProcessReceiver(MethodDefinition method, int callIndex)
+        {
+            var instructions = method.Body.Instructions;
+            if (!InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, callIndex,
+                    method.Body.ExceptionHandlers.ToArray(), out string receiver) ||
+                !receiver.StartsWith("new:", StringComparison.Ordinal) ||
+                !int.TryParse(receiver[4..], out int constructorIndex) ||
+                instructions[constructorIndex].Operand is not MethodReference constructor ||
+                constructor.DeclaringType.FullName is not ("System.Management.ManagementClass" or "System.Management.ManagementObject"))
+            {
+                return false;
+            }
+
+            return constructor.Parameters.Select((_, argument) => argument).Any(argument =>
+                InstructionValueResolver.TryResolveCallArgumentDisplay(method, constructor, instructions, constructorIndex,
+                    argument, out string className) && className.Equals("Win32_Process", StringComparison.OrdinalIgnoreCase));
         }
 
         public IEnumerable<ScanFinding> AnalyzeContextualPattern(
@@ -436,6 +490,20 @@ namespace MLVScan.Models.Rules
             if (isControlledChildProcess)
             {
                 return (Severity.Medium, "Controlled child process with redirected I/O");
+            }
+
+            // A hidden, redirected cmd helper with unresolved arguments is a primitive signal.
+            // Keep it visible for correlation without equating missing command evidence with a proven payload.
+            bool isCommandShell = targetLower is "cmd" or "cmd.exe" ||
+                                  targetLower.EndsWith("/cmd.exe", StringComparison.Ordinal) ||
+                                  targetLower.EndsWith("\\cmd.exe", StringComparison.Ordinal);
+            if (isCommandShell && createNoWindow && !useShellExecute && !windowStyleHidden && !workingDirectoryIsTemp &&
+                hasRedirectStandardOutputIndicator && hasRedirectStandardErrorIndicator &&
+                ResolverPlaceholderPattern.IsMatch(argumentsLower) && !hasSuspiciousArgs && !hasDownloadUrl &&
+                !hasTempPath && !hasScriptDropExtension && !hasStagedDownloadCommand &&
+                !hasNetworkCallSignal && !hasFileWriteSignal)
+            {
+                return (Severity.High, "Shell helper with unresolved arguments and redirected I/O");
             }
 
             if (hasStrongEvasionIndicators && isLolBin)

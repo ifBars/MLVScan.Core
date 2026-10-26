@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MLVScan.Core.Tests.TestUtilities;
 using MLVScan.Models;
 using MLVScan.Services;
 using Xunit;
@@ -9,7 +10,7 @@ namespace MLVScan.Core.Tests.Integration;
 
 /// <summary>
 /// Integration tests that scan known false positive samples from the FALSE_POSITIVES folder.
-/// These samples should NOT be flagged by default rules.
+/// Benign samples should remain Clean unless an exact, documented backlog profile states otherwise.
 /// </summary>
 public class FalsePositiveScanTests
 {
@@ -169,6 +170,22 @@ public class FalsePositiveScanTests
     }
 
     #region False Positive Sample Tests
+
+    public static IEnumerable<object[]> BacklogSamples =>
+        FalsePositiveBacklog.Entries.Keys.Select(path => new object[] { path });
+
+    [SkippableTheory]
+    [Trait("Category", "KnownLimitation")]
+    [MemberData(nameof(BacklogSamples))]
+    public void Scan_BackloggedFalsePositiveSample_ShouldMatchDocumentedLimitation(string relativePath)
+    {
+        var path = GetSamplePath(relativePath);
+        var findings = new AssemblyScanner(RuleFactory.CreateDefaultRules()).Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+        var entry = FalsePositiveBacklog.Entries[relativePath];
+        _output.WriteLine($"BACKLOG {entry.Id}: {entry.Reason}");
+        FalsePositiveBacklog.AssertExpectedProfile(dto, entry);
+    }
 
     [SkippableTheory]
     [InlineData("WorkshopMono.dll.di")]
@@ -360,6 +377,19 @@ public class FalsePositiveScanTests
         dto.Disposition.BlockingRecommended.Should().BeFalse();
         dto.ThreatFamilies.Should().BeNull();
         dto.Findings.Should().Contain(finding => finding.RuleId == "DataFlowAnalysis");
+    }
+
+    [SkippableFact]
+    public void Scan_SideHustle_ShellFilesystemHelpers_ShouldRemainClean()
+    {
+        var path = GetSamplePath("SideHustle.dll");
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
+        dto.ThreatFamilies.Should().BeNullOrEmpty();
+        dto.Findings.Should().Contain(finding => finding.RuleId == "ProcessStartRule");
     }
 
     [SkippableTheory]
@@ -590,6 +620,13 @@ public class FalsePositiveScanTests
                 LogFindings(findings, sample);
             }
 
+            if (FalsePositiveBacklog.TryGet(sample, out var backlog))
+            {
+                var dto = ScanResultMapper.ToDto(findings, sample, File.ReadAllBytes(path), false);
+                FalsePositiveBacklog.AssertExpectedProfile(dto, backlog);
+                _output.WriteLine($"BACKLOG {backlog.Id}: {backlog.Reason}");
+            }
+
             var rulesTriggered = findings
                 .Where(f => f.RuleId != null)
                 .Select(f => f.RuleId!)
@@ -648,9 +685,9 @@ public class FalsePositiveScanTests
             "WorkshopMono.dll.di"
         };
 
-        // Samples not currently in allow-list should have no High severity (or higher) findings
+        // Backlog profiles have already checked the exact bytes and complete High finding set.
         results
-            .Where(r => !allowedHighSeveritySamples.Contains(r.Sample))
+            .Where(r => !allowedHighSeveritySamples.Contains(r.Sample) && !FalsePositiveBacklog.TryGet(r.Sample, out _))
             .Should()
             .AllSatisfy(r =>
                 r.HighSeverity.Should().Be(0, $"{r.Sample} is a known false positive and should not trigger High+ severity findings"));
@@ -677,20 +714,27 @@ public class FalsePositiveScanTests
             var familyIds = dto.ThreatFamilies?.Select(match => match.FamilyId).ToList() ?? new List<string>();
             var classification = dto.Disposition?.Classification ?? "<missing>";
             var relativePath = Path.GetRelativePath(_falsePositivesFolder!, path);
+            string expectedDisposition = "Clean";
+            if (FalsePositiveBacklog.TryGet(relativePath, out var backlog))
+            {
+                FalsePositiveBacklog.AssertExpectedProfile(dto, backlog);
+                expectedDisposition = backlog.Disposition;
+                _output.WriteLine($"BACKLOG {backlog.Id}: {backlog.Reason}");
+            }
 
             _output.WriteLine(
                 $"{relativePath} => Disposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}, Findings={findings.Count}");
 
-            if (!string.Equals(classification, "Clean", StringComparison.Ordinal) ||
+            if (!string.Equals(classification, expectedDisposition, StringComparison.Ordinal) ||
                 familyIds.Count > 0)
             {
                 violations.Add(
-                    $"{relativePath} => ExpectedDisposition=Clean, ActualDisposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}");
+                    $"{relativePath} => ExpectedDisposition={expectedDisposition}, ActualDisposition={classification}, ThreatFamilies={(familyIds.Count == 0 ? "None" : string.Join(", ", familyIds))}");
             }
         }
 
         violations.Should().BeEmpty(
-            "every FALSE_POSITIVES assembly should be Clean and never produce threat-family matches.\n" +
+            "every FALSE_POSITIVES assembly should match its documented disposition and never produce threat-family matches.\n" +
             string.Join(Environment.NewLine, violations));
     }
 

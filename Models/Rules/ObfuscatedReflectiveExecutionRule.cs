@@ -71,6 +71,27 @@ namespace MLVScan.Models.Rules
             }
 
             ObfuscatedExecutionEvidence evidence = ObfuscatedExecutionHeuristics.CollectEvidence(instructions);
+            for (int index = 0; index < instructions.Count; index++)
+            {
+                if (ExecutionTargetMatcher.IsCall(instructions[index], "System.Diagnostics.Process", "Start") &&
+                    ExecutionTargetMatcher.TryMatchReconstructedTarget(methodDef, index, out string transform))
+                {
+                    return [new ScanFinding($"{methodDef.DeclaringType.FullName}.{methodDef.Name}:{instructions[index].Offset}",
+                        $"Detected reconstructed execution target: {transform}.", Severity.High, BuildSnippet(instructions, index, 2))
+                    {
+                        RuleId = RuleId, RiskScore = 85, BypassCompanionCheck = true
+                    }];
+                }
+            }
+
+            if (evidence.HasAssemblyLoadSink && evidence.HasReflectionInvokeSink &&
+                instructions.Any(static instruction => instruction.OpCode == OpCodes.Xor) &&
+                ExecutionTargetMatcher.HasXorReconstructedAssemblyLoad(methodDef))
+            {
+                evidence.HasStrongDecodePrimitive = true;
+                evidence.AddDecode(25, "byte-array XOR reconstruction before dynamic loading and invocation", 0);
+                evidence.TotalScore = Math.Min(100, evidence.TotalScore + 25);
+            }
             if (!ShouldReport(evidence))
             {
                 return Enumerable.Empty<ScanFinding>();

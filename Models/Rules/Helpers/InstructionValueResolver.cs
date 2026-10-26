@@ -738,6 +738,19 @@ namespace MLVScan.Models.Rules.Helpers
                    TryBuildProducerIdentity(instructions, producerIndex, exceptionHandlers, out identity);
         }
 
+        internal static bool TryResolveArrayStore(
+            Mono.Collections.Generic.Collection<Instruction> instructions, int storeIndex,
+            IReadOnlyList<ExceptionHandler> exceptionHandlers, out string arrayIdentity, out int valueProducer)
+        {
+            arrayIdentity = string.Empty;
+            valueProducer = -1;
+            var producers = GetCallArgumentProducerMap(instructions, exceptionHandlers);
+            return IsArrayElementStore(instructions[storeIndex]) &&
+                   producers.TryGetFieldReceiverProducer(storeIndex, out int arrayProducer) &&
+                   TryBuildProducerIdentity(instructions, arrayProducer, exceptionHandlers, out arrayIdentity) &&
+                   producers.TryGetStoredValueProducer(storeIndex, out valueProducer);
+        }
+
         private static bool TryBuildProducerIdentity(
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int producerIndex,
@@ -759,6 +772,10 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
 
             var producer = instructions[producerIndex];
+            if (producer.OpCode.Code == Code.Castclass && producerIndex > 0)
+            {
+                return TryBuildProducerIdentity(instructions, producerIndex - 1, exceptionHandlers, depth + 1, out identity);
+            }
             if (TryGetLoadedLocalIndex(producer, out int localIndex))
             {
                 return TryResolveEquivalentReachingDefinitions(instructions, exceptionHandlers, producerIndex,
@@ -825,6 +842,7 @@ namespace MLVScan.Models.Rules.Helpers
                     $"argument:{parameter.Index + (parameter.Method?.HasThis == true ? 1 : 0)}",
                 Code.Ldstr => $"literal:{producerIndex}",
                 Code.Newobj => $"new:{producerIndex}",
+                Code.Newarr => $"array:{producerIndex}",
                 Code.Call or Code.Callvirt => $"call:{producerIndex}",
                 _ => string.Empty
             };
@@ -1448,6 +1466,7 @@ namespace MLVScan.Models.Rules.Helpers
             var producersByCallIndex = new Dictionary<int, CallProducers>();
             var producersByStoreIndex = new Dictionary<int, int>();
             var fieldReceiversByInstructionIndex = new Dictionary<int, int>();
+            var arrayIndicesByStoreIndex = new Dictionary<int, int>();
             var incomingStacks = new Dictionary<int, int[]>();
             var pending = new Queue<int>();
 
@@ -1518,6 +1537,13 @@ namespace MLVScan.Models.Rules.Helpers
                 int i = pending.Dequeue();
                 var stack = new List<int>(incomingStacks[i]);
                 var instruction = instructions[i];
+                if (IsArrayElementStore(instruction) && stack.Count >= 3)
+                {
+                    int arrayIndex = stack[^2];
+                    arrayIndicesByStoreIndex[i] = arrayIndicesByStoreIndex.TryGetValue(i, out int existingIndex)
+                        ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingIndex, arrayIndex)
+                        : arrayIndex;
+                }
                 if ((TryGetStoredLocalIndex(instruction, out _) ||
                      TryGetStoredArgumentIndex(instruction, out _) ||
                      instruction.OpCode.Code is Code.Stfld or Code.Stsfld ||
@@ -1537,9 +1563,10 @@ namespace MLVScan.Models.Rules.Helpers
                             ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
                             : receiver;
                 }
-                else if (instruction.OpCode.Code == Code.Stfld && stack.Count >= 2)
+                else if ((instruction.OpCode.Code == Code.Stfld && stack.Count >= 2) ||
+                         (IsArrayElementStore(instruction) && stack.Count >= 3))
                 {
-                    int receiver = stack[^2];
+                    int receiver = stack[IsArrayElementStore(instruction) ? ^3 : ^2];
                     fieldReceiversByInstructionIndex[i] =
                         fieldReceiversByInstructionIndex.TryGetValue(i, out int existingReceiver)
                             ? MergeStackProducerIndexes(instructions, producersByCallIndex, existingReceiver, receiver)
@@ -1636,7 +1663,7 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             return new CallArgumentProducerMap(producersByCallIndex, producersByStoreIndex,
-                fieldReceiversByInstructionIndex);
+                fieldReceiversByInstructionIndex, arrayIndicesByStoreIndex);
         }
 
         private static int MergeStackProducerIndexes(
@@ -1710,21 +1737,27 @@ namespace MLVScan.Models.Rules.Helpers
         {
             public static CallArgumentProducerMap Empty { get; } =
                 new(new Dictionary<int, CallProducers>(), new Dictionary<int, int>(),
-                    new Dictionary<int, int>());
+                    new Dictionary<int, int>(), new Dictionary<int, int>());
 
             private readonly Dictionary<int, CallProducers> _producersByCallIndex;
             private readonly Dictionary<int, int> _producersByStoreIndex;
             private readonly Dictionary<int, int> _fieldReceiversByInstructionIndex;
+            private readonly Dictionary<int, int> _arrayIndicesByStoreIndex;
 
             public CallArgumentProducerMap(
                 Dictionary<int, CallProducers> producersByCallIndex,
                 Dictionary<int, int> producersByStoreIndex,
-                Dictionary<int, int> fieldReceiversByInstructionIndex)
+                Dictionary<int, int> fieldReceiversByInstructionIndex,
+                Dictionary<int, int> arrayIndicesByStoreIndex)
             {
                 _producersByCallIndex = producersByCallIndex;
                 _producersByStoreIndex = producersByStoreIndex;
                 _fieldReceiversByInstructionIndex = fieldReceiversByInstructionIndex;
+                _arrayIndicesByStoreIndex = arrayIndicesByStoreIndex;
             }
+
+            public bool TryGetArrayIndexProducer(int storeIndex, out int producer) =>
+                _arrayIndicesByStoreIndex.TryGetValue(storeIndex, out producer);
 
             public bool TryGetProducer(int callIndex, int parameterCount, int argumentIndex, out int producerIndex)
             {
@@ -2219,6 +2252,23 @@ namespace MLVScan.Models.Rules.Helpers
             out List<ResolvedValue> arguments)
         {
             arguments = new List<ResolvedValue>(parameterCount);
+            var producers = GetCallArgumentProducerMap(instructions,
+                containingMethod?.Body?.ExceptionHandlers.ToArray() ?? Array.Empty<ExceptionHandler>());
+            for (int argument = 0; argument < parameterCount; argument++)
+            {
+                if (!producers.TryGetProducer(callIndex, parameterCount, argument, out int producer) ||
+                    !TryResolveValueFromProducer(context, containingMethod, instructions, producer, argumentMap,
+                        depth + 1, out var resolved))
+                {
+                    break;
+                }
+                arguments.Add(resolved);
+            }
+            if (arguments.Count == parameterCount)
+            {
+                return true;
+            }
+            arguments.Clear();
             int cursor = callIndex - 1;
 
             for (int i = parameterCount - 1; i >= 0; i--)
@@ -2288,7 +2338,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (depth > MaxDepth)
+            if (depth > MaxDepth || producerIndex < 0 || producerIndex >= instructions.Count)
                 return false;
 
             var instruction = instructions[producerIndex];
@@ -2539,6 +2589,39 @@ namespace MLVScan.Models.Rules.Helpers
 
             string declaringType = method.DeclaringType?.FullName ?? string.Empty;
 
+            if (method.Parameters.Count == 1 && method.Parameters[0].ParameterType.FullName == "System.String[]" &&
+                ((declaringType == "System.IO.Path" && method.Name is "Combine" or "Join") ||
+                 (declaringType == "System.String" && method.Name == "Concat")) &&
+                TryResolveStringArrayElements(context, containingMethod, instructions, producerIndex, method,
+                    argumentMap: null, depth + 1, out var elements))
+            {
+                string composed = declaringType == "System.IO.Path"
+                    ? CombinePathLikeArguments(elements)
+                    : string.Concat(elements.Select(element => element.Display));
+                value = new ResolvedValue(composed, ExtractExecutableName(composed), elements.All(element => element.IsConcrete));
+                return true;
+            }
+
+            if (declaringType == "System.Environment" && method.Name == "GetFolderPath" &&
+                callArgs.Count > 0 && int.TryParse(callArgs[0].Display, out int folder))
+            {
+                string folderName = folder switch
+                {
+                    7 => "Startup",
+                    24 => "CommonStartup",
+                    26 => "AppData",
+                    28 => "LocalApplicationData",
+                    35 => "ProgramData",
+                    36 => "Windows",
+                    37 => "System32",
+                    38 => "Program Files",
+                    42 => "Program Files (x86)",
+                    _ => $"<folder {folder}>"
+                };
+                value = new ResolvedValue(folderName, null, folder is 7 or 24 or 26 or 28 or 35 or 36 or 37 or 38 or 42);
+                return true;
+            }
+
             if (declaringType == "System.IO.Path")
             {
                 if (method.Name == "Combine" || method.Name == "Join" || method.Name == "GetFullPath" ||
@@ -2615,6 +2698,53 @@ namespace MLVScan.Models.Rules.Helpers
             }
 
             value = new ResolvedValue($"<dynamic via {method.Name}>", null, false);
+            return true;
+        }
+
+        private static bool TryResolveStringArrayElements(
+            ResolverContext context, MethodDefinition? containingMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int callIndex, MethodReference method,
+            Dictionary<int, ResolvedValue>? argumentMap, int depth, out List<ResolvedValue> elements)
+        {
+            elements = [];
+            var handlers = containingMethod?.Body?.ExceptionHandlers.ToArray() ?? Array.Empty<ExceptionHandler>();
+            if (depth > MaxDepth ||
+                !TryResolveCallArgumentIdentity(method, instructions, callIndex, 0, handlers, out string arrayIdentity) ||
+                !arrayIdentity.StartsWith("array:", StringComparison.Ordinal) ||
+                !int.TryParse(arrayIdentity[6..], out int allocation) || allocation <= 0 ||
+                !instructions[allocation - 1].TryResolveInt32Literal(out int count) || count is < 1 or > 32 ||
+                callIndex - allocation > 256)
+            {
+                return false;
+            }
+
+            var values = new ResolvedValue?[count];
+            var producers = GetCallArgumentProducerMap(instructions, handlers);
+            for (int index = allocation + 1; index < callIndex; index++)
+            {
+                if (instructions[index].OpCode.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch)
+                {
+                    return false;
+                }
+                if (instructions[index].OpCode != OpCodes.Stelem_Ref ||
+                    !TryResolveArrayStore(instructions, index, handlers, out string target, out int valueProducer) || target != arrayIdentity)
+                {
+                    continue;
+                }
+                if (!producers.TryGetArrayIndexProducer(index, out int indexProducer) || indexProducer < 0 ||
+                    !instructions[indexProducer].TryResolveInt32Literal(out int elementIndex) || elementIndex < 0 || elementIndex >= count ||
+                    !TryResolveValueFromProducer(context, containingMethod, instructions, valueProducer, argumentMap,
+                        depth + 1, out var element))
+                {
+                    return false;
+                }
+                values[elementIndex] = element;
+            }
+            if (values.Any(element => element == null))
+            {
+                return false;
+            }
+            elements = values.Select(element => element!.Value).ToList();
             return true;
         }
 

@@ -44,6 +44,82 @@ namespace MLVScan.Models.Rules
             return false;
         }
 
+        /// <inheritdoc />
+        public IEnumerable<ScanFinding> AnalyzeInstructions(MethodDefinition method,
+            Mono.Collections.Generic.Collection<Instruction> instructions, MethodSignals methodSignals)
+        {
+            for (int index = 0; index < instructions.Count; index++)
+            {
+                if (instructions[index].Operand is not MethodReference called ||
+                    instructions[index].OpCode.Code is not (Code.Call or Code.Callvirt))
+                {
+                    continue;
+                }
+
+                int payloadArgument = -1;
+                if (IsDataSendingCall(called) && called.Parameters.Count >= 2)
+                {
+                    payloadArgument = 1;
+                }
+                else if (called.DeclaringType.FullName == "System.IO.Stream" && called.Name is "Write" or "WriteAsync" &&
+                         ExecutionTargetMatcher.TryGetReceiverSource(method, index, out int stream) &&
+                         instructions[stream].Operand is MethodReference requestStream &&
+                         requestStream.DeclaringType.FullName is "System.Net.WebRequest" or "System.Net.HttpWebRequest" &&
+                         requestStream.Name is "GetRequestStream" or "GetRequestStreamAsync")
+                {
+                    payloadArgument = 0;
+                }
+
+                if (payloadArgument < 0 || !TryGetSensitivePayload(method, index, payloadArgument, 0, out string path, out int source))
+                {
+                    continue;
+                }
+
+                string methodLocation = $"{method.DeclaringType.FullName}.{method.Name}";
+                var flow = new DataFlowChain($"{methodLocation}:sensitive-send-{instructions[source].Offset}-{instructions[index].Offset}",
+                    DataFlowPattern.DataExfiltration, Severity.High, "Sensitive file contents reach an outbound network send", methodLocation);
+                flow.AppendNode(new DataFlowNode($"{methodLocation}:{instructions[source].Offset}",
+                    ((MethodReference)instructions[source].Operand).FullName, DataFlowNodeType.Source, path, instructions[source].Offset));
+                flow.AppendNode(new DataFlowNode($"{methodLocation}:{instructions[index].Offset}",
+                    called.FullName, DataFlowNodeType.Sink, "Outbound sensitive content", instructions[index].Offset));
+                yield return new ScanFinding($"{methodLocation}:{instructions[index].Offset}",
+                    $"Sensitive file content sent to a network endpoint. Source: {path}", Severity.High,
+                    $"source: {path}; sink: {called.FullName}")
+                {
+                    RuleId = RuleId, RiskScore = 90, BypassCompanionCheck = true, DataFlowChain = flow
+                };
+            }
+        }
+
+        private static bool TryGetSensitivePayload(MethodDefinition method, int callIndex, int argument, int depth, out string path, out int sourceIndex)
+        {
+            path = string.Empty;
+            sourceIndex = -1;
+            if (depth >= 6 || !ExecutionTargetMatcher.TryGetArgumentSource(method, callIndex, argument, out int source) ||
+                method.Body.Instructions[source].Operand is not MethodReference producer)
+            {
+                return false;
+            }
+
+            string type = producer.DeclaringType.FullName;
+            if (type == "System.IO.File" && producer.Name is "ReadAllBytes" or "ReadAllText" &&
+                InstructionValueResolver.TryResolveCallArgumentDisplay(method, producer, method.Body.Instructions, source, 0, out path))
+            {
+                sourceIndex = source;
+                string normalized = path.Replace('\\', '/');
+                string name = normalized[(normalized.LastIndexOf('/') + 1)..];
+                return name.Equals("Login Data", StringComparison.OrdinalIgnoreCase) ||
+                       name.Equals("Cookies", StringComparison.OrdinalIgnoreCase) ||
+                       name.Equals(".env", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("/.ssh/", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("/Local Storage/leveldb/", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return ((type == "System.Text.Encoding" && producer.Name == "GetBytes") ||
+                    (type == "System.Net.Http.StringContent" && producer.Name == ".ctor")) &&
+                   TryGetSensitivePayload(method, source, 0, depth + 1, out path, out sourceIndex);
+        }
+
         /// <summary>
         /// Detects outbound sends whose endpoint is computed at runtime when host or process data is
         /// transformed before transmission. This avoids requiring a literal C2 URL beside SendAsync.
@@ -139,7 +215,19 @@ namespace MLVScan.Models.Rules
             // Sweep nearby string literals for indicators
             int windowStart = Math.Max(0, instructionIndex - 10);
             int windowEnd = Math.Min(instructions.Count, instructionIndex + 11);
-            var literals = UrlLiteralCollector.CollectCandidates(instructions, windowStart, windowEnd);
+            var literals = UrlLiteralCollector.CollectCandidates(instructions, windowStart, windowEnd).ToList();
+            // Request stream calls are often separated from their factory URL by headers and payload preparation.
+            if (calledMethodName.Contains("GetRequestStream", StringComparison.Ordinal) &&
+                InstructionValueResolver.TryResolveCallReceiverIdentity(instructions, instructionIndex, out string receiver) &&
+                receiver.StartsWith("call:", StringComparison.Ordinal) &&
+                int.TryParse(receiver[5..], out int factoryIndex) && factoryIndex < instructionIndex &&
+                instructions[factoryIndex].Operand is MethodReference factory &&
+                factory.DeclaringType.FullName is "System.Net.WebRequest" or "System.Net.HttpWebRequest" &&
+                factory.Name is "Create" or "CreateHttp" &&
+                InstructionValueResolver.TryResolveCallArgumentDisplay(null, factory, instructions, factoryIndex, 0, out string endpoint))
+            {
+                literals.Add(endpoint);
+            }
 
             if (literals.Count == 0)
                 yield break;
@@ -287,6 +375,15 @@ namespace MLVScan.Models.Rules
                     $"Data-sending operation to {sourceType} (unusual but potentially legitimate - API interaction).{urlList}",
                     Severity.Low,
                     snippetBuilder.ToString().TrimEnd());
+            }
+            else if (isDataSendingOperation && urls.Count > 0 &&
+                     (calledMethodName.Contains("GetRequestStream", StringComparison.Ordinal) ||
+                      declaringTypeFullName == "UnityEngine.Networking.UnityWebRequest"))
+            {
+                yield return new ScanFinding(
+                    $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
+                    $"Outbound data-sending operation; no sensitive source or suspicious destination established.{urlList}",
+                    Severity.Low, snippetBuilder.ToString().TrimEnd());
             }
         }
 

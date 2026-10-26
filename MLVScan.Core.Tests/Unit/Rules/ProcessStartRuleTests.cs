@@ -12,6 +12,21 @@ namespace MLVScan.Core.Tests.Unit.Rules;
 
 public class ProcessStartRuleTests
 {
+    [Theory]
+    [InlineData("<dynamic via ToStringAndClear>", false, false, Severity.High)]
+    [InlineData("/c <arg 0>", false, false, Severity.High)]
+    [InlineData("/c start calc.exe", false, false, Severity.Critical)]
+    [InlineData("/c <arg 0>", true, false, Severity.Critical)]
+    [InlineData("/c <arg 0>", false, true, Severity.Critical)]
+    public void DetermineSeverity_RedirectedShellHelper_RequiresConcreteRiskForCritical(
+        string arguments, bool network, bool writes, Severity expected)
+    {
+        var result = InvokeDetermineSeverity("cmd.exe", arguments, createNoWindow: true,
+            hasRedirectStandardOutputIndicator: true, hasRedirectStandardErrorIndicator: true,
+            hasNetworkCallSignal: network, hasFileWriteSignal: writes);
+        result.severity.Should().Be(expected);
+    }
+
     private readonly ProcessStartRule _rule = new();
     private readonly System.Reflection.MethodInfo _determineSeverityMethod =
         typeof(ProcessStartRule).GetMethod("DetermineSeverity",

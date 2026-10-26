@@ -9,6 +9,23 @@ namespace MLVScan.Core.Tests.Unit.Services.Helpers;
 public class InstructionExtensionsTests
 {
     [Fact]
+    public void GetPopCount_ArrayOperations_ConsumeReceiverIndexAndStoredValue()
+    {
+        using var module = ModuleDefinition.CreateModule("ArrayStack", ModuleKind.Dll);
+        foreach (var opcode in new[] { OpCodes.Ldelem_U1, OpCodes.Ldelem_I4, OpCodes.Ldelem_Ref, OpCodes.Ldelema })
+        {
+            var instruction = opcode == OpCodes.Ldelema
+                ? Instruction.Create(opcode, module.TypeSystem.Byte)
+                : Instruction.Create(opcode);
+            instruction.GetPopCount().Should().Be(2);
+        }
+        foreach (var opcode in new[] { OpCodes.Stelem_I1, OpCodes.Stelem_I4, OpCodes.Stelem_I8, OpCodes.Stelem_R4, OpCodes.Stelem_R8, OpCodes.Stelem_Ref })
+        {
+            Instruction.Create(opcode).GetPopCount().Should().Be(3);
+        }
+    }
+
+    [Fact]
     public void GetPushCount_WithVoidCall_ReturnsZero()
     {
         var method = CreateMethodReference("System.Void");

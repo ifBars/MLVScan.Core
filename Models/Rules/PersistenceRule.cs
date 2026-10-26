@@ -9,6 +9,7 @@ namespace MLVScan.Models.Rules
     /// <summary>
     /// Detects file writes to payload staging and persistence folders.
     /// Triggers on Path.GetTempPath() writes and executable/script writes to sensitive folders.
+    /// Non-executable Startup-folder writes are retained as diagnostic evidence.
     /// </summary>
     public class PersistenceRule : IScanRule
     {
@@ -64,18 +65,6 @@ namespace MLVScan.Models.Rules
             };
         }
 
-        private static bool IsModFrameworkType(string typeName)
-        {
-            if (string.IsNullOrEmpty(typeName))
-                return false;
-
-            // Check for known mod framework environment types
-            return typeName.Contains("MelonEnvironment") ||
-                   typeName.Contains("MelonLoader") ||
-                   typeName.Contains("BepInEx") ||
-                   typeName.Contains("BepInEx.Paths");
-        }
-
         public bool IsSuspicious(MethodReference method)
         {
             return false;
@@ -97,21 +86,6 @@ namespace MLVScan.Models.Rules
 
             if (!isFileWrite)
                 yield break;
-
-            // Check if this method uses mod framework paths - if so, skip
-            foreach (var instr in instructions)
-            {
-                if ((instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt) &&
-                    instr.Operand is MethodReference calledMethod)
-                {
-                    var declaringType = calledMethod.DeclaringType?.FullName ?? "";
-                    // Skip known mod framework environment types
-                    if (IsModFrameworkType(declaringType))
-                    {
-                        yield break;
-                    }
-                }
-            }
 
             string? sensitiveFolderName = null;
 
@@ -139,11 +113,12 @@ namespace MLVScan.Models.Rules
                 yield break;
 
             bool foundTempPath = HasDirectoryComponent(destinationPath, "%TEMP%");
+            bool foundStartupWrite = HasDirectoryComponent(destinationPath, "Startup", "CommonStartup");
             bool foundSensitivePayloadWrite =
                 HasSuspiciousPayloadExtension(destinationPath) &&
-                (sensitiveFolderName != null || HasSensitiveDirectoryComponent(destinationPath));
+                HasSensitiveDirectoryComponent(destinationPath);
 
-            if (foundTempPath || foundSensitivePayloadWrite)
+            if (foundTempPath || foundSensitivePayloadWrite || foundStartupWrite)
             {
                 var snippetBuilder = new System.Text.StringBuilder();
                 int contextLines = 2;
@@ -157,13 +132,19 @@ namespace MLVScan.Models.Rules
 
                 string description = foundSensitivePayloadWrite
                     ? $"Potential persistence: Writing executable/script payload to sensitive folder{(sensitiveFolderName == null ? string.Empty : $" {sensitiveFolderName}")}"
+                    : foundStartupWrite ? "Startup folder write of non-executable content (diagnostic only)"
                     : "Potential payload drop: Writing to TEMP folder";
 
                 yield return new ScanFinding(
                     $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
                     description,
                     foundSensitivePayloadWrite ? Severity.High : Severity.Medium,
-                    snippetBuilder.ToString().TrimEnd());
+                    snippetBuilder.ToString().TrimEnd())
+                {
+                    RuleId = RuleId,
+                    BypassCompanionCheck = foundSensitivePayloadWrite,
+                    RiskScore = foundSensitivePayloadWrite ? 85 : 40
+                };
             }
         }
 
@@ -197,7 +178,7 @@ namespace MLVScan.Models.Rules
         private static bool HasSensitiveDirectoryComponent(string path)
         {
             return HasDirectoryComponent(path,
-                "Startup", "AppData", "ProgramData", "Windows", "System", "System32",
+                "Startup", "CommonStartup", "AppData", "LocalApplicationData", "ProgramData", "Windows", "System", "System32",
                 "Program Files", "Program Files (x86)", "ProgramFiles", "ProgramFilesX86");
         }
 
