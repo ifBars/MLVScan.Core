@@ -111,7 +111,7 @@ public class FalsePositiveScanTests
         Skip.If(_falsePositivesFolder == null,
             "FALSE_POSITIVES folder not found. This test requires samples which are not available in CI.");
 
-        var path = Path.Combine(_falsePositivesFolder, filename);
+        var path = Path.Combine(_falsePositivesFolder, filename.Replace('\\', Path.DirectorySeparatorChar));
         Skip.IfNot(File.Exists(path), $"Sample {filename} not found in FALSE_POSITIVES folder.");
 
         return path;

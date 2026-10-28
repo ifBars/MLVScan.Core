@@ -427,7 +427,7 @@ public class ThreatFamilyQuarantineTests
     {
         Skip.If(_quarantineFolder == null, "QUARANTINE folder not found. This test requires malware samples which are not available in CI.");
 
-        var path = Path.Combine(_quarantineFolder!, filename);
+        var path = Path.Combine(_quarantineFolder!, filename.Replace('\\', Path.DirectorySeparatorChar));
         Skip.IfNot(File.Exists(path), $"Sample {filename} not found in QUARANTINE folder.");
         return path;
     }

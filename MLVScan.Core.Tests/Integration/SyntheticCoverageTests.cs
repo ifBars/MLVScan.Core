@@ -36,7 +36,7 @@ public class SyntheticCoverageTests
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
         {
             string relativePath = sample == "MTEST" ? "MTEST.dll" : Path.Combine(sample, sample + ".dll");
-            string candidate = Path.Combine(directory.FullName, "SYNTHETIC_SAMPLES", relativePath);
+            string candidate = Path.Combine(directory.FullName, "SYNTHETIC_SAMPLES", relativePath.Replace('\\', Path.DirectorySeparatorChar));
             if (File.Exists(candidate))
             {
                 path = candidate;

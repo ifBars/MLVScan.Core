@@ -80,7 +80,7 @@ public class NewSampleThreatFamilyTests
 
         while (current != null)
         {
-            string candidate = Path.Combine(current, "QUARANTINE", relativePath);
+            string candidate = Path.Combine(current, "QUARANTINE", relativePath.Replace('\\', Path.DirectorySeparatorChar));
             if (File.Exists(candidate))
             {
                 return candidate;
