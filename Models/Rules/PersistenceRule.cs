@@ -24,15 +24,14 @@ namespace MLVScan.Models.Rules
         public bool RequiresCompanionFinding => false;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Use your mod framework's configuration system instead of direct file I/O. " +
-            "For MelonLoader: use MelonPreferences. For BepInEx: use Config.Bind<T>(). " +
-            "For save data, use the game's official persistence APIs if available. " +
-            "Do not write executable files to TEMP or other system folders.",
+            "Direct file I/O is legitimate for settings, saves, logs, and updates. Review the destination and whether written " +
+            "content is later executed or used for autostart. Configuration and save APIs are optional conveniences, not requirements " +
+            "for a clean scan. If the write is ordinary application data, retain the behavior and report the false positive with its path and purpose.",
             null,
             new[]
             {
-                "MelonPreferences.CreateEntry<T> (MelonLoader)", "Config.Bind<T> (BepInEx)",
-                "UnityEngine.PlayerPrefs (Unity)"
+                "File.WriteAllText / File.WriteAllBytes - ordinary application data with an intentional destination",
+                "The host application's configuration or save API - when it provides the required semantics"
             },
             true
         );
@@ -109,14 +108,13 @@ namespace MLVScan.Models.Rules
                 }
             }
 
-            if (!TryResolveDestinationPath(method, instructions, instructionIndex, out string destinationPath))
+            if (!TryResolveDestinationPaths(method, instructions, instructionIndex, out var destinationPaths))
                 yield break;
 
-            bool foundTempPath = HasDirectoryComponent(destinationPath, "%TEMP%");
-            bool foundStartupWrite = HasDirectoryComponent(destinationPath, "Startup", "CommonStartup");
+            bool foundTempPath = destinationPaths.Any(path => HasDirectoryComponent(path, "%TEMP%"));
+            bool foundStartupWrite = destinationPaths.Any(path => HasDirectoryComponent(path, "Startup", "CommonStartup"));
             bool foundSensitivePayloadWrite =
-                HasSuspiciousPayloadExtension(destinationPath) &&
-                HasSensitiveDirectoryComponent(destinationPath);
+                destinationPaths.Any(path => HasSuspiciousPayloadExtension(path) && HasSensitiveDirectoryComponent(path));
 
             if (foundTempPath || foundSensitivePayloadWrite || foundStartupWrite)
             {
@@ -157,17 +155,17 @@ namespace MLVScan.Models.Rules
                        35;   // CommonApplicationData / ProgramData
         }
 
-        private static bool TryResolveDestinationPath(
+        private static bool TryResolveDestinationPaths(
             MethodReference method,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int instructionIndex,
-            out string destinationPath)
+            out IReadOnlyList<string> destinationPaths)
         {
             bool isCopyOrMove = method.Name.Equals("Copy", StringComparison.OrdinalIgnoreCase) ||
                                 method.Name.Equals("Move", StringComparison.OrdinalIgnoreCase);
             int destinationParameterIndex = isCopyOrMove ? 1 : 0;
-            return InstructionValueResolver.TryResolveCallArgumentDisplay(
-                null, method, instructions, instructionIndex, destinationParameterIndex, out destinationPath);
+            return InstructionValueResolver.TryResolveCallArgumentAlternatives(
+                method, instructions, instructionIndex, destinationParameterIndex, out destinationPaths);
         }
 
         private static bool HasSuspiciousPayloadExtension(string path)

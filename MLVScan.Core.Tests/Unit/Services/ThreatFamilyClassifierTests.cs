@@ -8,6 +8,24 @@ namespace MLVScan.Core.Tests.Unit.Services;
 
 public class ThreatFamilyClassifierTests
 {
+    [Theory]
+    [InlineData("<dynamic via Dup>", "<unknown/no-arguments>", true)]
+    [InlineData("<ambiguous field> [Possible values: <dynamic via Dup> | <null>]", "<unknown/no-arguments>", true)]
+    [InlineData("<ambiguous field> [Possible values: <null> | <unknown>]", "<dynamic via Dup>", false)]
+    [InlineData("ffmpeg.exe", "<dynamic via Dup>", false)]
+    public void Classify_RemoteTextShell_PreservesDynamicTargetAlternatives(string target, string arguments, bool expected)
+    {
+        var findings = new[]
+        {
+            new ScanFinding("Fixture.Run", "remote text retrieval and hidden shell command", Severity.High)
+                { RuleId = "CoordinatedPayloadDeliveryRule" },
+            new ScanFinding("Fixture.Run", $"Target: {target}. Arguments: {arguments} [CreateNoWindow=true]", Severity.High)
+                { RuleId = "ProcessStartRule" }
+        };
+        new ThreatFamilyClassifier().Classify(findings, null)
+            .Any(match => match.FamilyId == "family-remote-text-shell-exec-v1").Should().Be(expected);
+    }
+
     [Fact]
     public void Classify_WithExactKnownHash_ReturnsExactHashMatch()
     {
@@ -699,8 +717,10 @@ public class ThreatFamilyClassifierTests
             .Should().Be("dynamic-code-loader-hidden-system-process");
     }
 
-    [Fact]
-    public void Classify_WithPathBasedDynamicLoadAndHiddenSvchost_ReturnsDynamicAssemblyLoaderFamily()
+    [Theory]
+    [InlineData("\"svchost.exe\"")]
+    [InlineData("<ambiguous field> [Possible values: C:/Temp/svchost.exe | <unknown runtime value>]")]
+    public void Classify_WithPathBasedDynamicLoadAndHiddenSvchost_ReturnsDynamicAssemblyLoaderFamily(string target)
     {
         var classifier = new ThreatFamilyClassifier();
         var findings = new List<ScanFinding>
@@ -713,7 +733,7 @@ public class ThreatFamilyClassifierTests
                 RiskScore = 60
             },
             new("Plugin.Runner.Start:42",
-                "Detected Process.Start call which could execute arbitrary programs. Target: \"svchost.exe\". Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden)]",
+                $"Detected Process.Start call which could execute arbitrary programs. Target: {target}. Arguments: <unknown/no-arguments> [Evasion: CreateNoWindow=true, WindowStyle=Hidden] [LOLBin with hidden execution (CreateNoWindow, WindowStyle.Hidden)]",
                 Severity.Critical)
             {
                 RuleId = "ProcessStartRule"

@@ -14,9 +14,11 @@ namespace MLVScan.Models.Rules
         /// Gets developer guidance for legitimate byte-array processing scenarios.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "If processing images or audio, use Unity's asset loading APIs (AudioClip.LoadWAVData, Texture2D.LoadImage). For legitimate binary data, document the purpose clearly.",
+            "Binary transformations are normal for assets, protocols, and serialization. Review the transformed bytes' destination " +
+            "and any execution evidence. Keep format-required processing; use ordinary resource or file APIs when the data is already " +
+            "stored in its final format. A data-only transformation can be a scanner false positive.",
             null,
-            new[] { "UnityEngine.AudioClip.LoadWAVData", "UnityEngine.Texture2D.LoadImage" },
+            new[] { "Assembly.GetManifestResourceStream - packaged data", "File.ReadAllBytes - existing binary data" },
             true
         );
 

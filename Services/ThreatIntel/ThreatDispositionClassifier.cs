@@ -94,7 +94,10 @@ public sealed class ThreatDispositionClassifier
 
         if (suspiciousSeeds.Count > 0)
         {
-            return BuildSuspiciousDisposition(findingsList, suspiciousSeeds);
+            return BuildSuspiciousDisposition(findingsList, suspiciousSeeds,
+                analysisCompleteness?.ReviewRecommended != true && analysisCompleteness?.IsComplete != false &&
+                (analysisCompleteness == null || analysisCompleteness.Status == AnalysisCompletenessStatus.Complete) &&
+                HasOnlyConstrainedRestartRisk(findingsList, suspiciousSeeds));
         }
 
         if (analysisCompleteness?.ReviewRecommended == true)
@@ -139,17 +142,37 @@ public sealed class ThreatDispositionClassifier
 
     private static ThreatDispositionResult BuildSuspiciousDisposition(
         IReadOnlyList<ScanFinding> findings,
-        IReadOnlyList<ScanFinding> suspiciousSeeds)
+        IReadOnlyList<ScanFinding> suspiciousSeeds,
+        bool restartAdvisory)
     {
         return new ThreatDispositionResult
         {
             Classification = ThreatDispositionClassification.Suspicious,
             Headline = "Suspicious behavior detected",
-            Summary =
-                "This file shows correlated suspicious behavior. It may be malicious, but it may also be a false positive and should be reviewed.",
-            BlockingRecommended = true,
+            Summary = restartAdvisory
+                ? "This file uses a constrained restart script. The external execution remains suspicious and should be reviewed, but the verified restart flow alone does not recommend blocking."
+                : "This file shows correlated suspicious behavior. It may be malicious, but it may also be a false positive and should be reviewed.",
+            BlockingRecommended = !restartAdvisory,
             RelatedFindings = ExpandCorrelatedFindings(findings, suspiciousSeeds)
         };
+    }
+
+    private static bool HasOnlyConstrainedRestartRisk(
+        IReadOnlyList<ScanFinding> findings, IReadOnlyList<ScanFinding> suspiciousSeeds)
+    {
+        var verifiedInstructions = findings
+            .Where(f => f.RuleId == "ProcessStartRule" && f.HasConstrainedRestartEvidence && f.SourceInstruction != null)
+            .Select(f => f.SourceInstruction!)
+            .ToHashSet();
+        bool IsVerifiedLaunch(ScanFinding finding) => finding.RuleId == "ProcessStartRule" &&
+            finding.SourceInstruction != null && verifiedInstructions.Contains(finding.SourceInstruction);
+
+        return verifiedInstructions.Count > 0 &&
+               !findings.Any(Helpers.AnalysisCompletenessEvidence.IsIncompleteFinding) &&
+               suspiciousSeeds.All(IsVerifiedLaunch) &&
+               findings.All(f => f.Severity < Severity.High ||
+                                 IsVerifiedLaunch(f)) &&
+               !findings.Any(f => f.HasDataFlow && SuspiciousDataFlowPatterns.Contains(f.DataFlowChain!.Pattern));
     }
 
     private static ThreatDispositionResult BuildManualReviewDisposition(

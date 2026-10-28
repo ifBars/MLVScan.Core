@@ -36,7 +36,9 @@ namespace MLVScan.Models.Rules
         /// Gets guidance for legitimate native interop scenarios.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Native DLL imports are flagged as high risk. If essential for your mod's functionality, clearly document the purpose and consider using managed alternatives where possible.",
+            "Native interop is common for platform features and hardware diagnostics. Review the imported function, its arguments, " +
+            "and call/data-flow evidence; an import alone does not establish malicious behavior. A managed API may fit some operations, " +
+            "but there is no universal replacement. Keep necessary interop and report false positives with the function's purpose and scan report.",
             null,
             null,
             false

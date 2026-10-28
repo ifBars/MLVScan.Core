@@ -21,15 +21,13 @@ namespace MLVScan.Models.Rules
         public bool RequiresCompanionFinding => true;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Avoid runtime assembly loading when possible. If necessary, detect the runtime " +
-            "(IL2CPP vs Mono) using your framework's utilities. Ship dependencies as separate " +
-            "assemblies in the appropriate framework directory (e.g., Mods/ folder for MelonLoader, " +
-            "plugin folder for BepInEx). Reference assemblies at compile time instead of loading dynamically.",
+            "Dynamic assembly loading can be required for plugins, optional dependencies, or runtime compatibility. Review the " +
+            "assembly's source and integrity, especially downloaded or decoded code. A compile-time reference is an option for a fixed " +
+            "dependency, not a replacement for every plugin architecture. Report legitimate loading flows that MLVScan misclassifies.",
             null,
             new[]
             {
-                "MelonUtils.IsGameIl2Cpp() (MelonLoader)", "MelonMod.MelonAssembly (MelonLoader)",
-                "IL2CPPUtils.IsGameIl2Cpp() (BepInEx 6.x)"
+                "ProjectReference / PackageReference - fixed dependencies when runtime loading is unnecessary"
             },
             true
         );

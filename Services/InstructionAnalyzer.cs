@@ -364,13 +364,14 @@ namespace MLVScan.Services
 
                                 var snippet = _snippetBuilder.BuildSnippet(instructions, i, 2);
 
-                                var description = rule.GetFindingDescription(method, calledMethod, instructions, i);
+                                var description = RuleFindingDescription.Resolve(rule, method, calledMethod, instructions, i, out var resolutionDiagnostic);
+                                if (resolutionDiagnostic != null) result.Findings.Add(resolutionDiagnostic);
 
                                 var finding = new ScanFinding(
                                     $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
                                     description,
                                     rule.Severity,
-                                    snippet).WithRuleMetadata(rule);
+                                    snippet) { SourceInstruction = instruction }.WithRuleMetadata(rule);
                                 if (HasEquivalentFinding(result.Findings, finding))
                                 {
                                     continue;

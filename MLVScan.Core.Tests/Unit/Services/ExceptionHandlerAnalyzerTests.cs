@@ -11,6 +11,41 @@ namespace MLVScan.Core.Tests.Unit.Services;
 
 public class ExceptionHandlerAnalyzerTests
 {
+    [Theory]
+    [InlineData("explorer.exe", "\"C:\\Mods\"", Severity.Medium)]
+    [InlineData("powershell.exe", "-EncodedCommand SQBFAFgA", Severity.Critical)]
+    public void AnalyzeExceptionHandlers_ProcessLaunchUsesContextualSeverity(
+        string target, string arguments, Severity expectedSeverity)
+    {
+        var method = CreateMethodWithCatchCalling("System.Diagnostics.Process", "Start");
+        var call = method.Body.Instructions.Single(i => i.OpCode == OpCodes.Call);
+        var start = (MethodReference)call.Operand;
+        start.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.String));
+        start.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        var infoType = method.Module.ImportReference(typeof(System.Diagnostics.ProcessStartInfo));
+        var constructor = new MethodReference(".ctor", method.Module.TypeSystem.Void, infoType) { HasThis = true };
+        var setter = new MethodReference("set_UseShellExecute", method.Module.TypeSystem.Void, infoType) { HasThis = true };
+        setter.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.Boolean));
+        var tryEnd = method.Body.ExceptionHandlers[0].TryEnd;
+        il.InsertBefore(tryEnd, il.Create(OpCodes.Newobj, constructor));
+        il.InsertBefore(tryEnd, il.Create(OpCodes.Ldc_I4_1));
+        il.InsertBefore(tryEnd, il.Create(OpCodes.Callvirt, setter));
+        il.InsertBefore(call, il.Create(OpCodes.Ldstr, target));
+        il.InsertBefore(call, il.Create(OpCodes.Ldstr, arguments));
+        var config = new ScanConfig();
+        var analyzer = new ExceptionHandlerAnalyzer([new ProcessStartRule()], new SignalTracker(config),
+            new CodeSnippetBuilder(), config);
+
+        // A write elsewhere prevents suppression, as in Inkubator's folder-opening fallback.
+        var findings = analyzer.AnalyzeExceptionHandlers(method, method.Body.ExceptionHandlers,
+            new MethodSignals { HasFileWrite = true }, method.DeclaringType.FullName).ToList();
+
+        var finding = findings.Should().ContainSingle().Which;
+        finding.Severity.Should().Be(expectedSeverity);
+        finding.Description.Should().Contain(target).And.Contain("exception catch");
+    }
+
     [Fact]
     public void Constructor_WithNullRules_ThrowsArgumentNullException()
     {

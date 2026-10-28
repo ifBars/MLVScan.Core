@@ -340,7 +340,8 @@ public class DataFlowOperationClassifierTests
         var processStart = operations.Single(operation => operation.Operation == "Process.Start");
 
         processStart.PayloadPathIdentities.Intersect(fileWrite.PayloadPathIdentities).Should().NotBeEmpty();
-        processStart.PayloadPathIdentities.Should().HaveCount(3);
+        processStart.PayloadPathIdentities.Should().HaveCount(2,
+            "both reaching stores remain linked, but neither branch is a definite concrete path");
     }
 
     [Fact]

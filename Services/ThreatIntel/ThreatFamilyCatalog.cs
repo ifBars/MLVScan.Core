@@ -1,5 +1,6 @@
 using MLVScan.Models;
 using MLVScan.Models.ThreatIntel;
+using System.Text.RegularExpressions;
 
 namespace MLVScan.Services.ThreatIntel;
 
@@ -812,12 +813,26 @@ internal static partial class ThreatFamilyCatalog
     private static bool IsHiddenSystemBinaryNameProcessLaunch(ScanFinding finding)
     {
         return string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
-               FindingContainsAny(
+               (FindingContainsAny(
                    finding,
                    "Target: \"svchost.exe\"",
                    "Target: \"rundll32.exe\"",
-                   "Target: \"regsvr32.exe\"") &&
+                   "Target: \"regsvr32.exe\"") || HasPossibleSystemBinaryTarget(finding.Description)) &&
                HasHiddenExecutionIndicators(finding);
+    }
+
+    private static bool HasPossibleSystemBinaryTarget(string description) =>
+        HasPossibleExecutableTarget(description, @"(?:svchost|rundll32|regsvr32)\.exe");
+
+    private static bool HasPossibleExecutableTarget(string description, string executablePattern)
+    {
+        var start = description.IndexOf("Target: <ambiguous", StringComparison.Ordinal);
+        if (start < 0) return false;
+        var end = description.IndexOf(". Arguments:", start, StringComparison.Ordinal);
+        if (end < 0) return false;
+        return Regex.IsMatch(description.Substring(start, end - start),
+            @"(?<![a-z0-9_.-])" + executablePattern + @"(?![a-z0-9_.-])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
     }
 
     private static ThreatFamilyEvidence Evidence(string kind, string value)

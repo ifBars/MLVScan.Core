@@ -195,9 +195,17 @@ namespace MLVScan.Services
                         }
 
                         var snippet = _snippetBuilder.BuildSnippet(allInstructions, instructionIndex, 2);
+                        // Resolve per-call context before reading Severity, just as the normal instruction path does.
+                        // Rules such as ProcessStartRule update their severity from the actual target and arguments.
+                        var description = Helpers.RuleFindingDescription.Resolve(rule, method, calledMethod, allInstructions, instructionIndex,
+                            out var resolutionDiagnostic);
+                        if (resolutionDiagnostic != null)
+                        {
+                            findings.Add(resolutionDiagnostic);
+                        }
                         var finding = new ScanFinding(
                             $"{method.DeclaringType?.FullName}.{method.Name}:{instruction.Offset}",
-                            rule.Description + $" (found in exception {handlerTypeDesc})",
+                            description + $" (found in exception {handlerTypeDesc})",
                             rule.Severity,
                             snippet)
                         {

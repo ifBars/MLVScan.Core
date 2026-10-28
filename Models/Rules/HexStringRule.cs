@@ -38,7 +38,9 @@ namespace MLVScan.Models.Rules
         /// Gets developer guidance for storing legitimate binary assets without hex encoding them in code.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "If storing assets, consider embedding them as an embedded resource file.",
+            "Hex encoding is normal for identifiers, protocol fields, and binary data. Review decoded content and its destination. " +
+            "Do not change a required format just to avoid a finding. For packaged assets, an embedded resource file may simplify storage; " +
+            "report a false positive if the encoding has no execution or other harmful use.",
             null,
             new[] { "Assembly.GetManifestResourceStream", "File.ReadAllBytes" },
             true

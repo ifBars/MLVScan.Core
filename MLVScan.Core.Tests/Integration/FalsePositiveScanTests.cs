@@ -171,6 +171,18 @@ public class FalsePositiveScanTests
 
     #region False Positive Sample Tests
 
+    [SkippableFact]
+    public void Scan_Inkubator_FolderOpeningFallback_ShouldRemainClean()
+    {
+        var path = GetSamplePath("Inkubator.dll");
+        var findings = new AssemblyScanner(RuleFactory.CreateDefaultRules()).Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
+        findings.Should().NotContain(f => f.RuleId == "ProcessStartRule" && f.Severity >= Severity.High);
+    }
+
     public static IEnumerable<object[]> BacklogSamples =>
         FalsePositiveBacklog.Entries.Keys.Select(path => new object[] { path });
 

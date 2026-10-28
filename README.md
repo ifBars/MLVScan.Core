@@ -65,6 +65,16 @@ foreach (var finding in result.Findings)
 
 The scanner emits rule findings as the foundational evidence, but the primary verdict comes from the threat-intel layer: matched `threatFamilies` and the final `disposition` built on top of those findings.
 
+A `Suspicious` disposition can carry `blockingRecommended: false`. Currently this is limited to a verified local restart script: a bounded IL analysis binds the written script to its encoded, detached PowerShell launcher. The accepted script waits for the current process and launches a literal `steam://run/<app-id>` URI, with optional logging, bounded delays/retry, and non-recursive `*.delete` cleanup. The original execution findings remain visible. This is advisory review, not a clean verdict or a guarantee about other code in the assembly.
+
+Unknown script operations, unresolved launch bindings, additional high-risk findings, suspicious data flows, incomplete analysis, or known threat-family matches prevent this advisory classification. The recognizer does not use file hashes, mod names, method names, or game-specific IDs. Unsupported restart implementations retain the existing classification.
+
+Process argument resolution follows bounded `Encoding.GetBytes`/`Convert.ToBase64String`, `Convert.FromBase64String`/`Encoding.GetString`, and string replacement chains. Recovered PowerShell encoded commands participate in detection and appear in finding descriptions, including CLI output. Runtime-dependent values remain explicitly partial; competing local assignments retain their possible values instead of selecting the nearest store. Recovery has size, work, and depth limits and never executes sample code. This improves evidence coverage; it is not a guarantee that every runtime command can be reconstructed.
+
+For the supported detached PowerShell launcher, a proven binding to a local `WriteAllText` also exposes the written script body to detection and reporting. Script binding and restart approval are separate: a bound script containing additional operations stays visible and must still pass the closed restart grammar before it can receive an advisory disposition.
+
+Conflicting helper returns and observed mutable-field writes retain bounded alternatives, including unresolved values. Supported encoding transforms preserve those alternatives separately. Field observations do not establish receiver identity or runtime write order; search limits are reported explicitly. Possible dangerous process targets remain detection evidence even when another alternative names a legitimate tool.
+
 ### Deep analysis modes
 
 `ScanConfig.DeepScanMode` controls when larger, still finite analysis budgets are used:
@@ -78,7 +88,11 @@ var findings = scanner.Scan(assemblyPath).ToList();
 var modeUsed = scanner.LastScanUsedDeepAnalysis ? "deep" : "standard";
 ```
 
-`Disabled` is the default single pass. `RetryOnIncomplete` runs a second pass only when data-flow analysis reaches a work limit. `Always` uses deep budgets from the start. Deep analysis increases call depth and data-flow budgets; it can take longer and can still report incomplete analysis if a higher limit is reached. Hosts should report `deep` as the result scan mode when `LastScanUsedDeepAnalysis` is true.
+`Disabled` is the default single pass. `RetryOnIncomplete` runs a second pass when data-flow analysis or process value recovery reaches a configured limit. `Always` uses deep budgets from the start. Deep analysis increases call depth, data-flow budgets, and process value recovery budgets; it can take longer and can still report incomplete analysis if a higher limit is reached. Hosts should report `deep` as the result scan mode when `LastScanUsedDeepAnalysis` is true.
+
+Process recovery defaults to 4,096 work units, depth 32, and 32 alternatives. Deep mode raises these to at least 65,536, 64, and 128 respectively. `MaxValueResolutionWork`, `MaxValueResolutionDepth`, and `MaxValueResolutionAlternatives` configure these finite budgets. Conflicting returns and mutable field writes remain uncertain in every mode; increasing a budget never makes an ambiguous value concrete.
+
+`ValueResolutionBudget` is an advanced diagnostic for partial process-value recovery. It triggers retry mode and retains the candidates recovered so far. It does not, by itself, establish malicious behavior or mean that assembly instructions were skipped. Deep analysis can still reach a limit or encounter values that depend on runtime input.
 
 ## Documentation
 

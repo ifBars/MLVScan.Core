@@ -13,7 +13,9 @@ internal static partial class ThreatFamilyCatalog
         var dataFlow = context.FindDataFlow(DataFlowPattern.DownloadAndExecute);
         var downloadFinding = FindDownloadFinding(context, ".ps1");
         var executionFinding = FindProcessStartFinding(context, finding =>
-            FindingContainsAll(finding, "Target: \"powershell.exe\"", ".ps1"));
+            FindingContainsAll(finding, ".ps1") &&
+            (FindingContainsAll(finding, "Target: \"powershell.exe\"") ||
+             HasPossibleExecutableTarget(finding.Description, @"powershell\.exe")));
 
         if (dataFlow == null || downloadFinding == null || executionFinding == null ||
             !HasTempScriptStaging(context, ".ps1") || !HasHiddenExecutionContext(context))

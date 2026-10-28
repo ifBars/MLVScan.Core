@@ -56,14 +56,13 @@ namespace MLVScan.Models.Rules
         /// Gets developer guidance for replacing Base64-encoded configuration or payload handling.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "If decoding configuration data, store it in plain text or use your mod framework's configuration system. " +
-            "For MelonLoader: use MelonPreferences. For BepInEx: use Config.Bind<T>(). " +
-            "If decoding assets, embed them directly in your mod or load from standard resources.",
+            "Base64 decoding is normal for data and assets. Review where the decoded bytes go, especially file staging or execution. " +
+            "Keep a required encoding; changing APIs solely to avoid a finding is not necessary. For packaged assets, " +
+            "an embedded resource can simplify storage. Report a false positive when the decoded content stays in a data-only flow.",
             null,
             new[]
             {
-                "MelonPreferences.CreateEntry<T> (MelonLoader)", "MelonPreferences.GetEntry<T> (MelonLoader)",
-                "Config.Bind<T> (BepInEx)"
+                "Assembly.GetManifestResourceStream - read packaged data when an embedded resource fits the format"
             },
             true
         );

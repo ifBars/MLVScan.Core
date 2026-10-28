@@ -7,7 +7,7 @@ namespace MLVScan.Models
     public class ScanConfig
     {
         /// <summary>
-        /// Creates an opt-in scan configuration with larger, still finite data-flow budgets.
+        /// Creates an opt-in scan configuration with larger, still finite data-flow and process-value budgets.
         /// A scan that exhausts these budgets must continue to report incomplete analysis.
         /// </summary>
         public static ScanConfig CreateDeepAnalysis(ScanConfig? baseline = null)
@@ -20,11 +20,23 @@ namespace MLVScan.Models
             deep.MaxCrossMethodCallEdges = Math.Max(deep.MaxCrossMethodCallEdges, 1000000);
             deep.MaxDeepCallChainEdges = Math.Max(deep.MaxDeepCallChainEdges, 100000);
             deep.MaxCrossMethodChains = Math.Max(deep.MaxCrossMethodChains, 4096);
+            deep.MaxValueResolutionWork = Math.Max(deep.MaxValueResolutionWork, 65536);
+            deep.MaxValueResolutionDepth = Math.Max(deep.MaxValueResolutionDepth, 64);
+            deep.MaxValueResolutionAlternatives = Math.Max(deep.MaxValueResolutionAlternatives, 128);
             return deep;
         }
 
         /// <summary>Controls whether deep analysis is disabled, retried on bounded work, or always used.</summary>
         public DeepScanMode DeepScanMode { get; set; } = DeepScanMode.Disabled;
+
+        /// <summary>Maximum work units per process target or argument resolution.</summary>
+        public int MaxValueResolutionWork { get; set; } = 4096;
+
+        /// <summary>Maximum recursion depth for process value reconstruction.</summary>
+        public int MaxValueResolutionDepth { get; set; } = 32;
+
+        /// <summary>Maximum alternatives retained by each process value merge.</summary>
+        public int MaxValueResolutionAlternatives { get; set; } = 32;
 
         /// <summary>
         /// Enables multi-signal correlation so the scanner can combine related primitive findings.

@@ -38,15 +38,16 @@ namespace MLVScan.Models.Rules
         /// Gets guidance for legitimate configuration storage alternatives.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Game mods should not modify the Windows Registry. For persistent settings, use your mod framework's configuration system: " +
-            "MelonPreferences for MelonLoader, Config.Bind<T>() for BepInEx, or Unity's PlayerPrefs for simple settings.",
+            "Registry access can legitimately discover installations or store settings. Distinguish reads from writes, and review " +
+            "the exact key, value, and any autostart behavior. File-based settings are an option for application-owned data; they do not " +
+            "replace reading an existing installation key. Keep necessary access and report incorrect classification with the relevant context.",
             null,
             new[]
             {
-                "MelonPreferences.CreateEntry<T> (MelonLoader)", "Config.Bind<T> (BepInEx)",
-                "UnityEngine.PlayerPrefs (Unity)"
+                "RegistryKey.OpenSubKey(path, writable: false) - when only reading an existing key",
+                "File.ReadAllText / File.WriteAllText - application-owned settings when file storage fits"
             },
-            false // Registry access is inherently suspicious
+            true
         );
 
         private static readonly string[] RegistryFunctions =

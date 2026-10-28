@@ -57,7 +57,9 @@ namespace MLVScan.Services
                 : requestedConfig;
             _resolverProvider = resolverProvider ?? DefaultAssemblyResolverProvider.Instance;
             _entryPointProvider = entryPointProvider;
-            _rules = rules as IReadOnlyCollection<IScanRule> ?? rules.ToList();
+            _rules = rules.Select(rule => rule.GetType() == typeof(ProcessStartRule)
+                ? (IScanRule)new ProcessStartRule(_config)
+                : rule).ToArray();
             foreach (var rule in _rules)
             {
                 if (rule is AssemblyDynamicLoadRule dynamicLoadRule)
@@ -74,25 +76,25 @@ namespace MLVScan.Services
             var stringPatternDetector = new StringPatternDetector();
 
             // Create call graph builder for finding consolidation
-            _callGraphBuilder = new CallGraphBuilder(rules, snippetBuilder, entryPointProvider);
+            _callGraphBuilder = new CallGraphBuilder(_rules, snippetBuilder, entryPointProvider);
 
             // Create data flow analyzer for tracking data movement through operations
-            _dataFlowAnalyzer = new DataFlowAnalyzer(rules, snippetBuilder, _config, _telemetry);
+            _dataFlowAnalyzer = new DataFlowAnalyzer(_rules, snippetBuilder, _config, _telemetry);
 
             var reflectionDetector =
-                new ReflectionDetector(rules, signalTracker, stringPatternDetector, snippetBuilder);
-            var instructionAnalyzer = new InstructionAnalyzer(rules, signalTracker, reflectionDetector,
+                new ReflectionDetector(_rules, signalTracker, stringPatternDetector, snippetBuilder);
+            var instructionAnalyzer = new InstructionAnalyzer(_rules, signalTracker, reflectionDetector,
                 stringPatternDetector, snippetBuilder, _config, _telemetry, _callGraphBuilder);
-            var localVariableAnalyzer = new LocalVariableAnalyzer(rules, signalTracker, _config);
-            var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(rules, signalTracker, snippetBuilder, _config);
-            var methodScanner = new MethodScanner(rules, signalTracker, instructionAnalyzer, snippetBuilder,
+            var localVariableAnalyzer = new LocalVariableAnalyzer(_rules, signalTracker, _config);
+            var exceptionHandlerAnalyzer = new ExceptionHandlerAnalyzer(_rules, signalTracker, snippetBuilder, _config);
+            var methodScanner = new MethodScanner(_rules, signalTracker, instructionAnalyzer, snippetBuilder,
                 localVariableAnalyzer, exceptionHandlerAnalyzer, _config, _telemetry);
             var propertyEventScanner = new PropertyEventScanner(methodScanner, _config);
 
             _typeScanner = new TypeScanner(methodScanner, signalTracker, reflectionDetector, snippetBuilder,
-                propertyEventScanner, rules, _config, _telemetry);
-            _metadataScanner = new MetadataScanner(rules);
-            _dllImportScanner = new DllImportScanner(rules, _callGraphBuilder);
+                propertyEventScanner, _rules, _config, _telemetry);
+            _metadataScanner = new MetadataScanner(_rules);
+            _dllImportScanner = new DllImportScanner(_rules, _callGraphBuilder);
         }
 
         /// <summary>
@@ -288,7 +290,7 @@ namespace MLVScan.Services
             Func<AssemblyScanner, IEnumerable<ScanFinding>> scanDeep)
         {
             if (_deepScanMode != DeepScanMode.RetryOnIncomplete ||
-                !standardFindings.Any(static finding => finding.RuleId == "DataFlowScanWarning"))
+                !standardFindings.Any(static finding => finding.RuleId is "DataFlowScanWarning" or ProcessStartRule.ResolutionBudgetRuleId))
             {
                 return standardFindings;
             }

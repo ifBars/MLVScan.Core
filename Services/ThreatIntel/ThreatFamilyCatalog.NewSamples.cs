@@ -130,6 +130,19 @@ internal static partial class ThreatFamilyCatalog
         };
     }
 
+    private static bool HasDynamicProcessTarget(ScanFinding finding)
+    {
+        const string prefix = "Target: ";
+        var start = finding.Description.IndexOf(prefix, StringComparison.Ordinal);
+        if (start < 0) return false;
+        start += prefix.Length;
+        var end = finding.Description.IndexOf(". Arguments:", start, StringComparison.Ordinal);
+        var target = end < 0 ? finding.Description.Substring(start) : finding.Description.Substring(start, end - start);
+        return target.StartsWith("<dynamic", StringComparison.Ordinal) ||
+               (target.StartsWith("<ambiguous", StringComparison.Ordinal) &&
+                target.Contains("<dynamic", StringComparison.Ordinal));
+    }
+
     private static ThreatFamilyVariantMatch? MatchRemoteTextHiddenShellCommand(
         ThreatFamilyAnalysisContext context)
     {
@@ -140,7 +153,7 @@ internal static partial class ThreatFamilyCatalog
         var process = context.Findings.FirstOrDefault(finding =>
             string.Equals(finding.RuleId, "ProcessStartRule", StringComparison.Ordinal) &&
             FindingContainsAny(finding, "CreateNoWindow=true", "WindowStyle=Hidden", "UseShellExecute=true") &&
-            (FindingContainsAll(finding, "Target: <dynamic") ||
+            (HasDynamicProcessTarget(finding) ||
              (FindingContainsAny(finding, "powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe") &&
               FindingContainsAny(finding, "<dynamic", "<arg"))));
         if (coordinator == null || process == null)

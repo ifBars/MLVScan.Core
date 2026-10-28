@@ -10,9 +10,9 @@ namespace MLVScan.Models.Rules.Helpers
     /// Resolves literal and simple computed values from IL so rules can report concrete process targets,
     /// arguments, and related metadata instead of placeholder stack values.
     /// </summary>
-    internal static class InstructionValueResolver
+    internal static partial class InstructionValueResolver
     {
-        private const int MaxDepth = 16;
+        private const int MaxDepth = 32;
         private const int MaxTrackedCallArguments = 32;
 
         private static readonly ConditionalWeakTable<
@@ -75,13 +75,18 @@ namespace MLVScan.Models.Rules.Helpers
         /// <param name="target">Receives a display string for the resolved target.</param>
         /// <returns><see langword="true"/> when a concrete target could be reconstructed.</returns>
         public static bool TryResolveProcessTarget(
+            MethodDefinition? containingMethod, MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int processStartIndex, out string target)
+            => TryResolveProcessTargetWithLimits(containingMethod, calledMethod, instructions, processStartIndex, out target);
+
+        internal static bool TryResolveProcessTargetWithLimits(
             MethodDefinition? containingMethod,
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
-            out string target)
+            out string target, ValueResolutionLimits? limits = null, Action? reportLimit = null)
         {
-            var context = new ResolverContext(containingMethod?.Module);
+            var context = new ResolverContext(containingMethod?.Module, limits, reportLimit);
 
             if ((calledMethod.Parameters.Count > 0 &&
                  calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
@@ -110,13 +115,18 @@ namespace MLVScan.Models.Rules.Helpers
         /// <param name="arguments">Receives the resolved argument display string.</param>
         /// <returns><see langword="true"/> when the arguments could be reconstructed.</returns>
         public static bool TryResolveProcessArguments(
+            MethodDefinition? containingMethod, MethodReference calledMethod,
+            Mono.Collections.Generic.Collection<Instruction> instructions, int processStartIndex, out string arguments)
+            => TryResolveProcessArgumentsWithLimits(containingMethod, calledMethod, instructions, processStartIndex, out arguments);
+
+        internal static bool TryResolveProcessArgumentsWithLimits(
             MethodDefinition? containingMethod,
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int processStartIndex,
-            out string arguments)
+            out string arguments, ValueResolutionLimits? limits = null, Action? reportLimit = null)
         {
-            var context = new ResolverContext(containingMethod?.Module);
+            var context = new ResolverContext(containingMethod?.Module, limits, reportLimit);
 
             if (TryResolveFromProcessArgumentOverload(context, containingMethod, calledMethod, instructions,
                     processStartIndex, out var resolved) ||
@@ -126,6 +136,10 @@ namespace MLVScan.Models.Rules.Helpers
                     processStartIndex, out resolved))
             {
                 arguments = resolved.Display;
+                if (TryResolveProcessTargetWithLimits(containingMethod, calledMethod, instructions, processStartIndex, out var target, limits, reportLimit))
+                    arguments = EncodedCommandEvidence.Expand(target, arguments);
+                if (containingMethod != null && RestartScriptAnalyzer.TryGetBoundScript(containingMethod, processStartIndex, out var script))
+                    arguments += " [Bound written PowerShell script: " + RestartScriptPattern.FormatEvidence(script) + "]";
                 return true;
             }
 
@@ -259,10 +273,10 @@ namespace MLVScan.Models.Rules.Helpers
             Mono.Collections.Generic.Collection<Instruction> instructions,
             int callIndex,
             int argumentIndex,
-            out string valueDisplay)
+            out string valueDisplay, ValueResolutionLimits? limits = null, Action? reportLimit = null)
         {
             return TryResolveCallArgumentDisplay(containingMethod, calledMethod, instructions, callIndex,
-                argumentIndex, Array.Empty<ExceptionHandler>(), out valueDisplay);
+                argumentIndex, Array.Empty<ExceptionHandler>(), out valueDisplay, limits, reportLimit);
         }
 
         public static bool TryResolveCallArgumentDisplay(
@@ -272,7 +286,7 @@ namespace MLVScan.Models.Rules.Helpers
             int callIndex,
             int argumentIndex,
             IReadOnlyList<ExceptionHandler> exceptionHandlers,
-            out string valueDisplay)
+            out string valueDisplay, ValueResolutionLimits? limits = null, Action? reportLimit = null)
         {
             valueDisplay = "<unknown/non-literal>";
             if (argumentIndex < 0 || argumentIndex >= calledMethod.Parameters.Count)
@@ -280,7 +294,7 @@ namespace MLVScan.Models.Rules.Helpers
                 return false;
             }
 
-            var context = new ResolverContext(containingMethod?.Module);
+            var context = new ResolverContext(containingMethod?.Module, limits, reportLimit);
             if (TryResolveCallArgumentFromBasicBlock(context, containingMethod, instructions, callIndex,
                     calledMethod.Parameters.Count, argumentIndex, exceptionHandlers, out valueDisplay))
             {
@@ -1019,7 +1033,7 @@ namespace MLVScan.Models.Rules.Helpers
             int useIndex,
             Func<Instruction, bool> isDefinition,
             int argumentIndex,
-            out IReadOnlyList<string> displays)
+            out IReadOnlyList<string> displays, ValueResolutionLimits? limits = null, Action? reportLimit = null)
         {
             displays = Array.Empty<string>();
             if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
@@ -1112,7 +1126,7 @@ namespace MLVScan.Models.Rules.Helpers
                     instructions[definitionIndex].Operand is not MethodReference method ||
                     argumentIndex < 0 || argumentIndex >= method.Parameters.Count ||
                     !TryResolveCallArgumentDisplay(containingMethod, method, instructions, definitionIndex,
-                        argumentIndex, exceptionHandlers, out var display))
+                        argumentIndex, exceptionHandlers, out var display, limits, reportLimit))
                 {
                     return false;
                 }
@@ -1134,7 +1148,8 @@ namespace MLVScan.Models.Rules.Helpers
             out string identity,
             string requiredReceiverIdentity = "",
             Func<Instruction, bool>? invalidatesDefinition = null,
-            TryResolveDefinitionIdentity? definitionIdentityResolver = null)
+            TryResolveDefinitionIdentity? definitionIdentityResolver = null,
+            Func<bool>? trySpendWork = null)
         {
             identity = string.Empty;
             if (!TryBuildExceptionalTargets(instructions, exceptionHandlers, out var exceptionTargets))
@@ -1165,7 +1180,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             while (pending.Count > 0)
             {
-                if (++workUnits > maxWorkUnits)
+                if (++workUnits > maxWorkUnits || trySpendWork != null && !trySpendWork())
                     return false;
 
                 var current = pending.Dequeue();
@@ -2018,6 +2033,12 @@ namespace MLVScan.Models.Rules.Helpers
                     if (TryResolveTopStackValue(context, containingMethod, instructions, i, null, 0, out var resolved,
                             out _))
                     {
+                        if (resolved.Alternatives?.Any(candidate => candidate.Display == "1") == true)
+                        {
+                            // A possible hidden-window assignment must remain visible to detection.
+                            windowStyle = 1;
+                            return true;
+                        }
                         if (int.TryParse(resolved.Display, out int parsedVal))
                         {
                             windowStyle = parsedVal;
@@ -2133,7 +2154,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (matchingSetters.Count > 0 &&
                 TryResolveCallArgumentReachingDefinitionDisplays(containingMethod, instructions,
-                    exceptionHandlers, processStartIndex, matchingSetters.Contains, 0, out var displays))
+                    exceptionHandlers, processStartIndex, matchingSetters.Contains, 0, out var displays, context.Limits, context.ReportLimit))
             {
                 string combinedDisplay = string.Join(" | ", displays);
                 value = new ResolvedValue(combinedDisplay, ExtractExecutableName(combinedDisplay),
@@ -2256,12 +2277,13 @@ namespace MLVScan.Models.Rules.Helpers
                 containingMethod?.Body?.ExceptionHandlers.ToArray() ?? Array.Empty<ExceptionHandler>());
             for (int argument = 0; argument < parameterCount; argument++)
             {
-                if (!producers.TryGetProducer(callIndex, parameterCount, argument, out int producer) ||
-                    !TryResolveValueFromProducer(context, containingMethod, instructions, producer, argumentMap,
-                        depth + 1, out var resolved))
+                if (!producers.TryGetProducer(callIndex, parameterCount, argument, out int producer))
                 {
                     break;
                 }
+                if (!TryResolveValueFromProducer(context, containingMethod, instructions, producer, argumentMap,
+                        depth + 1, out var resolved))
+                    resolved = new ResolvedValue("<unknown: argument resolution limit>", null, false);
                 arguments.Add(resolved);
             }
             if (arguments.Count == parameterCount)
@@ -2297,7 +2319,7 @@ namespace MLVScan.Models.Rules.Helpers
             value = default;
             producerIndex = -1;
 
-            if (depth > MaxDepth || beforeIndex < 0)
+            if (!context.CheckDepth(depth) || beforeIndex < 0)
                 return false;
 
             producerIndex = FindTopValueProducerIndex(instructions, beforeIndex);
@@ -2338,7 +2360,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (depth > MaxDepth || producerIndex < 0 || producerIndex >= instructions.Count)
+            if (producerIndex < 0 || producerIndex >= instructions.Count)
                 return false;
 
             var instruction = instructions[producerIndex];
@@ -2360,6 +2382,8 @@ namespace MLVScan.Models.Rules.Helpers
                 value = new ResolvedValue(intValue.ToString(), null, true);
                 return true;
             }
+
+            if (!context.CheckDepth(depth) || !context.TrySpendWork()) return false;
 
             if (instruction.OpCode == OpCodes.Box)
             {
@@ -2400,9 +2424,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.OpCode == OpCodes.Ldfld && instruction.Operand is FieldReference fieldRef)
             {
-                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1, fieldRef,
-                        false, depth + 1, out value) ||
-                    TryResolveFieldValueAcrossModule(context, fieldRef, false, depth + 1, out value))
+                if (TryResolveFieldValueAcrossModule(context, containingMethod, instructions, fieldRef, false, depth + 1, out value))
                 {
                     return true;
                 }
@@ -2413,9 +2435,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (instruction.OpCode == OpCodes.Ldsfld && instruction.Operand is FieldReference staticFieldRef)
             {
-                if (TryResolveFieldValueInMethod(context, containingMethod, instructions, producerIndex - 1,
-                        staticFieldRef, true, depth + 1, out value) ||
-                    TryResolveFieldValueAcrossModule(context, staticFieldRef, true, depth + 1, out value))
+                if (TryResolveFieldValueAcrossModule(context, containingMethod, instructions, staticFieldRef, true, depth + 1, out value))
                 {
                     return true;
                 }
@@ -2452,6 +2472,10 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
+            if (instructions.Any(i => i.OpCode.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch))
+                return TryResolveBranchedLocal(context, containingMethod, instructions, beforeIndex + 1,
+                    localIndex, argumentMap, depth, out value);
+
             for (int i = beforeIndex; i >= 0; i--)
             {
                 var instruction = instructions[i];
@@ -2465,37 +2489,10 @@ namespace MLVScan.Models.Rules.Helpers
             return false;
         }
 
-        private static bool TryResolveFieldValueInMethod(
-            ResolverContext context,
-            MethodDefinition? containingMethod,
-            Mono.Collections.Generic.Collection<Instruction> instructions,
-            int beforeIndex,
-            FieldReference field,
-            bool isStatic,
-            int depth,
-            out ResolvedValue value)
-        {
-            value = default;
-
-            for (int i = beforeIndex; i >= 0; i--)
-            {
-                var instruction = instructions[i];
-                bool isStore = isStatic ? instruction.OpCode == OpCodes.Stsfld : instruction.OpCode == OpCodes.Stfld;
-                if (!isStore || instruction.Operand is not FieldReference candidate)
-                    continue;
-
-                if (!string.Equals(candidate.FullName, field.FullName, StringComparison.Ordinal))
-                    continue;
-
-                return TryResolveTopStackValue(context, containingMethod, instructions, i - 1, null, depth + 1,
-                    out value, out _);
-            }
-
-            return false;
-        }
-
         private static bool TryResolveFieldValueAcrossModule(
             ResolverContext context,
+            MethodDefinition? owner,
+            Mono.Collections.Generic.Collection<Instruction> fallbackInstructions,
             FieldReference field,
             bool isStatic,
             int depth,
@@ -2503,7 +2500,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (context.Module == null || depth > MaxDepth)
+            if (!context.CheckDepth(depth))
                 return false;
 
             string key = field.FullName + (isStatic ? "|S" : "|I");
@@ -2512,55 +2509,35 @@ namespace MLVScan.Models.Rules.Helpers
 
             try
             {
-                bool found = false;
-                ResolvedValue best = default;
-
-                foreach (var type in context.Module.GetTypes())
+                var candidates = new ValueAlternatives("field", context);
+                var moduleMethods = context.Module?.GetTypes().SelectMany(type => type.Methods)
+                    .Where(method => method.HasBody) ?? Enumerable.Empty<MethodDefinition>();
+                var methods = new[] { owner }
+                    .Concat(moduleMethods.Where(method => method.DeclaringType.FullName == field.DeclaringType.FullName))
+                    .Concat(moduleMethods).Distinct();
+                foreach (var method in methods)
                 {
-                    foreach (var method in type.Methods)
+                    var instructions = method?.Body.Instructions ?? fallbackInstructions;
+                    for (var index = 0; index < instructions.Count; index++)
                     {
-                        if (!method.HasBody)
-                            continue;
-
-                        var methodInstructions = method.Body.Instructions;
-                        for (int i = methodInstructions.Count - 1; i >= 0; i--)
+                        if (!context.TrySpendWork())
                         {
-                            var instruction = methodInstructions[i];
-                            bool isStore = isStatic
-                                ? instruction.OpCode == OpCodes.Stsfld
-                                : instruction.OpCode == OpCodes.Stfld;
-                            if (!isStore || instruction.Operand is not FieldReference candidate)
-                                continue;
-
-                            if (!string.Equals(candidate.FullName, field.FullName, StringComparison.Ordinal))
-                                continue;
-
-                            if (!TryResolveTopStackValue(context, method, methodInstructions, i - 1, null, depth + 1,
-                                    out var resolved, out _))
-                                continue;
-
-                            if (!found || IsBetterCandidate(resolved, best))
-                            {
-                                best = resolved;
-                                found = true;
-                            }
-
-                            if (HasHighConfidence(best))
-                            {
-                                value = best;
-                                return true;
-                            }
+                            candidates.AddUnknown("field search budget exhausted");
+                            return candidates.TryBuild(out value, forceAmbiguous: true);
                         }
+                        var instruction = instructions[index];
+                        var isStore = instruction.OpCode == (isStatic ? OpCodes.Stsfld : OpCodes.Stfld);
+                        if (!isStore || instruction.Operand is not FieldReference candidate ||
+                            !string.Equals(candidate.FullName, field.FullName, StringComparison.Ordinal)) continue;
+
+                        if (TryResolveTopStackValue(context, method, instructions, index - 1, null, depth + 1,
+                                out var resolved, out _)) candidates.Add(resolved);
+                        else candidates.AddUnknown("unresolved field write");
                     }
                 }
-
-                if (found)
-                {
-                    value = best;
-                    return true;
-                }
-
-                return false;
+                // Stores from different instances and invocation orders are observations, not a proven value.
+                candidates.AddUnknown("runtime field value and receiver identity");
+                return candidates.TryBuild(out value, forceAmbiguous: true);
             }
             finally
             {
@@ -2579,7 +2556,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (depth > MaxDepth)
+            if (!context.CheckDepth(depth))
                 return false;
 
             int parameterCount = method.Parameters.Count;
@@ -2588,6 +2565,9 @@ namespace MLVScan.Models.Rules.Helpers
                 callArgs = new List<ResolvedValue>();
 
             string declaringType = method.DeclaringType?.FullName ?? string.Empty;
+
+            if (TryResolveTextTransform(context, containingMethod, instructions, producerIndex, method, depth, callArgs, out value))
+                return true;
 
             if (method.Parameters.Count == 1 && method.Parameters[0].ParameterType.FullName == "System.String[]" &&
                 ((declaringType == "System.IO.Path" && method.Name is "Combine" or "Join") ||
@@ -2650,7 +2630,7 @@ namespace MLVScan.Models.Rules.Helpers
 
             if (declaringType == "System.String")
             {
-                if (method.Name == "Concat")
+                if (method.Name == "Concat" && callArgs.Count > 0 && callArgs.Count == method.Parameters.Count)
                 {
                     string composed = string.Concat(callArgs.Select(a => a.Display));
                     value = new ResolvedValue(composed, ExtractExecutableName(composed),
@@ -2708,7 +2688,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             elements = [];
             var handlers = containingMethod?.Body?.ExceptionHandlers.ToArray() ?? Array.Empty<ExceptionHandler>();
-            if (depth > MaxDepth ||
+            if (!context.CheckDepth(depth) ||
                 !TryResolveCallArgumentIdentity(method, instructions, callIndex, 0, handlers, out string arrayIdentity) ||
                 !arrayIdentity.StartsWith("array:", StringComparison.Ordinal) ||
                 !int.TryParse(arrayIdentity[6..], out int allocation) || allocation <= 0 ||
@@ -2757,7 +2737,7 @@ namespace MLVScan.Models.Rules.Helpers
         {
             value = default;
 
-            if (depth > MaxDepth)
+            if (!context.CheckDepth(depth))
                 return false;
 
             if (!context.VisitedMethods.Add(method.FullName))
@@ -2776,45 +2756,25 @@ namespace MLVScan.Models.Rules.Helpers
                 }
 
                 var instructions = method.Body.Instructions;
-                bool found = false;
-                ResolvedValue best = default;
-
-                for (int i = 0; i < instructions.Count; i++)
+                var candidates = new ValueAlternatives("return", context);
+                for (var index = 0; index < instructions.Count; index++)
                 {
-                    if (instructions[i].OpCode != OpCodes.Ret || i == 0)
-                        continue;
-
-                    if (!TryResolveTopStackValue(context, method, instructions, i - 1, argMap, depth + 1,
-                            out var resolved, out _))
-                        continue;
-
-                    if (!found || IsBetterCandidate(resolved, best))
+                    if (!context.TrySpendWork())
                     {
-                        best = resolved;
-                        found = true;
-                    }
-
-                    if (HasHighConfidence(best))
+                        candidates.AddUnknown("return search budget exhausted");
                         break;
+                    }
+                    if (instructions[index].OpCode != OpCodes.Ret) continue;
+                    if (TryResolveTopStackValue(context, method, instructions, index - 1, argMap, depth + 1,
+                            out var resolved, out _)) candidates.Add(resolved);
+                    else candidates.AddUnknown("unresolved return");
                 }
-
-                if (found)
-                {
-                    value = best;
-                    return true;
-                }
-
-                return false;
+                return candidates.TryBuild(out value);
             }
             finally
             {
                 context.VisitedMethods.Remove(method.FullName);
             }
-        }
-
-        private static bool IsBetterCandidate(ResolvedValue candidate, ResolvedValue currentBest)
-        {
-            return ScoreCandidate(candidate) > ScoreCandidate(currentBest);
         }
 
         private static bool TryApplySimpleStringFormat(
@@ -2875,24 +2835,6 @@ namespace MLVScan.Models.Rules.Helpers
             return combined;
         }
 
-        private static int ScoreCandidate(ResolvedValue value)
-        {
-            int score = 0;
-            if (!string.IsNullOrEmpty(value.ExecutableName))
-                score += 6;
-            if (value.IsConcrete)
-                score += 2;
-            if (!value.Display.StartsWith("<", StringComparison.Ordinal))
-                score += 1;
-
-            return score;
-        }
-
-        private static bool HasHighConfidence(ResolvedValue value)
-        {
-            return !string.IsNullOrEmpty(value.ExecutableName) && value.IsConcrete;
-        }
-
         private static string BuildTargetDisplay(ResolvedValue value)
         {
             if (!string.IsNullOrEmpty(value.ExecutableName))
@@ -2918,7 +2860,7 @@ namespace MLVScan.Models.Rules.Helpers
 
         private static string? ExtractExecutableName(string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
+            if (string.IsNullOrWhiteSpace(value) || value.Contains("<ambiguous", StringComparison.Ordinal))
                 return null;
 
             var match = ExecutableNameRegex.Match(value);
@@ -2948,14 +2890,34 @@ namespace MLVScan.Models.Rules.Helpers
 
         private sealed class ResolverContext
         {
-            public ResolverContext(ModuleDefinition? module)
+            public ResolverContext(ModuleDefinition? module, ValueResolutionLimits? limits = null, Action? reportLimit = null)
             {
                 Module = module;
+                Limits = limits ?? ValueResolutionLimits.Standard;
+                _remainingWork = Limits.Work;
+                _reportLimit = reportLimit;
+            }
+
+            public ValueResolutionLimits Limits { get; }
+            private readonly Action? _reportLimit;
+            public void ReportLimit() => _reportLimit?.Invoke();
+            public bool CheckDepth(int depth)
+            {
+                if (depth <= Limits.Depth) return true;
+                ReportLimit();
+                return false;
             }
 
             public ModuleDefinition? Module { get; }
             public HashSet<string> VisitedFields { get; } = new HashSet<string>(StringComparer.Ordinal);
             public HashSet<string> VisitedMethods { get; } = new HashSet<string>(StringComparer.Ordinal);
+            private int _remainingWork;
+            public bool TrySpendWork()
+            {
+                if (_remainingWork-- > 0) return true;
+                ReportLimit();
+                return false;
+            }
         }
 
         private struct ResolvedValue
@@ -2970,6 +2932,10 @@ namespace MLVScan.Models.Rules.Helpers
             public string Display { get; }
             public string? ExecutableName { get; }
             public bool IsConcrete { get; }
+            public string? EncodingName { get; set; }
+            public string? ByteSourceText { get; set; }
+            public byte[]? ByteContent { get; set; }
+            public IReadOnlyList<ResolvedValue>? Alternatives { get; set; }
 
             public static ResolvedValue FromLiteral(string literal)
             {

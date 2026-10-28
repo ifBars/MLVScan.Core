@@ -338,7 +338,7 @@ public class ProcessStartRuleTests
     }
 
     [Fact]
-    public void GetFindingDescription_WithFieldBackedFileName_ExtractsExecutableName()
+    public void GetFindingDescription_WithFieldBackedFileName_PreservesObservedExecutable()
     {
         var type = new TypeDefinition("Tests", "Holder", TypeAttributes.Public | TypeAttributes.Class, new TypeReference("", "Object", null, null));
         var field = new FieldDefinition("ytDlpExePath", FieldAttributes.Public | FieldAttributes.Static, new TypeReference("", "String", null, null));
@@ -371,7 +371,7 @@ public class ProcessStartRuleTests
 
         string description = _rule.GetFindingDescription(methodRef, instructions, callIndex);
 
-        description.Should().Contain("Target: \"yt-dlp.exe\"");
+        description.Should().Contain("<ambiguous field>").And.Contain("yt-dlp.exe");
     }
 
     [Fact]

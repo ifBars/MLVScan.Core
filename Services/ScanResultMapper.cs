@@ -235,7 +235,7 @@ public static class ScanResultMapper
     private static AnalysisCompletenessResult BuildAnalysisCompleteness(IReadOnlyList<ScanFinding> findings)
     {
         var incompleteFindings = findings
-            .Where(IsIncompleteAnalysisFinding)
+            .Where(Helpers.AnalysisCompletenessEvidence.IsIncompleteFinding)
             .ToList();
 
         if (incompleteFindings.Count == 0)
@@ -264,26 +264,6 @@ public static class ScanResultMapper
                 .Select(ToAnalysisCompletenessReason)
                 .ToList()
         };
-    }
-
-    private static bool IsIncompleteAnalysisFinding(ScanFinding finding)
-    {
-        if (!string.IsNullOrWhiteSpace(finding.RuleId) &&
-            (finding.RuleId.Contains("incomplete", StringComparison.OrdinalIgnoreCase) ||
-             finding.RuleId.Contains("manualreview", StringComparison.OrdinalIgnoreCase) ||
-             finding.RuleId.Contains("scanwarning", StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (string.Equals(finding.RuleId, "AssemblyScanner", StringComparison.Ordinal) &&
-            finding.Description.Contains("could not be scanned", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return finding.Description.Contains("could not complete full il analysis", StringComparison.OrdinalIgnoreCase) ||
-               finding.Description.Contains("full il analysis was skipped", StringComparison.OrdinalIgnoreCase);
     }
 
     private static AnalysisCompletenessReason ToAnalysisCompletenessReason(ScanFinding finding)

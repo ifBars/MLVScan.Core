@@ -35,6 +35,14 @@ namespace MLVScan.Models.Rules
             ExplorerAnalysisComplexities = new();
 
         private Severity _severity = Severity.Critical;
+        private readonly ValueResolutionLimits _resolutionLimits;
+
+        public ProcessStartRule() : this(new ScanConfig()) { }
+
+        internal ProcessStartRule(ScanConfig config) => _resolutionLimits = new ValueResolutionLimits(config);
+
+        internal const string ResolutionBudgetRuleId = "ValueResolutionBudget";
+
 
         public string Description => "Detected Process.Start call which could execute arbitrary programs.";
         public Severity Severity => _severity;
@@ -42,14 +50,18 @@ namespace MLVScan.Models.Rules
         public bool RequiresCompanionFinding => false;
 
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "Game mods should not start external processes as this can be used to execute malware. " +
-            "For legitimate use cases like opening folders, use Process.Start(\"explorer.exe\", path). " +
-            "For restart functionality, use Process.GetCurrentProcess().MainModule.FileName.",
-            null,
+            "Process launches can legitimately open folders, invoke tools, or restart an application. Review the target, arguments, " +
+            "script contents, and blocking recommendation together. A finding alone does not require a code change. " +
+            "If it preserves the required behavior, a direct launch with explicit arguments is easier to analyze than an encoded shell script. " +
+            "A direct executable restart is not a drop-in replacement for a launcher URI or a helper that must wait for shutdown. " +
+            "Report reproducible false positives with the schema report and relevant launch code.",
+            "https://learn.microsoft.com/dotnet/api/system.diagnostics.processstartinfo",
             new[]
             {
-                "Process.Start(\"explorer.exe\", folderPath) - opens folder in Explorer",
-                "Process.GetCurrentProcess().MainModule.FileName - gets current executable for restart"
+                "ProcessStartInfo { FileName = trustedExecutable, UseShellExecute = false } - direct executable launch",
+                "ProcessStartInfo.ArgumentList - separate arguments where supported by the target runtime",
+                "ProcessStartInfo { FileName = validatedFolderOrUri, UseShellExecute = true } - OS association when intended",
+                "Environment.ProcessPath (where supported), or Process.GetCurrentProcess().MainModule?.FileName - resolve the current executable; validate before launch"
             },
             isRemediable: true
         );
@@ -208,6 +220,20 @@ namespace MLVScan.Models.Rules
                 }
 
                 bool invoke = ObfuscatedSinkMatcher.IsReflectionInvokeSink(called.DeclaringType.FullName, called.Name);
+                if (called.DeclaringType.FullName == "System.Diagnostics.Process" && called.Name == "Start" &&
+                    RestartScriptAnalyzer.IsConstrainedRestart(method, index))
+                {
+                    yield return new ScanFinding($"{method.DeclaringType.FullName}.{method.Name}:{instructions[index].Offset}",
+                        "Constrained restart script: waits for the current process and launches a fixed Steam app URI. " +
+                        "The written script and encoded launcher are bound; optional operations are limited to logging and pending-delete cleanup.",
+                        Severity.Low)
+                    {
+                        RuleId = RuleId,
+                        HasConstrainedRestartEvidence = true,
+                        SourceInstruction = instructions[index]
+                    };
+                }
+
                 bool emit = called.DeclaringType.FullName == "System.Reflection.Emit.ILGenerator" && called.Name == "Emit" &&
                             called.Parameters.Count == 2 && called.Parameters[1].ParameterType.FullName == "System.Reflection.MethodInfo";
                 bool reflectedStart = (invoke || emit) && ExecutionTargetMatcher.IsReflectedProcessStart(method, index, emit);
@@ -310,6 +336,17 @@ namespace MLVScan.Models.Rules
             var hasRedirectStandardErrorIndicator =
                 HasProcessStartInfoSetter(instructions, instructionIndex, "set_RedirectStandardError");
 
+            // Static string overloads do not consume a ProcessStartInfo. Setters on another
+            // object earlier in the method cannot describe this launch (including catch fallbacks).
+            if (!method.HasThis && !method.Parameters.Any(p =>
+                    p.ParameterType.FullName == "System.Diagnostics.ProcessStartInfo"))
+            {
+                useShellExecute = createNoWindow = windowStyleHidden = workingDirectoryIsTemp = false;
+                hasUseShellExecuteIndicator = hasCreateNoWindowIndicator = hasWindowStyleIndicator = false;
+                hasWorkingDirectoryIndicator = hasRedirectStandardInputIndicator = false;
+                hasRedirectStandardOutputIndicator = hasRedirectStandardErrorIndicator = false;
+            }
+
             var targetLower = target.ToLowerInvariant().Trim('"');
             var argumentsLower = arguments.ToLowerInvariant();
 
@@ -358,6 +395,11 @@ namespace MLVScan.Models.Rules
                 snippetBuilder.ToString().TrimEnd());
         }
 
+        private static bool ContainsPossibleExecutable(string target, IEnumerable<string> executables) =>
+            target.Contains("<ambiguous", StringComparison.Ordinal) && executables.Any(executable =>
+                Regex.IsMatch(target, @"(?<![a-z0-9_.-])" + Regex.Escape(executable) + @"(?![a-z0-9_.-])",
+                    RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)));
+
         private (Severity? severity, string? reason) DetermineSeverity(
             string targetLower,
             string argumentsLower,
@@ -378,6 +420,7 @@ namespace MLVScan.Models.Rules
             bool hasFileWriteSignal = false)
         {
             bool isLolBin = LolBinExecutables.Contains(targetLower) ||
+                            ContainsPossibleExecutable(targetLower, LolBinExecutables) ||
                             LolBinExecutables.Any(lol =>
                                 targetLower.EndsWith("\\" + lol) || targetLower.EndsWith("/" + lol));
 
@@ -386,6 +429,7 @@ namespace MLVScan.Models.Rules
                                    targetLower.EndsWith("\\" + safe) || targetLower.EndsWith("/" + safe));
 
             bool isDownloader = DownloaderExecutables.Contains(targetLower) ||
+                                ContainsPossibleExecutable(targetLower, DownloaderExecutables) ||
                                 DownloaderExecutables.Any(downloader =>
                                     targetLower.EndsWith("\\" + downloader) ||
                                     targetLower.EndsWith("/" + downloader));
@@ -411,7 +455,8 @@ namespace MLVScan.Models.Rules
             bool hasStagedDownloadCommand = hasLiteralArguments &&
                                             StagedLoaderDownloadCommandPattern.IsMatch(literalArguments);
 
-            bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic");
+            bool isUnknownTarget = targetLower.Contains("<unknown") || targetLower.Contains("<dynamic") ||
+                                   targetLower.Contains("<ambiguous") || targetLower.Contains("<field") || targetLower.Contains("<static-field");
 
             // Check for evasion indicators first - these escalate severity
             bool hasStrongEvasionIndicators =
@@ -642,7 +687,7 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int instructionIndex)
         {
-            return BuildFindingDescription(null, method, instructions, instructionIndex);
+            return BuildFindingDescription(null, method, instructions, instructionIndex, out _);
         }
 
         public string GetFindingDescription(
@@ -651,17 +696,19 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int instructionIndex)
         {
-            return BuildFindingDescription(containingMethod, method, instructions, instructionIndex);
+            return BuildFindingDescription(containingMethod, method, instructions, instructionIndex, out _);
         }
 
-        private string BuildFindingDescription(
+        internal string BuildFindingDescription(
             MethodDefinition? containingMethod,
             MethodReference method,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int instructionIndex)
+            int instructionIndex, out bool resolutionBudgetExceeded)
         {
-            string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex);
-            string arguments = ExtractProcessArguments(containingMethod, method, instructions, instructionIndex);
+            var exceeded = false;
+            Action reportLimit = () => exceeded = true;
+            string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex, reportLimit);
+            string arguments = ExtractProcessArguments(containingMethod, method, instructions, instructionIndex, reportLimit);
 
             // Detect ProcessStartInfo evasion indicators
             var hasUseShell = InstructionValueResolver.TryResolveUseShellExecute(containingMethod, instructions,
@@ -690,6 +737,17 @@ namespace MLVScan.Models.Rules
 
             var description = $"{Description} Target: {target}. Arguments: {arguments}";
 
+            // Static string overloads do not consume a ProcessStartInfo. Setters on another
+            // object earlier in the method cannot describe this launch (including catch fallbacks).
+            if (!method.HasThis && !method.Parameters.Any(p =>
+                    p.ParameterType.FullName == "System.Diagnostics.ProcessStartInfo"))
+            {
+                useShellExecute = createNoWindow = windowStyleHidden = workingDirectoryIsTemp = false;
+                hasUseShellExecuteIndicator = hasCreateNoWindowIndicator = hasWindowStyleIndicator = false;
+                hasWorkingDirectoryIndicator = hasRedirectStandardInputIndicator = false;
+                hasRedirectStandardOutputIndicator = hasRedirectStandardErrorIndicator = false;
+            }
+
             var targetLower = target.ToLowerInvariant().Trim('"');
             var argumentsLower = arguments.ToLowerInvariant();
 
@@ -717,6 +775,7 @@ namespace MLVScan.Models.Rules
                 description += $" [{riskReason}]";
             }
 
+            resolutionBudgetExceeded = exceeded;
             return description;
         }
 
@@ -1897,14 +1956,14 @@ namespace MLVScan.Models.Rules
                    int.TryParse(identity.AsSpan(prefix.Length), out producerIndex);
         }
 
-        private static string ExtractProcessTarget(
+        private string ExtractProcessTarget(
             MethodDefinition? containingMethod,
             MethodReference method,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex, Action? reportLimit = null)
         {
-            if (InstructionValueResolver.TryResolveProcessTarget(containingMethod, method, instructions,
-                    processStartIndex, out string target))
+            if (InstructionValueResolver.TryResolveProcessTargetWithLimits(containingMethod, method, instructions,
+                    processStartIndex, out string target, _resolutionLimits, reportLimit))
             {
                 return target;
             }
@@ -1923,14 +1982,14 @@ namespace MLVScan.Models.Rules
             return "<unknown/non-literal>";
         }
 
-        private static string ExtractProcessArguments(
+        private string ExtractProcessArguments(
             MethodDefinition? containingMethod,
             MethodReference calledMethod,
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
-            int processStartIndex)
+            int processStartIndex, Action? reportLimit = null)
         {
-            if (InstructionValueResolver.TryResolveProcessArguments(containingMethod, calledMethod, instructions,
-                    processStartIndex, out string arguments))
+            if (InstructionValueResolver.TryResolveProcessArgumentsWithLimits(containingMethod, calledMethod, instructions,
+                    processStartIndex, out string arguments, _resolutionLimits, reportLimit))
             {
                 return arguments;
             }

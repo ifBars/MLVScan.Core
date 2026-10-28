@@ -41,8 +41,8 @@ public class ByteArrayManipulationRuleTests
         _rule.DeveloperGuidance!.Remediation.Should().NotBeNullOrWhiteSpace();
         _rule.DeveloperGuidance.IsRemediable.Should().BeTrue();
         _rule.DeveloperGuidance.AlternativeApis.Should().NotBeNull();
-        _rule.DeveloperGuidance.AlternativeApis.Should().Contain("UnityEngine.AudioClip.LoadWAVData");
-        _rule.DeveloperGuidance.AlternativeApis.Should().Contain("UnityEngine.Texture2D.LoadImage");
+        _rule.DeveloperGuidance.AlternativeApis.Should().Contain(api => api.Contains("GetManifestResourceStream"));
+        _rule.DeveloperGuidance.AlternativeApis.Should().Contain(api => api.Contains("File.ReadAllBytes"));
     }
 
     [Theory]

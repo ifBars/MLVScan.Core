@@ -73,9 +73,11 @@ namespace MLVScan.Models.Rules
         /// Gets developer guidance for legitimate update-check and resource-download scenarios.
         /// </summary>
         public IDeveloperGuidance? DeveloperGuidance => new DeveloperGuidance(
-            "For update checking, use GitHub Releases API (api.github.com/repos/...) or raw.githubusercontent.com.",
+            "Downloads and update checks are legitimate. Review what is received, where it is stored, and whether it is executed. " +
+            "Changing HTTP clients or moving a payload to GitHub does not make executable content safe. Separate metadata checks " +
+            "from installation and verify update authenticity before execution. Report misclassified data-only downloads with their context.",
             null,
-            new[] { "HttpClient.GetStringAsync", "UnityWebRequest.Get" },
+            new[] { "HttpClient.GetStringAsync - text metadata when supported; this API alone is not a safety guarantee" },
             true
         );
 

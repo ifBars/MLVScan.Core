@@ -72,6 +72,10 @@ namespace MLVScan.Models
         /// </summary>
         public int? RiskScore { get; set; }
 
+        // Internal proof from IL analysis; never inferred from user-controlled diagnostic text or DTOs.
+        internal bool HasConstrainedRestartEvidence { get; set; }
+        internal Mono.Cecil.Cil.Instruction? SourceInstruction { get; set; }
+
         /// <summary>
         /// Returns a human-readable description of the finding.
         /// </summary>
