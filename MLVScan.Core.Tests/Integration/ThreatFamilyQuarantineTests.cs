@@ -312,8 +312,9 @@ public class ThreatFamilyQuarantineTests
         foreach (var path in samplePaths)
         {
             var relativePath = Path.GetRelativePath(_quarantineFolder!, path);
-            if (RecursiveSamplesAwaitingBehaviorModel.Contains(relativePath) ||
-                RecursiveNonMaliciousPackageCompanions.Contains(relativePath))
+            var fixtureKey = relativePath.Replace(Path.DirectorySeparatorChar, '\\');
+            if (RecursiveSamplesAwaitingBehaviorModel.Contains(fixtureKey) ||
+                RecursiveNonMaliciousPackageCompanions.Contains(fixtureKey))
             {
                 continue;
             }
