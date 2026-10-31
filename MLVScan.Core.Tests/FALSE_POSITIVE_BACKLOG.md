@@ -10,8 +10,9 @@ The executable expectations live in `TestUtilities/FalsePositiveBacklog.cs`.
 | FP-002 | `Polyfill.Boot.dll` | Clean; one Advanced High `AssemblyDynamicLoadRule` finding | Distinguish local compatibility assembly probing in `ReflectionFallback.BySimpleName` from staged payload loading. Preserve download/decoded-byte loader coverage. |
 | FP-003 | `Polyfill.dll` | Clean; two Advanced High dynamic-load findings and three Advanced High reflection findings | Model diagnostic `ConsoleCommands.Probe` / `ProbeMember` operations without masking execution of untrusted stages. |
 | FP-004 | `Nexus Bannerlord/ButterLib-2.12.0/Modules/Bannerlord.ButterLib/bin/Win64_Shipping_Client/BUTR.CrashReport.dll` | ManualReviewRequired; Partial analysis; blocking recommended; one cross-method work-limit reason | Investigate bounded cross-method data-flow work. Measure any budget/algorithm change; do not silently grant Clean to incomplete analysis or just raise limits globally. |
+| FP-005 | `MLVScan uploads 2026-10/SkayMods-DevMenu/DevMenu.dll` | Suspicious; complete analysis; blocking not recommended; one Default Critical `ProcessStartRule` finding at `DevMenu.Mod.RestartGame:270` | `RestartGame` writes and launches hidden, encoded PowerShell. Core verifies it as a constrained restart script (waits for the game, relaunches a fixed Steam app URI) and downgrades blocking, but the hidden encoded launch stays Suspicious. Accepted as the expected result (2026-10-31). Only revisit if restart scripts get a separate benign classification. |
 
-All four entries require the exact reviewed SHA-256, exact disposition, no threat
+All entries require the exact reviewed SHA-256, exact disposition, no threat
 family matches, and the documented High finding identities (rule, severity and
 location). FP-004 also checks its specific completeness reason. Unexpected
 High/Critical findings, changed bytes, changed verdicts or additional completeness reasons fail
@@ -29,8 +30,7 @@ When resolving an item, first reproduce its desired behavior with focused tests,
 then validate the real sample and the false-positive/quarantine corpus. Remove
 or narrow the matching backlog profile and retain an ordinary regression test.
 The older explicitly skipped cases in `FalsePositiveScanTests.cs` are separate
-existing work; this list records the four profiles behind the recent aggregate
-failures.
+existing work; this list records the profiles behind recent aggregate failures.
 
 ## Quarantine tracking correction
 

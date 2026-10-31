@@ -65,19 +65,39 @@ public class FalsePositiveBacklogTests
         validate.Should().Throw<XunitException>();
     }
 
+    [Fact]
+    public void AssertExpectedProfile_SuspiciousEntryPinsBlockingAndVisibility()
+    {
+        var entry = FalsePositiveBacklog.Entries.Values.Single(entry => entry.Disposition == "Suspicious");
+        var blocking = CreateResult(entry);
+        blocking.Disposition!.BlockingRecommended = true;
+        var hidden = CreateResult(entry);
+        hidden.Findings[0].Visibility = "Advanced";
+
+        Action validateBlocking = () => FalsePositiveBacklog.AssertExpectedProfile(blocking, entry);
+        Action validateHidden = () => FalsePositiveBacklog.AssertExpectedProfile(hidden, entry);
+        validateBlocking.Should().Throw<XunitException>();
+        validateHidden.Should().Throw<XunitException>();
+    }
+
     private static ScanResultDto CreateResult(FalsePositiveBacklog.Entry entry)
     {
-        bool complete = entry.Disposition == "Clean";
+        bool suspicious = entry.Disposition == "Suspicious";
+        bool complete = entry.Disposition == "Clean" || suspicious;
         return new ScanResultDto
         {
             Input = new ScanInputDto { Sha256Hash = entry.Sha256.ToLowerInvariant() },
-            Disposition = new ThreatDispositionDto { Classification = entry.Disposition, BlockingRecommended = !complete },
+            Disposition = new ThreatDispositionDto
+            {
+                Classification = entry.Disposition,
+                BlockingRecommended = suspicious ? entry.BlockingRecommended ?? true : !complete
+            },
             Findings = entry.HighFindings.Select(finding => new FindingDto
             {
                 RuleId = finding.RuleId,
                 Severity = finding.Severity,
                 Location = finding.Location,
-                Visibility = "Advanced"
+                Visibility = suspicious ? "Default" : "Advanced"
             }).ToList(),
             AnalysisCompleteness = new AnalysisCompletenessDto
             {
