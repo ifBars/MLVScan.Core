@@ -9,6 +9,8 @@ export type DataFlowNodeType = 'Source' | 'Transform' | 'Sink' | 'Intermediate'
 
 export type DataFlowPattern = 'Legitimate' | 'DownloadAndExecute' | 'DataExfiltration' | 'DynamicCodeLoading' | 'CredentialTheft' | 'RemoteConfigLoad' | 'ObfuscatedPersistence' | 'EmbeddedResourceDropAndExecute' | 'Unknown'
 
+export type FindingTargetKind = 'Executable' | 'Script' | 'Url' | 'Path' | 'Unresolved'
+
 export type FindingVisibility = 'Default' | 'Advanced'
 
 export type ScanMode = 'summary' | 'detailed' | 'developer' | 'deep'
@@ -128,6 +130,16 @@ export interface Finding {
   callChain?: CallChain | null
   dataFlowChain?: DataFlowChain | null
   visibility?: FindingVisibility | null
+  attributes?: FindingAttributes | null
+}
+
+export interface FindingAttributes {
+  target?: string | null
+  targetKind?: FindingTargetKind | null
+  targetCandidates?: string[] | null
+  arguments?: string | null
+  indicators?: string[] | null
+  riskReason?: string | null
 }
 
 export interface ScanInput {
@@ -171,6 +183,7 @@ export interface ThreatFamily {
   matchedRules: string[]
   advisorySlugs: string[]
   evidence: ThreatFamilyEvidence[]
+  relatedFindingIds: string[]
 }
 
 export interface ThreatFamilyEvidence {

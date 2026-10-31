@@ -156,7 +156,8 @@ namespace MLVScan.Services
                         CallChain = finding.CallChain,
                         DataFlowChain = finding.DataFlowChain,
                         BypassCompanionCheck = finding.BypassCompanionCheck,
-                        RiskScore = finding.RiskScore
+                        RiskScore = finding.RiskScore,
+                        Attributes = finding.Attributes
                     };
 
                     findings.Add(contextualFinding);
@@ -193,7 +194,8 @@ namespace MLVScan.Services
                         CallChain = finding.CallChain,
                         DataFlowChain = finding.DataFlowChain,
                         BypassCompanionCheck = finding.BypassCompanionCheck,
-                        RiskScore = finding.RiskScore
+                        RiskScore = finding.RiskScore,
+                        Attributes = finding.Attributes
                     };
 
                     findings.Add(contextualFinding);

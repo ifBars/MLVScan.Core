@@ -72,6 +72,11 @@ namespace MLVScan.Models
         /// </summary>
         public int? RiskScore { get; set; }
 
+        /// <summary>
+        /// Gets or sets structured values the rule resolved for this finding, such as a launch target.
+        /// </summary>
+        public FindingAttributes? Attributes { get; set; }
+
         // Internal proof from IL analysis; never inferred from user-controlled diagnostic text or DTOs.
         internal bool HasConstrainedRestartEvidence { get; set; }
         internal Mono.Cecil.Cil.Instruction? SourceInstruction { get; set; }

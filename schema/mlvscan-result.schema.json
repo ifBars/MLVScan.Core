@@ -147,6 +147,16 @@
         "Unknown"
       ]
     },
+    "FindingTargetKind": {
+      "type": "string",
+      "enum": [
+        "Executable",
+        "Script",
+        "Url",
+        "Path",
+        "Unresolved"
+      ]
+    },
     "FindingVisibility": {
       "type": "string",
       "enum": [
@@ -737,6 +747,16 @@
               "type": "null"
             }
           ]
+        },
+        "attributes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FindingAttributes"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -744,6 +764,77 @@
         "severity",
         "location"
       ]
+    },
+    "FindingAttributes": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetKind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FindingTargetKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetCandidates": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arguments": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "indicators": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "ScanInput": {
       "type": "object",
@@ -907,6 +998,12 @@
           "items": {
             "$ref": "#/$defs/ThreatFamilyEvidence"
           }
+        },
+        "relatedFindingIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -919,7 +1016,8 @@
         "exactHashMatch",
         "matchedRules",
         "advisorySlugs",
-        "evidence"
+        "evidence",
+        "relatedFindingIds"
       ]
     },
     "ThreatFamilyEvidence": {

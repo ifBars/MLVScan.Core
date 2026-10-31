@@ -545,6 +545,101 @@ public class ScanResultMapperTests
     }
 
     [Fact]
+    public void ToDto_WithKnownThreatFamily_LinksOnlyFindingsThatBackTheFamily()
+    {
+        var findings = new List<ScanFinding>
+        {
+            new("Test.Mod.Init:52",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"powershell.exe\". Arguments: iwr ... dl.bat ... Start-Sleep ... Remove-Item [Evasion: UseShellExecute=true, WindowStyle=Hidden]",
+                Severity.Critical)
+            {
+                RuleId = "ProcessStartRule"
+            },
+            new("Test.Mod.OpenWiki:5",
+                "Detected Process.Start call which could execute arbitrary programs. Target: \"github.com\". Arguments: <unknown/no-arguments>",
+                Severity.Medium)
+            {
+                RuleId = "ProcessStartRule"
+            }
+        };
+
+        var result = ScanResultMapper.ToDto(findings, "test.dll", _testAssemblyBytes, false);
+
+        var family = result.ThreatFamilies.Should().ContainSingle().Subject;
+        family.RelatedFindingIds.Should().Equal(result.Findings[0].Id);
+        result.Disposition!.RelatedFindingIds.Should().Contain(family.RelatedFindingIds);
+    }
+
+    [Fact]
+    public void ToDto_WithDataFlowEvidence_LinksFindingsCarryingThatDataFlow()
+    {
+        var dataFlow = new DataFlowChain(
+            "df-linked",
+            DataFlowPattern.EmbeddedResourceDropAndExecute,
+            Severity.Critical,
+            "Embedded resource extracted to %TEMP%/payload.cmd and executed",
+            "Malware.Loader.ExtractPayload");
+        dataFlow.AppendNode(new DataFlowNode(
+            "Malware.Loader.ExtractPayload:28", "File.WriteAllBytes", DataFlowNodeType.Sink, "%TEMP%/payload.cmd", 28));
+
+        var linked = new ScanFinding("Malware.Loader.ExtractPayload", "Native ShellExecuteEx execution detected", Severity.Critical)
+        {
+            RuleId = "DllImportRule",
+            DataFlowChain = dataFlow
+        };
+        var unrelated = new ScanFinding("Malware.Loader.Log", "Writes a log file", Severity.Low)
+        {
+            RuleId = "FileWriteRule"
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { linked, unrelated }, "test.dll", _testAssemblyBytes, false);
+
+        var family = result.ThreatFamilies!.First(match => match.FamilyId == "family-resource-shell32-tempcmd-v2");
+        family.RelatedFindingIds.Should().Equal(result.Findings[0].Id);
+    }
+
+    [Fact]
+    public void ToDto_WithFindingAttributes_MapsStructuredValues()
+    {
+        var finding = new ScanFinding("Test.Mod.Launch:10", "Detected Process.Start call", Severity.Critical)
+        {
+            RuleId = "ProcessStartRule",
+            Attributes = new FindingAttributes
+            {
+                Target = "<ambiguous field> [Possible values: <folder 40>/Downloads/svchost.exe | <null>]",
+                TargetKind = FindingTargetKind.Executable,
+                TargetCandidates = { "<folder 40>/Downloads/svchost.exe" },
+                Indicators = { "CreateNoWindow=true", "WindowStyle=Hidden" },
+                RiskReason = "LOLBin with hidden execution"
+            }
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
+
+        var attributes = result.Findings[0].Attributes;
+        attributes.Should().NotBeNull();
+        attributes!.Target.Should().StartWith("<ambiguous field>");
+        attributes.TargetKind.Should().Be("Executable");
+        attributes.TargetCandidates.Should().Equal("<folder 40>/Downloads/svchost.exe");
+        attributes.Arguments.Should().BeNull();
+        attributes.Indicators.Should().Equal("CreateNoWindow=true", "WindowStyle=Hidden");
+        attributes.RiskReason.Should().Be("LOLBin with hidden execution");
+    }
+
+    [Fact]
+    public void ToDto_WithEmptyFindingAttributes_OmitsAttributes()
+    {
+        var finding = new ScanFinding("Test.Mod.Init", "Some finding", Severity.Low)
+        {
+            Attributes = new FindingAttributes()
+        };
+
+        var result = ScanResultMapper.ToDto(new[] { finding }, "test.dll", _testAssemblyBytes, false);
+
+        result.Findings[0].Attributes.Should().BeNull();
+    }
+
+    [Fact]
     public void ToDto_WithNoKnownThreatFamily_LeavesThreatFamiliesNull()
     {
         var findings = new List<ScanFinding>

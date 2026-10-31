@@ -196,6 +196,44 @@ interface Finding {
   callChain?: CallChain | null
   dataFlowChain?: DataFlowChain | null
   visibility?: 'Default' | 'Advanced' | null
+  attributes?: FindingAttributes | null
+}
+```
+
+### `FindingAttributes`
+
+Structured values a rule resolved for a finding. Use these for grouping and display instead of
+parsing `description`. Process launch findings currently populate them.
+
+```ts
+interface FindingAttributes {
+  target?: string | null
+  targetKind?: 'Executable' | 'Script' | 'Url' | 'Path' | 'Unresolved' | null
+  targetCandidates?: string[] | null // concrete values when the target is ambiguous
+  arguments?: string | null
+  indicators?: string[] | null // for example 'WindowStyle=Hidden'
+  riskReason?: string | null
+}
+```
+
+### `ThreatFamily`
+
+`relatedFindingIds` lists the findings that directly support that family match. It is narrower than
+`disposition.relatedFindingIds`, which covers every finding retained for the overall verdict.
+
+```ts
+interface ThreatFamily {
+  familyId: string
+  variantId: string
+  displayName: string
+  summary: string
+  matchKind: 'ExactSampleHash' | 'BehaviorVariant'
+  confidence: number
+  exactHashMatch: boolean
+  matchedRules: string[]
+  advisorySlugs: string[]
+  evidence: ThreatFamilyEvidence[]
+  relatedFindingIds: string[]
 }
 ```
 

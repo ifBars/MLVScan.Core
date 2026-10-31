@@ -378,6 +378,8 @@ namespace MLVScan.Models.Rules
             if (!string.IsNullOrEmpty(riskReason))
                 description += $" [{riskReason}]";
 
+            var attributes = CreateFindingAttributes(target, arguments, evasionIndicators, riskReason);
+
             var snippetBuilder = new System.Text.StringBuilder();
             int contextLines = 2;
             for (int j = Math.Max(0, instructionIndex - contextLines);
@@ -392,7 +394,10 @@ namespace MLVScan.Models.Rules
                 $"{method.DeclaringType.FullName}.{method.Name}:{instructions[instructionIndex].Offset}",
                 description,
                 severity.Value,
-                snippetBuilder.ToString().TrimEnd());
+                snippetBuilder.ToString().TrimEnd())
+            {
+                Attributes = attributes
+            };
         }
 
         private static bool ContainsPossibleExecutable(string target, IEnumerable<string> executables) =>
@@ -705,6 +710,16 @@ namespace MLVScan.Models.Rules
             Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
             int instructionIndex, out bool resolutionBudgetExceeded)
         {
+            return BuildFindingDescription(containingMethod, method, instructions, instructionIndex,
+                out resolutionBudgetExceeded, out _);
+        }
+
+        internal string BuildFindingDescription(
+            MethodDefinition? containingMethod,
+            MethodReference method,
+            Mono.Collections.Generic.Collection<Mono.Cecil.Cil.Instruction> instructions,
+            int instructionIndex, out bool resolutionBudgetExceeded, out FindingAttributes attributes)
+        {
             var exceeded = false;
             Action reportLimit = () => exceeded = true;
             string target = ExtractProcessTarget(containingMethod, method, instructions, instructionIndex, reportLimit);
@@ -775,6 +790,7 @@ namespace MLVScan.Models.Rules
                 description += $" [{riskReason}]";
             }
 
+            attributes = CreateFindingAttributes(target, arguments, evasionIndicators, riskReason);
             resolutionBudgetExceeded = exceeded;
             return description;
         }
@@ -2030,6 +2046,168 @@ namespace MLVScan.Models.Rules
             }
 
             return false;
+        }
+
+        private static readonly HashSet<string> ScriptExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".bat", ".cmd", ".ps1", ".psm1", ".sh", ".bash", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".hta", ".py"
+        };
+
+        private static readonly HashSet<string> ScriptInterpreters = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "wscript", "wscript.exe",
+            "cscript", "cscript.exe", "mshta", "mshta.exe", "bash", "bash.exe", "sh", "zsh", "python", "python.exe",
+            "python3", "env"
+        };
+
+        private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".dll", ".scr", ".msi", ".lnk", ".app", ".appimage", ".bin", ".elf"
+        };
+
+        private static readonly HashSet<string> DocumentExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".txt", ".log", ".json", ".xml", ".cfg", ".ini", ".yaml", ".yml", ".csv", ".md", ".pdf", ".png",
+            ".jpg", ".jpeg", ".gif", ".lua", ".luau", ".dat", ".zip", ".7z"
+        };
+
+        private const string PossibleValuesMarker = "[Possible values:";
+
+        private static readonly Regex UrlSchemePattern = new(@"^[a-z][a-z0-9+.-]*:(//|[a-z0-9])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+        private static readonly Regex BareDomainPattern = new(
+            @"^([a-z0-9-]+\.)+[a-z]{2,24}(:[0-9]{1,5})?([/?#].*)?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+        internal static FindingAttributes CreateFindingAttributes(
+            string target,
+            string arguments,
+            IEnumerable<string> indicators,
+            string? riskReason)
+        {
+            var cleanTarget = CleanResolvedValue(target);
+            var cleanArguments = CleanResolvedValue(arguments);
+            if (cleanArguments != null && IsUnresolvedValue(cleanArguments) &&
+                cleanArguments.Contains("no-arguments", StringComparison.Ordinal))
+            {
+                cleanArguments = null;
+            }
+
+            return new FindingAttributes
+            {
+                Target = cleanTarget,
+                TargetKind = cleanTarget == null ? null : ClassifyTarget(cleanTarget),
+                TargetCandidates = cleanTarget == null ? new List<string>() : ExtractTargetCandidates(cleanTarget),
+                Arguments = cleanArguments,
+                Indicators = indicators.ToList(),
+                RiskReason = string.IsNullOrWhiteSpace(riskReason) ? null : riskReason
+            };
+        }
+
+        internal static FindingTargetKind ClassifyTarget(string target)
+        {
+            var value = target.Trim().Trim('"', '\'').Trim();
+            if (value.Length == 0)
+                return FindingTargetKind.Unresolved;
+
+            if (IsUnresolvedValue(value))
+            {
+                // A runtime placeholder followed by a literal path (for example "<dynamic>/Plugins")
+                // is classified by the literal tail as a rooted path.
+                var tail = GetLiteralPathTail(value);
+                if (tail != null)
+                    return ClassifyTarget("/" + tail.TrimStart('/', '\\'));
+
+                // Ambiguous values take the candidates' kind when every concrete candidate agrees.
+                var candidateKinds = ExtractTargetCandidates(value)
+                    .Select(ClassifyTarget)
+                    .Distinct()
+                    .ToList();
+                return candidateKinds.Count == 1 ? candidateKinds[0] : FindingTargetKind.Unresolved;
+            }
+
+            var normalizedPath = value.Replace('\\', '/');
+            var fileName = normalizedPath.Contains('/') ? normalizedPath[(normalizedPath.LastIndexOf('/') + 1)..] : normalizedPath;
+            if (ScriptInterpreters.Contains(fileName))
+                return FindingTargetKind.Script;
+
+            var isDrivePath = value.Length > 2 && value[1] == ':' && (value[2] == '\\' || value[2] == '/');
+            if (!isDrivePath && UrlSchemePattern.IsMatch(value))
+                return FindingTargetKind.Url;
+
+            var extensionIndex = fileName.LastIndexOf('.');
+            var extension = extensionIndex >= 0 ? fileName[extensionIndex..].Split('?', '#')[0] : string.Empty;
+            if (ScriptExtensions.Contains(extension))
+                return FindingTargetKind.Script;
+
+            if (ExecutableExtensions.Contains(extension))
+                return FindingTargetKind.Executable;
+
+            if (DocumentExtensions.Contains(extension))
+                return FindingTargetKind.Path;
+
+            var looksLikePath = isDrivePath || normalizedPath.StartsWith("/", StringComparison.Ordinal) ||
+                                normalizedPath.StartsWith("./", StringComparison.Ordinal);
+            if (!looksLikePath && BareDomainPattern.IsMatch(value))
+                return FindingTargetKind.Url;
+
+            if (looksLikePath && extension.Length == 0)
+                return FindingTargetKind.Path;
+
+            return FindingTargetKind.Executable;
+        }
+
+        internal static List<string> ExtractTargetCandidates(string target)
+        {
+            var markerIndex = target.IndexOf(PossibleValuesMarker, StringComparison.Ordinal);
+            if (markerIndex < 0)
+                return new List<string>();
+
+            var start = markerIndex + PossibleValuesMarker.Length;
+            var end = target.LastIndexOf(']');
+            if (end <= start)
+                return new List<string>();
+
+            return target[start..end]
+                .Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(static candidate => candidate.Trim())
+                .Where(static candidate => !candidate.StartsWith("<null>", StringComparison.Ordinal) &&
+                                           !candidate.StartsWith("<unknown", StringComparison.Ordinal))
+                .Select(static candidate => candidate.Trim('"'))
+                .Where(static candidate => candidate.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private static string? GetLiteralPathTail(string value)
+        {
+            if (value.Contains(PossibleValuesMarker, StringComparison.Ordinal))
+                return null;
+
+            var closeIndex = value.IndexOf('>');
+            if (closeIndex < 0 || closeIndex == value.Length - 1)
+                return null;
+
+            var tail = value[(closeIndex + 1)..];
+            return tail.StartsWith("/", StringComparison.Ordinal) || tail.StartsWith("\\", StringComparison.Ordinal)
+                ? tail
+                : null;
+        }
+
+        private static bool IsUnresolvedValue(string value) =>
+            value.StartsWith("<", StringComparison.Ordinal) && value.Contains('>');
+
+        private static string? CleanResolvedValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            var trimmed = value.Trim();
+            if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+                trimmed = trimmed[1..^1];
+
+            return trimmed.Length == 0 ? null : trimmed;
         }
 
         private static void AddProcessStartInfoIndicators(

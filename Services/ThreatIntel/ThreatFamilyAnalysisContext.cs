@@ -161,8 +161,9 @@ internal sealed class ThreatFamilyAnalysisContext
             CallChainId = finding?.CallChain?.ChainId,
             DataFlowChainId = finding?.DataFlowChain?.ChainId,
             Pattern = finding?.DataFlowChain?.Pattern.ToString(),
-            MethodLocation = finding?.DataFlowChain?.MethodLocation
-            };
+            MethodLocation = finding?.DataFlowChain?.MethodLocation,
+            SourceFinding = finding
+        };
     }
 
     /// <summary>

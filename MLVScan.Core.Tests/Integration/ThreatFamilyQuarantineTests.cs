@@ -113,8 +113,31 @@ public class ThreatFamilyQuarantineTests
         dto.ThreatFamilies!.Should().Contain(match => match.FamilyId == expectedFamilyId);
         dto.Disposition.Should().NotBeNull();
         dto.Disposition!.Classification.Should().Be("KnownThreat");
+        var findingIds = dto.Findings.Select(finding => finding.Id).ToHashSet(StringComparer.Ordinal);
+        dto.ThreatFamilies.SelectMany(match => match.RelatedFindingIds)
+            .Should().OnlyContain(id => findingIds.Contains(id));
 
         WriteThreatFamilyLog(filename, dto.ThreatFamilies!, dto.Findings);
+    }
+
+    [SkippableFact]
+    public void Scan_NoPolice_LinksFamilyToStagedLaunchAndExposesLaunchAttributes()
+    {
+        var path = GetSamplePath("NoPolice.dll.di");
+        var assemblyBytes = File.ReadAllBytes(path);
+        var scanner = new AssemblyScanner(RuleFactory.CreateDefaultRules());
+
+        var findings = scanner.Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), assemblyBytes, false);
+
+        var family = dto.ThreatFamilies!.Single(match => match.FamilyId == "family-webdownload-stage-exec-v3");
+        var linkedFindings = dto.Findings.Where(finding => family.RelatedFindingIds.Contains(finding.Id!)).ToList();
+        var launch = linkedFindings.Single(finding => finding.RuleId == "ProcessStartRule");
+
+        launch.Attributes.Should().NotBeNull();
+        launch.Attributes!.Target.Should().Be("powershell.exe");
+        launch.Attributes.TargetKind.Should().Be(nameof(FindingTargetKind.Script));
+        launch.Attributes.Indicators.Should().Contain("WindowStyle=Hidden");
     }
 
     [SkippableFact]

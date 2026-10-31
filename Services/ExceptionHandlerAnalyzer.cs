@@ -198,7 +198,7 @@ namespace MLVScan.Services
                         // Resolve per-call context before reading Severity, just as the normal instruction path does.
                         // Rules such as ProcessStartRule update their severity from the actual target and arguments.
                         var description = Helpers.RuleFindingDescription.Resolve(rule, method, calledMethod, allInstructions, instructionIndex,
-                            out var resolutionDiagnostic);
+                            out var resolutionDiagnostic, out var findingAttributes);
                         if (resolutionDiagnostic != null)
                         {
                             findings.Add(resolutionDiagnostic);
@@ -210,7 +210,8 @@ namespace MLVScan.Services
                             snippet)
                         {
                             RuleId = rule.RuleId,
-                            DeveloperGuidance = rule.DeveloperGuidance
+                            DeveloperGuidance = rule.DeveloperGuidance,
+                            Attributes = findingAttributes
                         };
 
                         findings.Add(finding);

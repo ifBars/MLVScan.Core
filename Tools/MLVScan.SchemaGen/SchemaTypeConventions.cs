@@ -21,6 +21,8 @@ internal static class SchemaTypeConventions
             [new(typeof(FindingDto), nameof(FindingDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),
             [new(typeof(FindingDto), nameof(FindingDto.Visibility))] =
                 StringUnionSpec.CreateEnum<FindingVisibility>("FindingVisibility"),
+            [new(typeof(FindingAttributesDto), nameof(FindingAttributesDto.TargetKind))] =
+                StringUnionSpec.CreateEnum<FindingTargetKind>("FindingTargetKind"),
             [new(typeof(AnalysisCompletenessDto), nameof(AnalysisCompletenessDto.Status))] =
                 StringUnionSpec.CreateEnum<AnalysisCompletenessStatus>("AnalysisCompletenessStatus"),
             [new(typeof(CallChainDto), nameof(CallChainDto.Severity))] = StringUnionSpec.CreateEnum<Severity>("Severity"),

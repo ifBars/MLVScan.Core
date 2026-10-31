@@ -93,7 +93,9 @@ public static class ScanResultMapper
 
         if (threatFamilies.Count > 0)
         {
-            result.ThreatFamilies = threatFamilies.Select(ToThreatFamilyDto).ToList();
+            result.ThreatFamilies = threatFamilies
+                .Select(match => ToThreatFamilyDto(match, findingsList, findingIdsByReference))
+                .ToList();
         }
 
         // Add call chains if present and enabled
@@ -301,7 +303,8 @@ public static class ScanResultMapper
             RiskScore = finding.RiskScore,
             CallChainId = finding.CallChain?.ChainId,
             DataFlowChainId = finding.DataFlowChain?.ChainId,
-            Visibility = visibility.ToString()
+            Visibility = visibility.ToString(),
+            Attributes = ToFindingAttributesDto(finding.Attributes)
         };
 
         if (options.IncludeDeveloperGuidance && finding.DeveloperGuidance != null)
@@ -420,7 +423,63 @@ public static class ScanResultMapper
         };
     }
 
-    private static ThreatFamilyDto ToThreatFamilyDto(ThreatFamilyMatch match)
+    private static FindingAttributesDto? ToFindingAttributesDto(FindingAttributes? attributes)
+    {
+        if (attributes == null)
+        {
+            return null;
+        }
+
+        var dto = new FindingAttributesDto
+        {
+            Target = NullIfWhiteSpace(attributes.Target),
+            TargetKind = attributes.TargetKind?.ToString(),
+            TargetCandidates = attributes.TargetCandidates.Count > 0 ? attributes.TargetCandidates.ToList() : null,
+            Arguments = NullIfWhiteSpace(attributes.Arguments),
+            Indicators = attributes.Indicators.Count > 0 ? attributes.Indicators.ToList() : null,
+            RiskReason = NullIfWhiteSpace(attributes.RiskReason)
+        };
+
+        return dto.Target == null && dto.Arguments == null && dto.Indicators == null && dto.RiskReason == null
+            ? null
+            : dto;
+    }
+
+    private static List<string> ResolveFamilyFindingIds(
+        ThreatFamilyMatch match,
+        IReadOnlyList<ScanFinding> findings,
+        IReadOnlyDictionary<ScanFinding, string> findingIdsByReference)
+    {
+        var sourceFindings = new HashSet<ScanFinding>(
+            match.Evidence
+                .Select(static evidence => evidence.SourceFinding)
+                .Where(static finding => finding != null)
+                .Select(static finding => finding!),
+            ReferenceEqualityComparer.Instance);
+        var dataFlowIds = match.Evidence
+            .Select(static evidence => evidence.DataFlowChainId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.Ordinal);
+        var callChainIds = match.Evidence
+            .Select(static evidence => evidence.CallChainId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return findings
+            .Where(finding =>
+                sourceFindings.Contains(finding) ||
+                (finding.DataFlowChain?.ChainId is { } dataFlowId && dataFlowIds.Contains(dataFlowId)) ||
+                (finding.CallChain?.ChainId is { } callChainId && callChainIds.Contains(callChainId)))
+            .Where(findingIdsByReference.ContainsKey)
+            .Select(finding => findingIdsByReference[finding])
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static ThreatFamilyDto ToThreatFamilyDto(
+        ThreatFamilyMatch match,
+        IReadOnlyList<ScanFinding> findings,
+        IReadOnlyDictionary<ScanFinding, string> findingIdsByReference)
     {
         return new ThreatFamilyDto
         {
@@ -444,7 +503,8 @@ public static class ScanResultMapper
                 Pattern = e.Pattern,
                 MethodLocation = e.MethodLocation,
                 Confidence = e.Confidence
-            }).ToList()
+            }).ToList(),
+            RelatedFindingIds = ResolveFamilyFindingIds(match, findings, findingIdsByReference)
         };
     }
 

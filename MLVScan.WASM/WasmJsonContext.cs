@@ -13,6 +13,7 @@ namespace MLVScan.WASM;
 [JsonSerializable(typeof(AnalysisCompletenessDto))]
 [JsonSerializable(typeof(AnalysisCompletenessReasonDto))]
 [JsonSerializable(typeof(FindingDto))]
+[JsonSerializable(typeof(FindingAttributesDto))]
 [JsonSerializable(typeof(ThreatDispositionDto))]
 [JsonSerializable(typeof(CallChainDto))]
 [JsonSerializable(typeof(CallChainNodeDto))]

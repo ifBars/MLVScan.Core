@@ -68,4 +68,14 @@ public class ThreatFamilyDto
     /// Evidence records that explain why the classifier attached this family to the scan.
     /// </summary>
     public List<ThreatFamilyEvidenceDto> Evidence { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets identifiers of findings in this payload that directly support this family match.
+    /// </summary>
+    /// <remarks>
+    /// Values reference <see cref="FindingDto.Id"/>. This is narrower than
+    /// <see cref="ThreatDispositionDto.RelatedFindingIds"/>, which lists every finding retained for the
+    /// overall verdict. Exact hash matches can have an empty list.
+    /// </remarks>
+    public List<string> RelatedFindingIds { get; set; } = new();
 }

@@ -84,4 +84,13 @@ public class FindingDto
     /// interfaces can stay concise without losing forensic detail.
     /// </remarks>
     public string? Visibility { get; set; }
+
+    /// <summary>
+    /// Gets or sets structured values the rule resolved for this finding, when available.
+    /// </summary>
+    /// <remarks>
+    /// Consumers should use these values for grouping and display instead of parsing
+    /// <see cref="Description"/>. The field is omitted when the rule resolved no structured values.
+    /// </remarks>
+    public FindingAttributesDto? Attributes { get; set; }
 }

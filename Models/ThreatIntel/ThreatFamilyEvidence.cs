@@ -49,4 +49,7 @@ public sealed class ThreatFamilyEvidence
     /// Optional confidence score for this individual evidence record.
     /// </summary>
     public double? Confidence { get; set; }
+
+    // The finding this evidence was taken from, used to link families to serialized finding IDs.
+    internal ScanFinding? SourceFinding { get; set; }
 }
