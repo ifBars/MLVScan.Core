@@ -234,58 +234,8 @@ public static class ScanResultMapper
         return summary;
     }
 
-    private static AnalysisCompletenessResult BuildAnalysisCompleteness(IReadOnlyList<ScanFinding> findings)
-    {
-        var incompleteFindings = findings
-            .Where(Helpers.AnalysisCompletenessEvidence.IsIncompleteFinding)
-            .ToList();
-
-        if (incompleteFindings.Count == 0)
-        {
-            return new AnalysisCompletenessResult
-            {
-                Status = AnalysisCompletenessStatus.Complete,
-                IsComplete = true,
-                ReviewRecommended = false
-            };
-        }
-
-        var nonCompletenessFindings = findings
-            .Where(finding => !incompleteFindings.Contains(finding))
-            .ToList();
-
-        return new AnalysisCompletenessResult
-        {
-            Status = nonCompletenessFindings.Count > 0
-                ? AnalysisCompletenessStatus.Partial
-                : AnalysisCompletenessStatus.Incomplete,
-            IsComplete = false,
-            ReviewRecommended = true,
-            RelatedFindings = incompleteFindings,
-            Reasons = incompleteFindings
-                .Select(ToAnalysisCompletenessReason)
-                .ToList()
-        };
-    }
-
-    private static AnalysisCompletenessReason ToAnalysisCompletenessReason(ScanFinding finding)
-    {
-        return new AnalysisCompletenessReason
-        {
-            ReasonId = "scanner-incomplete",
-            Summary = finding.Description,
-            Phase = ResolveAnalysisCompletenessPhase(finding),
-            RuleId = finding.RuleId,
-            Location = finding.Location
-        };
-    }
-
-    private static string ResolveAnalysisCompletenessPhase(ScanFinding finding)
-    {
-        return string.Equals(finding.RuleId, "AssemblyScanner", StringComparison.Ordinal)
-            ? "assembly-scan"
-            : "analysis";
-    }
+    private static AnalysisCompletenessResult BuildAnalysisCompleteness(IReadOnlyList<ScanFinding> findings) =>
+        AnalysisCompletenessEvaluator.Evaluate(findings);
 
     private static FindingDto ToFindingDto(
         ScanFinding finding,

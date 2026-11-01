@@ -108,3 +108,7 @@ Complete documentation is available in the [MLVScan.Core docs](https://mlvscan.c
 ---
 
 Licensed under GPL-3.0.
+
+### Optional telemetry projections
+
+`ScanTelemetrySummary` and `ScanDiagnosticSummary` provide bounded, allowlisted aggregate properties for hosts that explicitly choose to collect diagnostics. `AnalysisCompletenessEvaluator` shares incomplete-scan interpretation with result mapping. These APIs do not send network requests, create identifiers, or enable collection. Consumers control consent and transport; upgrading Core does not enroll API or enterprise consumers in analytics.
