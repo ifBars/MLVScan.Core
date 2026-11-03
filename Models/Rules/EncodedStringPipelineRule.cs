@@ -90,7 +90,8 @@ namespace MLVScan.Models.Rules
 
             foreach (var field in EnumerateTypes(module).SelectMany(static type => type.Fields))
             {
-                if (!field.HasFieldRVA || field.InitialValue is not { Length: >= 4 and <= 4096 } bytes)
+                // Use the metadata flag for compatibility with Cecil 0.10.4.
+                if ((field.Attributes & FieldAttributes.HasFieldRVA) == 0 || field.InitialValue is not { Length: >= 4 and <= 4096 } bytes)
                 {
                     continue;
                 }

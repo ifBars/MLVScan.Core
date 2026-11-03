@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageDownload Include="Mono.Cecil" Version="[0.10.4]" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -46,6 +47,8 @@
     <None Update="TestAssemblies\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="$(NuGetPackageRoot)mono.cecil/0.10.4/lib/netstandard1.3/Mono.Cecil.dll"
+          Link="Compatibility/Mono.Cecil.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="TestResults\**" />
   </ItemGroup>
 

@@ -77,10 +77,11 @@ public sealed class EmbeddedArchivePayloadRule : IScanRule
             return extractionFindings;
         }
 
+        // Read the flag directly: Cecil 0.10.4 has no FieldDefinition.HasFieldRVA getter.
         var archiveFields = EnumerateTypes(module)
             .SelectMany(static type => type.Fields)
             .Where(static field =>
-                field.HasFieldRVA &&
+                (field.Attributes & FieldAttributes.HasFieldRVA) != 0 &&
                 field.InitialValue is { Length: >= MinimumArchiveBytes and <= MaximumArchiveBytes } bytes &&
                 IsZip(bytes))
             .ToList();

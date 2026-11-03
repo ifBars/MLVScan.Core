@@ -567,7 +567,8 @@ namespace MLVScan.Models.Rules
             {
                 foreach (FieldDefinition field in type.Fields)
                 {
-                    if (!field.HasFieldRVA || field.InitialValue == null || field.InitialValue.Length < 3)
+                    // Use the metadata flag for compatibility with Cecil 0.10.4.
+                    if ((field.Attributes & FieldAttributes.HasFieldRVA) == 0 || field.InitialValue == null || field.InitialValue.Length < 3)
                     {
                         continue;
                     }
