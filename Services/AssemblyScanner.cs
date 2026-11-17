@@ -170,11 +170,11 @@ namespace MLVScan.Services
                 completedUnits++;
                 ReportProgress("CorrelateFindings", completedUnits, totalUnits, assembly.Name.Name);
             }
-            catch (Exception)
+            catch (Exception error)
             {
                 findings.Add(new ScanFinding(
                     "Assembly scanning",
-                    "Warning: The assembly could not be scanned completely. Manual review is required before treating this input as clean.",
+                    AnalysisCompletenessEvaluator.AssemblyFailureSummary(error),
                     Severity.Medium) { RuleId = "AssemblyScanner" });
             }
 
@@ -267,11 +267,11 @@ namespace MLVScan.Services
                 completedUnits++;
                 ReportProgress("CorrelateFindings", completedUnits, totalUnits, assembly.Name.Name);
             }
-            catch (Exception)
+            catch (Exception error)
             {
                 findings.Add(new ScanFinding(
                     virtualPath ?? "Assembly scanning",
-                    "Warning: The assembly could not be scanned completely. Please ensure this is a valid managed .NET assembly. Manual review is required before treating this input as clean.",
+                    AnalysisCompletenessEvaluator.AssemblyFailureSummary(error),
                     Severity.Medium) { RuleId = "AssemblyScanner" });
             }
 

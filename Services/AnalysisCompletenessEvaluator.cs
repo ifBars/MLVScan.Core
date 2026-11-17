@@ -11,6 +11,45 @@ namespace MLVScan.Services;
 /// </summary>
 public static class AnalysisCompletenessEvaluator
 {
+    internal static string AssemblyFailureSummary(Exception error)
+    {
+        var category = error switch
+        {
+            BadImageFormatException => "invalid_format",
+            UnauthorizedAccessException => "access_denied",
+            System.IO.IOException => "io_error",
+            ArgumentException => "invalid_metadata",
+            InvalidOperationException => "invalid_operation",
+            _ => "other_error"
+        };
+        // Never expose exception messages, type names, file paths, or assembly names.
+        return $"Warning: The assembly could not be scanned completely. Failure category: {category}. Manual review is required before treating this input as clean.";
+    }
+
+    /// <summary>Maps retained diagnostic evidence to a fixed vocabulary, never arbitrary input text.</summary>
+    public static string GetDiagnosticReasonCategory(string? ruleId, string? summary)
+    {
+        summary ??= string.Empty;
+        if (ruleId == "DataFlowScanWarning")
+            return summary.Contains("Cross-method analysis reached its bounded work limit", StringComparison.Ordinal)
+                ? "cross_method_work_limit"
+                : summary.Contains("bounded data-flow work limit was reached", StringComparison.Ordinal)
+                    ? "method_work_limit" : "data_flow_unspecified";
+        if (ruleId == "AssemblyScanner")
+        {
+            foreach (var category in new[] { "invalid_format", "access_denied", "io_error", "invalid_metadata", "invalid_operation", "other_error" })
+                if (summary.Contains($"Failure category: {category}.", StringComparison.Ordinal)) return category;
+            return "assembly_scan_unspecified";
+        }
+        return ruleId switch
+        {
+            "MethodScanWarning" => "method_analysis",
+            "TypeScanWarning" => "type_analysis",
+            "ExceptionHandlerScanWarning" => "exception_handler_analysis",
+            "StaticRvaScanWarning" => "static_data_analysis",
+            _ => "other_incomplete"
+        };
+    }
     /// <summary>
     /// Returns true when a finding records that some analysis could not complete, such as a
     /// scanner warning, a skipped assembly, or a skipped IL region.

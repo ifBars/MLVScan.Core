@@ -80,6 +80,9 @@ public sealed class ScanDiagnosticSummary
         // One count per result and finding ID that made analysis incomplete (for example MethodScanWarning).
         foreach (var source in (result.AnalysisCompleteness?.Reasons ?? new()).Select(r => AllowedFindingId(r.RuleId)).Distinct())
             Add($"incomplete_{source}_count");
+        foreach (var category in (result.AnalysisCompleteness?.Reasons ?? new())
+                     .Select(r => AnalysisCompletenessEvaluator.GetDiagnosticReasonCategory(r.RuleId, r.Summary)).Distinct())
+            Add($"incomplete_reason_{category}_count");
     }
 
     private string AllowedFindingId(string? id) => id != null && _findingIds.Contains(id) ? id : "other";
