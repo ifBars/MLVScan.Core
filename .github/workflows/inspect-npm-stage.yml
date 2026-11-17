@@ -1,0 +1,22 @@
+name: Inspect npm staged release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.5'
+      - name: Read publisher identity and staged package metadata
+        run: bun scripts/inspect-npm-stage.ts
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
