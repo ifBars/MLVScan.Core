@@ -204,6 +204,22 @@ public class AssemblyScannerTests
             .EndType()
             .Build();
 
+        // Exercise a scanned callee edge. External calls are already inspected by method analysis
+        // and no longer spend the separate body-correlation budget.
+        var caller = assembly.MainModule.Types.Single(type => type.Name == "Caller");
+        var helper = new Mono.Cecil.MethodDefinition("Helper", Mono.Cecil.MethodAttributes.Static,
+            assembly.MainModule.TypeSystem.String);
+        var download = new Mono.Cecil.MethodReference("DownloadString", assembly.MainModule.TypeSystem.String,
+            new Mono.Cecil.TypeReference("System.Net", "WebClient", assembly.MainModule,
+                assembly.MainModule.TypeSystem.CoreLibrary)) { HasThis = false };
+        helper.Body.GetILProcessor().Emit(Mono.Cecil.Cil.OpCodes.Call, download);
+        helper.Body.GetILProcessor().Emit(Mono.Cecil.Cil.OpCodes.Ret);
+        caller.Methods.Add(helper);
+        var run = caller.Methods.Single(method => method.Name == "Run");
+        var runIl = run.Body.GetILProcessor();
+        var first = run.Body.Instructions.First();
+        runIl.Replace(first, Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Call, helper));
+
         using var stream = new MemoryStream();
         assembly.Write(stream);
         var bytes = stream.ToArray();

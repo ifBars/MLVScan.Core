@@ -260,8 +260,10 @@ public class DataFlowAnalyzerTests
         findings.Should().NotBeNull();
     }
 
-    [Fact]
-    public void AnalyzeCrossMethodFlows_EmbeddedDropperAcrossThreeMethods_MapsPayloadPath()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(32)]
+    public void AnalyzeCrossMethodFlows_EmbeddedDropperAcrossThreeMethods_MapsPayloadPath(int externalPaddingCalls)
     {
         var builder = TestAssemblyBuilder.Create("CrossMethodEmbeddedDropperTest");
         var module = builder.Module;
@@ -312,7 +314,22 @@ public class DataFlowAnalyzerTests
             .EndMethod();
         var extractMethod = typeBuilder.TypeDefinition.Methods.First(method => method.Name == "Extract");
 
-        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder());
+        // An attacker must not be able to spend the correlation budget on external noise before
+        // a real source -> staging helper -> execution helper path is inspected.
+        var abs = new MethodReference("Abs", module.TypeSystem.Int32,
+            new TypeReference("System", "Math", module, module.TypeSystem.CoreLibrary)) { HasThis = false };
+        abs.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        var il = extractMethod.Body.GetILProcessor();
+        var first = extractMethod.Body.Instructions[0];
+        for (int index = 0; index < externalPaddingCalls; index++)
+        {
+            il.InsertBefore(first, Instruction.Create(OpCodes.Ldc_I4_1));
+            il.InsertBefore(first, Instruction.Create(OpCodes.Call, abs));
+            il.InsertBefore(first, Instruction.Create(OpCodes.Pop));
+        }
+
+        var analyzer = new DataFlowAnalyzer(RuleFactory.CreateDefaultRules(), new CodeSnippetBuilder(),
+            new DataFlowAnalyzerConfig { MaxCrossMethodCallEdges = 2 });
         analyzer.AnalyzeMethod(extractMethod);
         analyzer.AnalyzeMethod(stageMethod);
         analyzer.AnalyzeMethod(launchMethod);
@@ -322,6 +339,7 @@ public class DataFlowAnalyzerTests
             finding.DataFlowChain != null &&
             finding.DataFlowChain.IsCrossMethod &&
             finding.DataFlowChain.Pattern == DataFlowPattern.EmbeddedResourceDropAndExecute);
+        analyzer.BuildDataFlowFindings().Should().NotContain(finding => finding.RuleId == "DataFlowScanWarning");
     }
 
     [Fact]
@@ -1225,7 +1243,7 @@ public class DataFlowAnalyzerTests
     public void AnalyzeCrossMethodFlows_WhenEdgeBudgetIsExhausted_FailsClosedForManualReview()
     {
         using var module = ModuleDefinition.CreateModule("CrossMethodBudgetTest", ModuleKind.Dll);
-        var stress = CreateCallHeavyMethod(module, 8);
+        var stress = CreateCallHeavyMethod(module, 8, candidateFlow: true);
         var target = stress.DeclaringType.Methods.Single(method => method.Name == "Consume");
         var config = new DataFlowAnalyzerConfig
         {
@@ -1248,7 +1266,7 @@ public class DataFlowAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeCrossMethodFlows_UnresolvedCallsConsumeEdgeBudget()
+    public void AnalyzeCrossMethodFlows_ExternalCallsDoNotExhaustBodyCorrelationBudget()
     {
         using var module = ModuleDefinition.CreateModule("UnresolvedCrossMethodBudgetTest", ModuleKind.Dll);
         var stress = CreateInterestingCallHeavyMethod(module, 8);
@@ -1265,7 +1283,7 @@ public class DataFlowAnalyzerTests
         analyzer.AnalyzeCrossMethodFlows();
         var findings = analyzer.BuildDataFlowFindings().ToList();
 
-        findings.Should().ContainSingle(finding =>
+        findings.Should().NotContain(finding =>
             finding.RuleId == "DataFlowScanWarning" &&
             finding.Location == "Cross-method data flow analysis" &&
             finding.Severity == Severity.Medium);
@@ -1298,7 +1316,7 @@ public class DataFlowAnalyzerTests
         return method;
     }
 
-    private static MethodDefinition CreateCallHeavyMethod(ModuleDefinition module, int callCount)
+    private static MethodDefinition CreateCallHeavyMethod(ModuleDefinition module, int callCount, bool candidateFlow = false)
     {
         var type = new TypeDefinition("TestNamespace", $"CallHeavy{callCount}",
             TypeAttributes.Public | TypeAttributes.Class, module.TypeSystem.Object);
@@ -1307,18 +1325,38 @@ public class DataFlowAnalyzerTests
         var consume = new MethodDefinition("Consume",
             MethodAttributes.Public | MethodAttributes.Static,
             module.TypeSystem.Void);
-        consume.Parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, module.TypeSystem.Int32));
+        TypeReference dataType = candidateFlow ? new ArrayType(module.TypeSystem.Byte) : module.TypeSystem.Int32;
+        consume.Parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, dataType));
+        if (candidateFlow)
+        {
+            var write = new MethodReference("WriteAllBytes", module.TypeSystem.Void,
+                new TypeReference("System.IO", "File", module, module.TypeSystem.CoreLibrary)) { HasThis = false };
+            write.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+            write.Parameters.Add(new ParameterDefinition(dataType));
+            var sinkIl = consume.Body.GetILProcessor();
+            sinkIl.Emit(OpCodes.Ldstr, "payload.bin");
+            sinkIl.Emit(OpCodes.Ldarg_0);
+            sinkIl.Emit(OpCodes.Call, write);
+        }
         consume.Body.GetILProcessor().Emit(OpCodes.Ret);
         type.Methods.Add(consume);
 
         var method = new MethodDefinition("Stress",
             MethodAttributes.Public | MethodAttributes.Static,
             module.TypeSystem.Void);
-        var local = new VariableDefinition(module.TypeSystem.Int32);
+        var local = new VariableDefinition(dataType);
         method.Body.Variables.Add(local);
         method.Body.InitLocals = true;
         var il = method.Body.GetILProcessor();
-        il.Emit(OpCodes.Ldc_I4_1);
+        if (candidateFlow)
+        {
+            var decode = new MethodReference("FromBase64String", dataType,
+                new TypeReference("System", "Convert", module, module.TypeSystem.CoreLibrary)) { HasThis = false };
+            decode.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+            il.Emit(OpCodes.Ldstr, "AA==");
+            il.Emit(OpCodes.Call, decode);
+        }
+        else il.Emit(OpCodes.Ldc_I4_1);
         il.Emit(OpCodes.Stloc, local);
         for (var index = 0; index < callCount; index++)
         {

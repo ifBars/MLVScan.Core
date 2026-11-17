@@ -20,9 +20,17 @@ namespace MLVScan.Models.Rules
         private const int MinimumTotalScore = 70;
         private const int ReflectionOnlyDangerFloor = 10;
         private const int ReflectionOnlyDecodeFloor = 45;
-        private const int MaximumDecodedStaticArrayStrings = 256;
-        private const int MaximumDecodedStaticArrayBytes = 256 * 1024;
         private const int MaximumDecodedStaticArrayFieldBytes = 4096;
+        // Retain only the fixed vocabulary consumed below, rather than arbitrary strings from
+        // every initializer. Memory is constant and work is linear in eligible RVA data.
+        private static readonly string[] StaticArrayMarkers =
+        {
+            "System.Net.WebClient", "WebClient", "DownloadString", "DownloadFile",
+            "System.IO.Path", "Path", "GetTempFileName", ".cmd", ".bat", "System.IO.File", "File",
+            "WriteAllText", "WriteAllBytes", "System.Diagnostics.ProcessStartInfo", "ProcessStartInfo",
+            "System.Diagnostics.Process", "Process", "cmd.exe", "/c", "WindowStyle", "Hidden",
+            "UseShellExecute", "CreateNoWindow"
+        };
 
         /// <summary>
         /// Gets the description emitted when the rule identifies an obfuscated execution chain.
@@ -139,24 +147,8 @@ namespace MLVScan.Models.Rules
 
             List<ScanFinding> priorFindings = existingFindings?.ToList() ?? new List<ScanFinding>();
             var findings = new List<ScanFinding>();
-            (IReadOnlyList<string> moduleDecodedStrings, bool staticArrayCollectionTruncated) =
-                CollectDecodedStaticArrayStringsWithStatus(module);
+            IReadOnlyList<string> moduleDecodedStrings = CollectDecodedStaticArrayStrings(module);
             var moduleDecodedMarkerCache = new Dictionary<string, bool>(StringComparer.Ordinal);
-
-            if (staticArrayCollectionTruncated)
-            {
-                findings.Add(new ScanFinding(
-                    module.Name,
-                    "Static RVA string analysis reached its bounded work budget before every eligible field " +
-                    "could be inspected. Full IL analysis was skipped for the remaining static data and manual " +
-                    "review is required.",
-                    Severity.Low)
-                {
-                    RuleId = "StaticRvaScanWarning",
-                    RiskScore = 20,
-                    BypassCompanionCheck = true
-                });
-            }
 
             foreach (var namespaceGroup in EnumerateTypes(module)
                          .Where(static type => !string.IsNullOrWhiteSpace(type.Namespace))
@@ -554,14 +546,7 @@ namespace MLVScan.Models.Rules
 
         private static IReadOnlyList<string> CollectDecodedStaticArrayStrings(ModuleDefinition module)
         {
-            return CollectDecodedStaticArrayStringsWithStatus(module).Strings;
-        }
-
-        private static (IReadOnlyList<string> Strings, bool WasTruncated)
-            CollectDecodedStaticArrayStringsWithStatus(ModuleDefinition module)
-        {
             var strings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            int inspectedBytes = 0;
 
             foreach (TypeDefinition type in EnumerateTypes(module))
             {
@@ -580,21 +565,18 @@ namespace MLVScan.Models.Rules
                         continue;
                     }
 
-                    if (strings.Count >= MaximumDecodedStaticArrayStrings ||
-                        field.InitialValue.Length > MaximumDecodedStaticArrayBytes - inspectedBytes)
-                    {
-                        return (strings.ToList(), true);
-                    }
-
-                    inspectedBytes += field.InitialValue.Length;
                     if (TryDecodePrintableBytes(field.InitialValue, out string decoded))
                     {
-                        strings.Add(decoded);
+                        foreach (string marker in StaticArrayMarkers)
+                        {
+                            if (decoded.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0)
+                                strings.Add(marker);
+                        }
                     }
                 }
             }
 
-            return (strings.ToList(), false);
+            return strings.ToList();
         }
 
         private static bool TryDecodePrintableBytes(byte[] bytes, out string decoded)

@@ -385,7 +385,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
         }
 
         [Fact]
-        public void PostAnalysisRefine_WhenStaticArrayStringBudgetIsExhausted_FailsClosedForManualReview()
+        public void PostAnalysisRefine_ManyStaticStringsPreserveLateMarkersWithBoundedRetention()
         {
             var assembly = TestAssemblyBuilder.Create("StaticArrayBudgetExhaustion").Build();
             ModuleDefinition module = assembly.MainModule;
@@ -418,9 +418,12 @@ namespace MLVScan.Core.Tests.Unit.Rules
                 .PostAnalysisRefine(module, Enumerable.Empty<ScanFinding>())
                 .ToList();
 
-            findings.Should().ContainSingle(finding => finding.RuleId == "StaticRvaScanWarning");
-            findings.Single().Severity.Should().Be(Severity.Low);
-            findings.Single().Description.Should().ContainEquivalentOf("manual review");
+            findings.Should().NotContain(finding => finding.RuleId == "StaticRvaScanWarning");
+            var collect = typeof(ObfuscatedReflectiveExecutionRule).GetMethod(
+                "CollectDecodedStaticArrayStrings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var markers = (IReadOnlyList<string>)collect.Invoke(null, new object[] { module })!;
+            markers.Should().Contain("System.Net.WebClient");
+            markers.Count.Should().BeLessThan(32);
         }
 
         [Fact]
@@ -454,7 +457,7 @@ namespace MLVScan.Core.Tests.Unit.Rules
         }
 
         [Fact]
-        public void PostAnalysisRefine_WhenStaticArrayByteBudgetIsExhausted_FailsClosedForManualReview()
+        public void PostAnalysisRefine_ManyStaticBytesAreFullyInspectedWithBoundedRetention()
         {
             var assembly = TestAssemblyBuilder.Create("StaticArrayByteBudgetExhaustion").Build();
             ModuleDefinition module = assembly.MainModule;
@@ -480,14 +483,19 @@ namespace MLVScan.Core.Tests.Unit.Rules
                 FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.HasFieldRVA,
                 module.TypeSystem.Byte)
             {
-                InitialValue = System.Text.Encoding.ASCII.GetBytes("later-value")
+                InitialValue = System.Text.Encoding.ASCII.GetBytes("System.Diagnostics.ProcessStartInfo")
             });
 
             List<ScanFinding> findings = _rule
                 .PostAnalysisRefine(module, Enumerable.Empty<ScanFinding>())
                 .ToList();
 
-            findings.Should().ContainSingle(finding => finding.RuleId == "StaticRvaScanWarning");
+            findings.Should().NotContain(finding => finding.RuleId == "StaticRvaScanWarning");
+            var collect = typeof(ObfuscatedReflectiveExecutionRule).GetMethod(
+                "CollectDecodedStaticArrayStrings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var markers = (IReadOnlyList<string>)collect.Invoke(null, new object[] { module })!;
+            markers.Should().Contain("System.Diagnostics.ProcessStartInfo");
+            markers.Count.Should().BeLessThan(32);
         }
 
         private static (MethodDefinition Method, ModuleDefinition Module) CreateTestMethod()
