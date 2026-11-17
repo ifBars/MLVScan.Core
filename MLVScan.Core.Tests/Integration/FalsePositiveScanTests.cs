@@ -183,6 +183,21 @@ public class FalsePositiveScanTests
         findings.Should().NotContain(f => f.RuleId == "ProcessStartRule" && f.Severity >= Severity.High);
     }
 
+    [SkippableFact]
+    public void Scan_ButrCrashReport_CompletesWithoutCrossMethodWorkWarning()
+    {
+        var path = GetSamplePath(@"Nexus Bannerlord/ButterLib-2.12.0/Modules/Bannerlord.ButterLib/bin/Win64_Shipping_Client/BUTR.CrashReport.dll");
+        var findings = new AssemblyScanner(RuleFactory.CreateDefaultRules()).Scan(path).ToList();
+        var dto = ScanResultMapper.ToDto(findings, Path.GetFileName(path), File.ReadAllBytes(path), false);
+        dto.Input.Sha256Hash.Should().Be("2934404b80fa2506191abe21a822d2992b614e5ec24440bb5a0d40752f6c2b48");
+        dto.AnalysisCompleteness.IsComplete.Should().BeTrue();
+        dto.AnalysisCompleteness.Reasons.Should().BeEmpty();
+        dto.Disposition!.Classification.Should().Be("Clean");
+        dto.Disposition.BlockingRecommended.Should().BeFalse();
+        dto.ThreatFamilies.Should().BeNullOrEmpty();
+        dto.Findings.Should().NotContain(finding => finding.Severity == "High" || finding.Severity == "Critical");
+    }
+
     public static IEnumerable<object[]> BacklogSamples =>
         FalsePositiveBacklog.Entries.Keys.Select(path => new object[] { path });
 

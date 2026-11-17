@@ -30,6 +30,9 @@ as runtime assemblies. No new sample was moved to quarantine.
 | MoonRocks.dll | 42,305,024 | Cross-method limit; manual review | Complete; no retained findings |
 | Microsoft.Windows.SDK.NET.dll | 25,131,040 | Cross-method and RVA limits; manual review | Complete; same two ordinary rule findings retained; final disposition Clean |
 
+The reviewed `BUTR.CrashReport.dll` corpus case also completes. Its FP-004 limitation
+profile was retired and replaced with a hash-pinned ordinary regression test.
+
 The SDK reproduction contains 237,654 methods (214,765 with bodies) and 2,316,458 inspected IL
 instructions. Completion does not imply that every possible large or adversarial assembly will
 finish within the remaining finite limits.
