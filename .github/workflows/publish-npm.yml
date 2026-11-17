@@ -114,6 +114,11 @@ jobs:
     permissions: {}
 
     steps:
+    - name: Checkout publication verification
+      uses: actions/checkout@v6
+      with:
+        persist-credentials: false
+
     - name: Download npm package artifact
       uses: actions/download-artifact@v6
       with:
@@ -143,4 +148,4 @@ jobs:
         NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     - name: Verify public package availability and artifact integrity
-      run: bun scripts/verify-npm-publication.ts ./package-artifact/*.tgz
+      run: bun scripts/verify-npm-publication.ts ./package-artifact/*.tgz ./package-to-publish/package.json

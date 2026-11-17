@@ -25,8 +25,9 @@ export async function inspectPublication(
 
 if (import.meta.main) {
   const tarball = Bun.argv[2]
-  if (!tarball) throw new Error('Provide the release tarball path')
-  const manifest = await Bun.file('MLVScan.WASM/npm/package.json').json()
+  const manifestPath = Bun.argv[3]
+  if (!tarball || !manifestPath) throw new Error('Provide the release tarball and its extracted manifest paths')
+  const manifest = await Bun.file(manifestPath).json()
   const expectedSha1 = new Bun.CryptoHasher('sha1').update(await Bun.file(tarball).arrayBuffer()).digest('hex')
   const timeoutSeconds = Number(process.env.NPM_PUBLICATION_TIMEOUT_SECONDS ?? 3600)
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 3600)

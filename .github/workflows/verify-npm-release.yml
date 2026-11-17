@@ -2,6 +2,12 @@ name: Verify npm release availability
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_run_id:
+        description: Publish workflow run containing the npm-package artifact
+        default: '44001407046'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,14 +24,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.5'
-      - name: Download the original 1.10.1 publish artifact
+      - name: Download the original publish artifact
         uses: actions/download-artifact@v6
         with:
           name: npm-package
           path: package-artifact
-          run-id: 44001407046
+          run-id: ${{ inputs.publish_run_id }}
           github-token: ${{ github.token }}
       - name: Test publication verification
         run: bun test scripts/verify-npm-publication.test.ts
+      - name: Read the manifest from the original release artifact
+        run: tar -xzf ./package-artifact/*.tgz package/package.json
       - name: Verify public metadata and downloaded bytes
-        run: bun scripts/verify-npm-publication.ts ./package-artifact/*.tgz
+        run: bun scripts/verify-npm-publication.ts ./package-artifact/*.tgz ./package/package.json
