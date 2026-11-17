@@ -57,8 +57,11 @@ public class FalsePositiveBacklogTests
     [Fact]
     public void AssertExpectedProfile_DifferentCompletenessReasonRequiresReview()
     {
-        var entry = FalsePositiveBacklog.Entries.Values.Single(entry => entry.Disposition == "ManualReviewRequired");
+        // Keep testing the guard even when no real corpus limitation currently needs it.
+        var entry = new FalsePositiveBacklog.Entry("synthetic-incomplete", new string('A', 64),
+            "ManualReviewRequired", "Synthetic completeness-profile guard");
         var result = CreateResult(entry);
+        FalsePositiveBacklog.AssertExpectedProfile(result, entry);
         result.AnalysisCompleteness.Reasons[0].RuleId = "MethodScanWarning";
 
         Action validate = () => FalsePositiveBacklog.AssertExpectedProfile(result, entry);
