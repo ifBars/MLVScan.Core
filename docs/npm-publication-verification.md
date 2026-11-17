@@ -5,6 +5,10 @@ Bun reported a successful publish, public version/tarball reads returned 404, an
 returned `409 Cannot publish over previously staged version`. The authenticated `ifbars`
 owner's `/-/stage` query returned HTTP 200 with zero records, matching the empty account UI.
 
+Version 1.10.1 subsequently became public without maintainer approval. The verifier downloaded
+the public tarball and confirmed it matched the original release artifact; `latest` also moved
+to 1.10.1.
+
 The conflict message alone does not establish that a maintainer must approve a package.
 Check the authenticated staging queue before requesting 2FA approval. Similar inconsistent
 registry state is reported in https://github.com/npm/cli/issues/9889.
