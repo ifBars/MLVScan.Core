@@ -39,15 +39,28 @@ namespace MLVScan.Services.DataFlow
             {
                 foreach (var callSite in callerInfo.OutgoingCalls)
                 {
-                    if (!budget.TryConsumeEdge())
-                        return new CrossMethodAnalysisResult(chains, false);
-
                     if (!state.MethodFlowInfos.TryGetValue(callSite.TargetMethodKey, out var calleeInfo))
                     {
                         continue;
                     }
 
-                    var crossMethodChain = TryBuildCrossMethodChain(state, callerInfo, callSite, calleeInfo);
+                    // These are the necessary conditions checked by the two builders below.
+                    // Calls without a possible source/sink connection need no body correlation.
+                    // Deep traversal has its own budget and still follows intermediary helpers.
+                    bool canBuildForward = (callerInfo.HasSource || callerInfo.HasTransform) && calleeInfo.HasSink;
+                    bool canBuildReturn = _config.EnableReturnValueTracking && callSite.CalledMethodReturnsData &&
+                        callSite.ReturnValueUsed && callerInfo.HasSink &&
+                        (calleeInfo.ReturnsData || calleeInfo.ReturnProducingOperations.Count != 0);
+                    if (!canBuildForward && !canBuildReturn)
+                        continue;
+
+                    // External calls were already inspected by method analysis. Charge only
+                    // scanned bodies with a candidate flow, rather than every call instruction.
+                    if (!budget.TryConsumeEdge())
+                        return new CrossMethodAnalysisResult(chains, false);
+
+                    var crossMethodChain = canBuildForward
+                        ? TryBuildCrossMethodChain(state, callerInfo, callSite, calleeInfo) : null;
                     if (crossMethodChain != null)
                     {
                         if (!budget.TryReserveChain())
@@ -56,7 +69,7 @@ namespace MLVScan.Services.DataFlow
                         chains.Add(crossMethodChain);
                     }
 
-                    if (_config.EnableReturnValueTracking && callSite.CalledMethodReturnsData && callSite.ReturnValueUsed)
+                    if (canBuildReturn)
                     {
                         var returnValueChain = TryBuildReturnValueChain(state, callerInfo, callSite, calleeInfo);
                         if (returnValueChain != null)

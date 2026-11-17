@@ -27,6 +27,12 @@ namespace MLVScan.Services.DataFlow
             Collection<Instruction> instructions)
         {
             var operations = new List<DataFlowInterestingOperation>();
+            var branchTargets = new HashSet<Instruction>();
+            foreach (var candidate in instructions)
+            {
+                if (candidate.Operand is Instruction target) branchTargets.Add(target);
+                else if (candidate.Operand is Instruction[] targets) branchTargets.UnionWith(targets);
+            }
 
             for (var index = 0; index < instructions.Count; index++)
             {
@@ -49,6 +55,16 @@ namespace MLVScan.Services.DataFlow
                 {
                     continue;
                 }
+
+                // A literal display-name lookup does not consume the caller's file/network bytes.
+                // Keep byte[], dynamic names and path-based loads as sinks, including when an
+                // alternate control-flow edge can enter the call without executing the literal.
+                if (calledMethod.DeclaringType?.FullName == "System.Reflection.Assembly" &&
+                    calledMethod.Name == "Load" && !calledMethod.HasThis &&
+                    calledMethod.Parameters.Count == 1 && calledMethod.Parameters[0].ParameterType.FullName == "System.String" &&
+                    index > 0 && instructions[index - 1].OpCode == OpCodes.Ldstr &&
+                    !branchTargets.Contains(instruction))
+                    continue;
 
                 var operationInfo = ClassifyOperation(calledMethod);
                 if (operationInfo != null)
@@ -1098,6 +1114,7 @@ namespace MLVScan.Services.DataFlow
         private static bool IsFileSink(string declaringType, string methodName)
         {
             return declaringType.StartsWith("System.IO.File", StringComparison.Ordinal) &&
+                   !methodName.StartsWith("get_", StringComparison.Ordinal) &&
                    (methodName.Contains("Write", StringComparison.Ordinal) ||
                     methodName.Contains("Create", StringComparison.Ordinal));
         }

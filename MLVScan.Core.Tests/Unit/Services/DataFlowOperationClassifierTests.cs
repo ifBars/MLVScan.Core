@@ -10,6 +10,74 @@ namespace MLVScan.Core.Tests.Unit.Services;
 public class DataFlowOperationClassifierTests
 {
     [Fact]
+    public void BranchIntoNamedLoadPreservesDynamicArgumentSink()
+    {
+        var method = CreateCallerMethod(out var module);
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        var assembly = CreateTypeReference(module, "System.Reflection", "Assembly");
+        var call = Instruction.Create(OpCodes.Call, CreateMethodReference(assembly, "Load", assembly, false, module.TypeSystem.String));
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Br, call);
+        il.Emit(OpCodes.Ldstr, "Example.ImageConversion");
+        il.Append(call);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+        Classify(method).Should().ContainSingle(o => o.NodeType == MLVScan.Models.DataFlowNodeType.Sink);
+    }
+
+    [Theory]
+    [InlineData("Load", true, false)]
+    [InlineData("Load", false, true)]
+    [InlineData("LoadFrom", true, true)]
+    [InlineData("LoadFile", true, true)]
+    public void NamedAssemblyLookupDoesNotConsumeUnrelatedFileData(string name, bool literal, bool sink)
+    {
+        var method = CreateCallerMethod(out var module);
+        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+        var il = method.Body.GetILProcessor();
+        var assembly = CreateTypeReference(module, "System.Reflection", "Assembly");
+        if (literal) il.Emit(OpCodes.Ldstr, "Example.ImageConversion");
+        else il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, CreateMethodReference(assembly, name, assembly, false, module.TypeSystem.String));
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+        Classify(method).Any(o => o.NodeType == MLVScan.Models.DataFlowNodeType.Sink).Should().Be(sink);
+    }
+
+    [Fact]
+    public void ByteArrayAssemblyLoadRemainsADataSink()
+    {
+        var method = CreateCallerMethod(out var module);
+        var bytes = new ArrayType(module.TypeSystem.Byte);
+        method.Parameters.Add(new ParameterDefinition(bytes));
+        var il = method.Body.GetILProcessor();
+        var assembly = CreateTypeReference(module, "System.Reflection", "Assembly");
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, CreateMethodReference(assembly, "Load", assembly, false, bytes));
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+        Classify(method).Should().ContainSingle(o => o.NodeType == MLVScan.Models.DataFlowNodeType.Sink);
+    }
+
+    [Theory]
+    [InlineData("get_LastWriteTimeUtc", false)]
+    [InlineData("set_LastWriteTimeUtc", true)]
+    public void FileTimestampGetterIsNotAWrite(string name, bool sink)
+    {
+        var method = CreateCallerMethod(out var module);
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldnull);
+        if (sink) il.Emit(OpCodes.Ldnull);
+        var type = CreateTypeReference(module, "System.IO", "FileSystemInfo");
+        il.Emit(OpCodes.Callvirt, CreateMethodReference(type, name, sink ? module.TypeSystem.Void : module.TypeSystem.Object,
+            true, sink ? new[] { module.TypeSystem.Object } : Array.Empty<TypeReference>()));
+        if (!sink) il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ret);
+        Classify(method).Any(o => o.NodeType == MLVScan.Models.DataFlowNodeType.Sink).Should().Be(sink);
+    }
+
+    [Fact]
     public void IdentifyInterestingOperations_ZipExtraction_IsArchiveTransform()
     {
         var method = CreateCallerMethod(out var module);
