@@ -1,0 +1,31 @@
+name: Verify npm release availability
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.5'
+      - name: Download the original 1.10.1 publish artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: npm-package
+          path: package-artifact
+          run-id: 44001407046
+          github-token: ${{ github.token }}
+      - name: Test publication verification
+        run: bun test scripts/verify-npm-publication.test.ts
+      - name: Verify public metadata and downloaded bytes
+        run: bun scripts/verify-npm-publication.ts ./package-artifact/*.tgz
