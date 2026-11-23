@@ -23,5 +23,8 @@ public enum ThreatDispositionClassification
     /// <summary>
     /// The file matched a known malicious family or sample with high confidence.
     /// </summary>
-    KnownThreat
+    KnownThreat,
+
+    /// <summary>The scanner has no applicable analysis for this input.</summary>
+    NotApplicable
 }
