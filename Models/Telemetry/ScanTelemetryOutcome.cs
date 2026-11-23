@@ -8,5 +8,6 @@ public enum ScanTelemetryOutcome
     ManualReviewRequired,
     Suspicious,
     KnownThreat,
-    Failed
+    Failed,
+    NotApplicable
 }

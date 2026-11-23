@@ -18,5 +18,8 @@ public enum AnalysisCompletenessStatus
     /// <summary>
     /// Analysis could not inspect enough of the input to support a clean verdict.
     /// </summary>
-    Incomplete
+    Incomplete,
+
+    /// <summary>The input is outside the scope of managed analysis.</summary>
+    NotApplicable
 }

@@ -119,6 +119,7 @@ namespace MLVScan.Services
             _telemetry.IncrementCounter("Assemblies.Scanned");
             var totalStart = _telemetry.StartTimestamp();
             var findings = new List<ScanFinding>();
+            FailedAssemblyInput? inputDiagnostic = null;
 
             try
             {
@@ -136,7 +137,8 @@ namespace MLVScan.Services
 
                 var readAssemblyStart = _telemetry.StartTimestamp();
                 ReportProgress("ReadAssembly", 0, 1, assemblyId);
-                using var assembly = AssemblyDefinition.ReadAssembly(assemblyPath, readerParameters);
+                using var assemblyInput = File.OpenRead(assemblyPath);
+                using var assembly = ReadAssembly(assemblyInput, readerParameters, ref inputDiagnostic);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ReadAssembly", readAssemblyStart);
 
                 var completedUnits = 1;
@@ -172,10 +174,7 @@ namespace MLVScan.Services
             }
             catch (Exception error)
             {
-                findings.Add(new ScanFinding(
-                    "Assembly scanning",
-                    AnalysisCompletenessEvaluator.AssemblyFailureSummary(error),
-                    Severity.Medium) { RuleId = "AssemblyScanner" });
+                findings.Add(CreateReadDiagnostic("Assembly scanning", error, inputDiagnostic));
             }
 
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
@@ -216,6 +215,7 @@ namespace MLVScan.Services
             _telemetry.IncrementCounter("Assemblies.Scanned");
             var totalStart = _telemetry.StartTimestamp();
             var findings = new List<ScanFinding>();
+            FailedAssemblyInput? inputDiagnostic = null;
 
             try
             {
@@ -233,7 +233,7 @@ namespace MLVScan.Services
 
                 var readAssemblyStart = _telemetry.StartTimestamp();
                 ReportProgress("ReadAssembly", 0, 1, assemblyId);
-                using var assembly = AssemblyDefinition.ReadAssembly(assemblyStream, readerParameters);
+                using var assembly = ReadAssembly(assemblyStream, readerParameters, ref inputDiagnostic);
                 _telemetry.AddPhaseElapsed("AssemblyScanner.ReadAssembly", readAssemblyStart);
 
                 var completedUnits = 1;
@@ -269,10 +269,7 @@ namespace MLVScan.Services
             }
             catch (Exception error)
             {
-                findings.Add(new ScanFinding(
-                    virtualPath ?? "Assembly scanning",
-                    AnalysisCompletenessEvaluator.AssemblyFailureSummary(error),
-                    Severity.Medium) { RuleId = "AssemblyScanner" });
+                findings.Add(CreateReadDiagnostic(virtualPath ?? "Assembly scanning", error, inputDiagnostic));
             }
 
             _telemetry.AddPhaseElapsed("AssemblyScanner.Total", totalStart);
@@ -283,6 +280,26 @@ namespace MLVScan.Services
                 assemblyStream.Position = 0;
                 return scanner.Scan(assemblyStream, virtualPath);
             });
+        }
+
+        private static ScanFinding CreateReadDiagnostic(string location, Exception error, FailedAssemblyInput? diagnostic)
+        {
+            var ruleId = diagnostic?.RuleId ?? "AssemblyScanner";
+            return new ScanFinding(location, diagnostic?.Summary ?? AnalysisCompletenessEvaluator.AssemblyFailureSummary(error),
+                ruleId == "AssemblyScanner" ? Severity.Medium : Severity.Low) { RuleId = ruleId };
+        }
+
+        private static AssemblyDefinition ReadAssembly(Stream input, ReaderParameters parameters, ref FailedAssemblyInput? diagnostic)
+        {
+            try
+            {
+                return AssemblyDefinition.ReadAssembly(input, parameters);
+            }
+            catch (Exception error) when (error is BadImageFormatException or EndOfStreamException or ArgumentException)
+            {
+                diagnostic = FailedAssemblyInput.Describe(input);
+                throw;
+            }
         }
 
         private IReadOnlyList<ScanFinding> RetryWithDeepIfNeeded(

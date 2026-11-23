@@ -82,6 +82,17 @@ public sealed class ThreatDispositionClassifier
             return BuildKnownThreatDisposition(findingsList, primaryFamily);
         }
 
+        if (analysisCompleteness?.Status == AnalysisCompletenessStatus.NotApplicable)
+        {
+            return new ThreatDispositionResult
+            {
+                Classification = ThreatDispositionClassification.NotApplicable,
+                Headline = "Managed scan does not apply",
+                Summary = analysisCompleteness.Reasons.FirstOrDefault()?.Summary ?? "The input is outside managed scan coverage.",
+                BlockingRecommended = false
+            };
+        }
+
         if (analysisCompleteness?.ReviewRecommended != true &&
             KnownBenignSampleCatalog.MatchesReviewedBehavior(sha256Hash, findingsList))
         {

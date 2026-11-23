@@ -56,7 +56,7 @@ public sealed class ScanDiagnosticSummary
         var verdict = (outcome ?? ScanTelemetrySummary.GetOutcome(result)).ToString();
         if (!Enum.IsDefined(typeof(ScanTelemetryOutcome), outcome ?? ScanTelemetrySummary.GetOutcome(result))) verdict = "Unknown";
         Add(cached ? "cached_result_count" : "fresh_result_count");
-        Add(result.AnalysisCompleteness?.IsComplete == true ? "complete_result_count" : "incomplete_result_count");
+        Add(result.AnalysisCompleteness?.Status == "NotApplicable" ? "not_applicable_result_count" : result.AnalysisCompleteness?.IsComplete == true ? "complete_result_count" : "incomplete_result_count");
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var finding in result.Findings ?? new())
         {
@@ -77,6 +77,7 @@ public sealed class ScanDiagnosticSummary
             var pattern = flow.Pattern != null && Patterns.Contains(flow.Pattern) ? flow.Pattern : "Unknown";
             Add($"flow_{pattern}_{verdict}_count");
         }
+        if (result.AnalysisCompleteness?.Status == "NotApplicable") return;
         // One count per result and finding ID that made analysis incomplete (for example MethodScanWarning).
         foreach (var source in (result.AnalysisCompleteness?.Reasons ?? new()).Select(r => AllowedFindingId(r.RuleId)).Distinct())
             Add($"incomplete_{source}_count");

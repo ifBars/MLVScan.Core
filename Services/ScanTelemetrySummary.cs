@@ -23,6 +23,7 @@ public static class ScanTelemetrySummary
         return result?.Disposition?.Classification switch
         {
             "KnownThreat" => ScanTelemetryOutcome.KnownThreat,
+            "NotApplicable" => ScanTelemetryOutcome.NotApplicable,
             "Suspicious" => ScanTelemetryOutcome.Suspicious,
             "ManualReviewRequired" => ScanTelemetryOutcome.ManualReviewRequired,
             "Clean" when result.AnalysisCompleteness is { IsComplete: true, ReviewRecommended: false,
@@ -55,6 +56,7 @@ public static class ScanTelemetrySummary
                 ScanTelemetryOutcome.Suspicious => "suspicious_count",
                 ScanTelemetryOutcome.KnownThreat => "known_threat_count",
                 ScanTelemetryOutcome.Failed => "failed_count",
+                ScanTelemetryOutcome.NotApplicable => "not_applicable_count",
                 _ => "unknown_count"
             };
             properties.TryGetValue(key, out var count);

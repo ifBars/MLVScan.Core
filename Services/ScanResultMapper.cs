@@ -43,6 +43,8 @@ public static class ScanResultMapper
         ScanResultOptions options)
     {
         var findingsList = findings.ToList();
+        var analysisCompleteness = BuildAnalysisCompleteness(findingsList);
+        findingsList.RemoveAll(AnalysisCompletenessEvaluator.IsNotApplicableFinding);
         var callChains = findingsList
             .Where(f => f.HasCallChain)
             .Select(f => f.CallChain!)
@@ -54,7 +56,6 @@ public static class ScanResultMapper
             .Distinct()
             .ToList();
         var sha256Hash = ComputeSha256(assemblyBytes);
-        var analysisCompleteness = BuildAnalysisCompleteness(findingsList);
         var threatFamilies = ThreatFamilyClassifier.Classify(findingsList, callChains, dataFlows, sha256Hash);
         var disposition = ThreatDispositionClassifier.Classify(findingsList, threatFamilies, analysisCompleteness, sha256Hash);
         var relatedFindings = disposition.RelatedFindings.ToHashSet();

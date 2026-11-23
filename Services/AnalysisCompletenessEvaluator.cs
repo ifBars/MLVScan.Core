@@ -11,6 +11,9 @@ namespace MLVScan.Services;
 /// </summary>
 public static class AnalysisCompletenessEvaluator
 {
+    /// <summary>True for format evidence outside the scope of managed analysis.</summary>
+    public static bool IsNotApplicableFinding(ScanFinding finding) => finding?.RuleId is "NativePeInput" or "AppleDoubleInput";
+
     internal static string AssemblyFailureSummary(Exception error)
     {
         var category = error switch
@@ -37,7 +40,7 @@ public static class AnalysisCompletenessEvaluator
                     ? "method_work_limit" : "data_flow_unspecified";
         if (ruleId == "AssemblyScanner")
         {
-            foreach (var category in new[] { "invalid_format", "access_denied", "io_error", "invalid_metadata", "invalid_operation", "other_error" })
+            foreach (var category in new[] { "native_pe", "non_pe", "malformed_pe", "invalid_cli_metadata", "invalid_format", "access_denied", "io_error", "invalid_metadata", "invalid_operation", "other_error" })
                 if (summary.Contains($"Failure category: {category}.", StringComparison.Ordinal)) return category;
             return "assembly_scan_unspecified";
         }
@@ -84,6 +87,20 @@ public static class AnalysisCompletenessEvaluator
     public static AnalysisCompletenessResult Evaluate(IEnumerable<ScanFinding>? findings)
     {
         var findingsList = findings?.Where(f => f != null).ToList() ?? new List<ScanFinding>();
+        if (findingsList.Count > 0 && findingsList.All(IsNotApplicableFinding))
+        {
+            return new AnalysisCompletenessResult
+            {
+                Status = AnalysisCompletenessStatus.NotApplicable,
+                IsComplete = false,
+                ReviewRecommended = false,
+                Reasons = findingsList.Select(f => new AnalysisCompletenessReason
+                {
+                    ReasonId = f.RuleId == "NativePeInput" ? "native-pe" : "apple-double", Phase = "input-format", Location = f.Location, Summary = f.Description
+                }).ToList()
+            };
+        }
+
         var incompleteFindings = findingsList.Where(IsIncompleteFinding).ToList();
 
         if (incompleteFindings.Count == 0)
